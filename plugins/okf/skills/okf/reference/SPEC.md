@@ -1,0 +1,1 @@
+../../../../../okf-core/vendor/spec/SPEC.md

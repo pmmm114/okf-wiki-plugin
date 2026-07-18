@@ -1,0 +1,6 @@
+{
+  "name": "okf",
+  "description": "OKF knowledge bundles: authoring skill, validation, and session context injection",
+  "author": { "name": "pmmm114" },
+  "license": "MIT"
+}

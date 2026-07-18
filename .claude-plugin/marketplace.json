@@ -1,0 +1,7 @@
+{
+  "name": "okf-wiki-plugin",
+  "owner": { "name": "pmmm114" },
+  "plugins": [
+    { "name": "okf", "source": "./plugins/okf" }
+  ]
+}
