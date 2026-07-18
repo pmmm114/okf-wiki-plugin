@@ -1,0 +1,4 @@
+derived from vendor/spec/SPEC.md @ d44368c15e38e7c92481c5992e4f9b5b421a801d Appendix A — 벤더 항목 아님(파생물).
+
+- 축자(verbatim, SPEC 코드블록 그대로): `datasets/sales.md`, `tables/orders.md`
+- 파생(derived, SPEC이 트리로만 제시 — §6/§4 규격으로 최소 작성): `index.md`, `datasets/index.md`, `tables/index.md`, `tables/customers.md`
