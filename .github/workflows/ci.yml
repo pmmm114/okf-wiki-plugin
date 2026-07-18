@@ -20,3 +20,7 @@ jobs:
         run: |
           cd okf-core
           uv build
+      - name: 테스트
+        run: uv run --with pytest --with pyyaml python -m pytest okf-core/tests -q
+      - name: vendor 동기화 검사
+        run: python3 okf-core/scripts/vendor_sync_check.py
