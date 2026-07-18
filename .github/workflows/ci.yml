@@ -1,1 +1,22 @@
-# placeholder — T-P3-1에서 작성 (F-5 스켈레톤). 빈 워크플로가 Actions 탭에 뜨지 않도록 주석 전용으로 유지.
+# 부트스트랩 CI — PR 게이팅용 최소 검사 (2026-07-18)
+# T-P3-1에서 F-5 전체 스켈레톤(자기 번들 검증 등)으로 확장한다. job 이름 `core`는
+# 브랜치 룰셋의 required status check 컨텍스트로 쓰이므로 변경 금지.
+name: ci
+on: [push, pull_request]
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - name: JSON 스텁 파싱 검사
+        run: |
+          python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
+          python3 -m json.tool plugins/okf/.claude-plugin/plugin.json > /dev/null
+          python3 -m json.tool plugins/okf/hooks/hooks.json > /dev/null
+          python3 -m json.tool okf-core/vendor/vendor.lock > /dev/null
+          python3 -m json.tool okf-core/src/okf_core/rules/v0_1.json > /dev/null
+      - name: okf-core 빌드
+        run: |
+          cd okf-core
+          uv build
