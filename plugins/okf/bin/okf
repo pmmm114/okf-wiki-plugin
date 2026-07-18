@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# placeholder — T-P5-4에서 작성 (동봉 엔진 uv run 셔틀)
+echo "okf: 플러그인 셔틀 미구현 (T-P5-4 예정)" >&2
+exit 2

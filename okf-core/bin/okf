@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# placeholder — T-P2-5에서 작성 (okf CLI 엔트리)
+echo "okf: CLI 미구현 (T-P2-5 예정)" >&2
+exit 2
