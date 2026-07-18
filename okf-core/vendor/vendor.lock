@@ -1,3 +1,28 @@
 {
-  "entries": []
+  "entries": [
+    {
+      "name": "okf-spec",
+      "source": "https://github.com/GoogleCloudPlatform/knowledge-catalog",
+      "ref": "d44368c15e38e7c92481c5992e4f9b5b421a801d",
+      "upstream_path": "okf/SPEC.md",
+      "license": "Apache-2.0",
+      "imported": "2026-07-18",
+      "files": {
+        "okf-core/vendor/spec/SPEC.md": "sha256:b9655e607346dbbdc6de21190e9a953313eda6a7eba68d4d272a65975940ad6e"
+      }
+    },
+    {
+      "name": "okf-validate-oracle",
+      "source": "https://github.com/scaccogatto/okf-skills",
+      "ref": "b8d9b1a21c577310f3293d33c9c6f12b82c507ab",
+      "ref_tag": "okf--v0.4.0",
+      "upstream_path": "skills/validate/scripts/okf_validate.py",
+      "license": "MIT",
+      "imported": "2026-07-18",
+      "role": "ci-differential-oracle",
+      "files": {
+        "okf-core/vendor/oracle/okf_validate.py": "sha256:5843035d8f792bae13d1739c506d2320c672e202e29984275e6365fb7db10275"
+      }
+    }
+  ]
 }
