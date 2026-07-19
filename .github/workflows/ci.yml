@@ -1,6 +1,6 @@
-# 부트스트랩 CI — PR 게이팅용 최소 검사 (2026-07-18)
-# T-P3-1에서 F-5 전체 스켈레톤(자기 번들 검증 등)으로 확장한다. job 이름 `core`는
-# 브랜치 룰셋의 required status check 컨텍스트로 쓰이므로 변경 금지.
+# CI 골격 (T-P3-1) — 자기 번들(.okf) 검증 포함. 픽스처 스위트·오라클 차동·
+# 라이선스 검사 스텝은 T-P3-2/3/5에서 추가한다. job 이름 `core`는 브랜치 룰셋의
+# required status check 컨텍스트로 쓰이므로 변경 금지.
 name: ci
 on: [push, pull_request]
 jobs:
@@ -9,6 +9,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - name: 자기 번들 검증 (.okf)
+        run: uv run --project okf-core okf validate .okf --strict
       - name: JSON 스텁 파싱 검사
         run: |
           python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
