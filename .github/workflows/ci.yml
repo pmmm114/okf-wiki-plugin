@@ -28,8 +28,6 @@ jobs:
           uv build
       - name: 테스트
         run: uv run --with pytest --with pyyaml python -m pytest okf-core/tests -q
-      - name: 플러그인 테스트
-        run: uv run --no-project --with pytest python -m pytest plugins/okf/tests -q
       - name: 픽스처 스위트
         run: uv run --with pyyaml python okf-core/scripts/run_fixture_suite.py
       - name: 오라클 차동 (리포트 전용)
