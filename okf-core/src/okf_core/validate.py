@@ -90,6 +90,17 @@ def _declared_version(parsed: list[tuple[str, ParsedDoc]], default_rules: dict) 
     return None
 
 
+def concept_conforms(doc: ParsedDoc, rules: dict) -> bool:
+    """개념 파일의 §9 파일 단위 통과 여부(9.1 파싱 + 9.2 필수 필드) — index가
+    소비 가능성 판단에 공유한다(불변식: index 소비 집합 == §9 통과 집합)."""
+    if doc.fm_error is not None or doc.frontmatter is None:
+        return False
+    return all(
+        isinstance(doc.frontmatter.get(key), str) and doc.frontmatter.get(key).strip()
+        for key in rules["required_frontmatter"]
+    )
+
+
 def _check_concept(rel: str, doc: ParsedDoc, rules: dict, findings: list[Finding]) -> None:
     if doc.fm_error is not None:
         findings.append(

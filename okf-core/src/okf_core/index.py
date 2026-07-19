@@ -12,6 +12,7 @@ import posixpath
 from pathlib import Path
 
 from okf_core.parser import ParsedDoc, walk_bundle
+from okf_core.validate import concept_conforms, load_rules
 
 RESERVED = frozenset({"index.md", "log.md"})
 DEFAULT_OKF_VERSION = "0.1"
@@ -41,13 +42,15 @@ def generate_indexes(root: str | Path) -> dict[str, str]:
     """{index.md 상대경로: 생성 내용}을 반환한다. .md를 가진 모든 디렉터리 대상."""
     root = Path(root)
     docs = dict(walk_bundle(root))
+    rules, _ = load_rules()
 
     # 디렉터리 → (직속 개념 문서, .md를 품은 직속 하위 디렉터리)
+    # 개념은 §9 파일 단위 통과분만 소비한다(불변식: == validate §9 통과 집합)
     dirs: dict[str, tuple[list[str], set[str]]] = {}
     for rel in docs:
         d = posixpath.dirname(rel)
         dirs.setdefault(d, ([], set()))
-        if posixpath.basename(rel) not in RESERVED:
+        if posixpath.basename(rel) not in RESERVED and concept_conforms(docs[rel], rules):
             dirs[d][0].append(rel)
         while d:  # 조상 디렉터리마다 자식 디렉터리 체인 등록
             parent = posixpath.dirname(d)
