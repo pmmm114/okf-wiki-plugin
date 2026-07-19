@@ -1,1 +1,12 @@
-{}
+{
+  "okf_version": "0.1",
+  "reserved_files": ["index.md", "log.md"],
+  "index_file": "index.md",
+  "log_file": "log.md",
+  "index_frontmatter_allowed_at": ["index.md"],
+  "root_index_frontmatter_keys": ["okf_version"],
+  "required_frontmatter": ["type"],
+  "recommended_frontmatter": ["description"],
+  "log_date_heading_pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+  "strict_warn_set": ["POL.broken-link", "POL.description"]
+}
