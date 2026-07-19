@@ -5,6 +5,7 @@
 날짜 그룹이 이미 맨 위에 있으면 그 그룹에 불릿을 추가한다. 출력은 항상
 §9(OKF9.3 — ISO 날짜 헤딩)를 통과해야 한다.
 """
+
 from __future__ import annotations
 
 import argparse

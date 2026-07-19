@@ -5,6 +5,7 @@
 루트 index의 선언 값을 보존하고, 없으면 "0.1"을 쓴다. 생성 결과는 다시
 파싱했을 때 §9를 통과해야 한다(자기 출력 컨포먼트).
 """
+
 from __future__ import annotations
 
 import argparse

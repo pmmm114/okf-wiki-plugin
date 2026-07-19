@@ -5,6 +5,7 @@
 (2) okf-core는 Claude를 모른다 — src/okf_core/ 전체에 CLAUDE_ 환경변수·claude
     참조 없음(의존 방향 보증)
 """
+
 import posixpath
 import re
 from pathlib import Path
@@ -33,14 +34,10 @@ def _consumable_files(root: Path) -> set[str]:
 def _section9_pass_files(root: Path) -> set[str]:
     """validate가 §9 error를 내지 않은 비예약 .md 집합."""
     errored = {
-        f.file
-        for f in validate_bundle(root)
-        if f.level == "error" and f.rule.startswith("OKF9.")
+        f.file for f in validate_bundle(root) if f.level == "error" and f.rule.startswith("OKF9.")
     }
     return {
-        p.relative_to(root).as_posix()
-        for p in root.rglob("*.md")
-        if p.name not in RESERVED
+        p.relative_to(root).as_posix() for p in root.rglob("*.md") if p.name not in RESERVED
     } - errored
 
 

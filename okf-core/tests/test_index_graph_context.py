@@ -1,5 +1,6 @@
 """T-P2-4 index·graph·context — 완료 기준 매핑: index 재생성→재파싱→§9 통과 /
 graph의 orders↔customers↔sales 에지 검출 / context 출력이 max-chars 이내."""
+
 import json
 import shutil
 from pathlib import Path
@@ -52,9 +53,9 @@ def test_graph_detects_triangle_edges():
 def test_graph_linked_to_by_path_and_resource():
     graph = build_graph(APPENDIX_A)
     expected = ["datasets/sales.md", "tables/index.md", "tables/orders.md"]
-    assert linked_to(graph, "customers.md") == expected          # 경로 부분일치
-    assert linked_to(graph, "t=customers") == expected           # resource URI 부분일치
-    assert linked_to(graph, "no-such-thing") == []               # 무매칭이면 무출력
+    assert linked_to(graph, "customers.md") == expected  # 경로 부분일치
+    assert linked_to(graph, "t=customers") == expected  # resource URI 부분일치
+    assert linked_to(graph, "no-such-thing") == []  # 무매칭이면 무출력
 
 
 def test_graph_json_shape():

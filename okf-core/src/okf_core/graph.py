@@ -5,6 +5,7 @@
 - ``linked_to``: 역링크 조회. 매칭은 노드의 상대경로 또는 frontmatter
   ``resource`` URI에 대한 부분일치 휴리스틱, 무매칭이면 빈 결과(무출력).
 """
+
 from __future__ import annotations
 
 import argparse

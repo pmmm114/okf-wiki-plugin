@@ -8,6 +8,7 @@
 - 이 모듈이 파이프라인의 유일한 파스 지점이다 — validate/policy/index/graph/context는
   ParsedDoc을 재사용하고 재파싱하지 않는다.
 """
+
 from __future__ import annotations
 
 import re
@@ -66,11 +67,7 @@ def _extract_links(lines: list[str], start: int) -> list[Link]:
                 continue
         else:
             stripped = line.strip()
-            if (
-                stripped
-                and set(stripped) == {fence_char}
-                and len(stripped) >= fence_len
-            ):
+            if stripped and set(stripped) == {fence_char} and len(stripped) >= fence_len:
                 in_fence = False
             continue
         for lm in _LINK_RE.finditer(line):

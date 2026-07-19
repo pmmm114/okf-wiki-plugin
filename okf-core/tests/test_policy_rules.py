@@ -1,5 +1,6 @@
 """T-P2-3·T-P2-6 — 완료 기준 매핑: 파이프의 파서 호출 파일당 1회(호출 카운터) /
 규칙 상수가 코드에 없음(그렙 검사) / 루트 인덱스 okf_version으로 규칙 선택."""
+
 from pathlib import Path
 
 import okf_core.parser as parser_mod
@@ -34,9 +35,7 @@ def test_policy_emits_recommended_field_warn(tmp_path):
     (tmp_path / "a.md").write_text("---\ntype: concept\n---\n# A\n", encoding="utf-8")
     rules, _ = load_rules()
     findings = run_policies([("a.md", parser_mod.parse(tmp_path / "a.md"))], rules)
-    assert [(f.file, f.rule, f.level) for f in findings] == [
-        ("a.md", "POL.description", "warn")
-    ]
+    assert [(f.file, f.rule, f.level) for f in findings] == [("a.md", "POL.description", "warn")]
 
 
 def test_no_rule_constants_in_validate_or_policy_code():

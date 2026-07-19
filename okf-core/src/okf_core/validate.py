@@ -21,6 +21,7 @@
 warning으로만 보고하고 §9.3 error를 내지 않는다 — 우리는 F-4(§9 조건 3)
 그대로 OKF9.3을 error로 판정한다(차이는 T-P3-3 어댑터가 매핑).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -108,16 +109,12 @@ def _check_concept(rel: str, doc: ParsedDoc, rules: dict, findings: list[Finding
         )
         return
     if doc.frontmatter is None:
-        findings.append(
-            Finding(rel, RULE_FRONTMATTER, "error", "YAML frontmatter 블록 없음")
-        )
+        findings.append(Finding(rel, RULE_FRONTMATTER, "error", "YAML frontmatter 블록 없음"))
         return
     for key in rules["required_frontmatter"]:
         val = doc.frontmatter.get(key)
         if not (isinstance(val, str) and val.strip()):
-            findings.append(
-                Finding(rel, RULE_TYPE, "error", f"필수 `{key}` 필드 부재 또는 빈 값")
-            )
+            findings.append(Finding(rel, RULE_TYPE, "error", f"필수 `{key}` 필드 부재 또는 빈 값"))
 
 
 def _check_index(rel: str, doc: ParsedDoc, allowed: bool, findings: list[Finding]) -> None:
@@ -173,9 +170,7 @@ def _check_links(
             if target.startswith("/"):
                 resolved = target.lstrip("/")
             else:
-                resolved = posixpath.normpath(
-                    posixpath.join(posixpath.dirname(rel), target)
-                )
+                resolved = posixpath.normpath(posixpath.join(posixpath.dirname(rel), target))
             if resolved.startswith("..") or resolved not in existing:
                 findings.append(
                     Finding(
@@ -228,7 +223,11 @@ def validate_bundle(root: str | Path, strict: bool = False) -> list[Finding]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="okf validate", description="OKF §9 컨포먼스 검사")
     ap.add_argument("bundle", help="번들 디렉터리 경로")
-    ap.add_argument("--strict", action="store_true", help="거부 금지 warn(깨진 링크·권장 필드 부재)을 error로 승격")
+    ap.add_argument(
+        "--strict",
+        action="store_true",
+        help="거부 금지 warn(깨진 링크·권장 필드 부재)을 error로 승격",
+    )
     ap.add_argument("--format", choices=("text", "json"), default="text")
     args = ap.parse_args(argv)
 

@@ -6,6 +6,7 @@ frontmatter description, 없으면 본문 첫 표 행·첫 문장에서 추출. 
 (``--max-chars``, 기본 8000 — 훅 10,000자 한도 마진). 개념 수 절단(maxConcepts류)은
 재도입 금지 — 폐기 확정 안티패턴.
 """
+
 from __future__ import annotations
 
 import argparse

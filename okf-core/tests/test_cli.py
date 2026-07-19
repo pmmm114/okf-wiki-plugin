@@ -1,12 +1,12 @@
 """T-P2-5 okf CLI — 완료 기준 매핑: 서브커맨드 5종 동작 + 도움말 존재.
 (`uv run okf ...` 엔트리는 pyproject [project.scripts]가 cli.main을 가리키므로
 여기서는 cli.main 직접 호출로 동일 경로를 검증한다.)"""
+
 import json
 import shutil
 from pathlib import Path
 
 import pytest
-
 from okf_core.cli import main
 from okf_core.validate import validate_bundle
 
