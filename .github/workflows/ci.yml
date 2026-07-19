@@ -28,3 +28,5 @@ jobs:
         run: uv run --with pyyaml python okf-core/scripts/run_fixture_suite.py
       - name: vendor 동기화 검사
         run: python3 okf-core/scripts/vendor_sync_check.py
+      - name: 라이선스 검사
+        run: python3 okf-core/scripts/license_check.py
