@@ -3,7 +3,9 @@
   "hooks": {
     "SessionStart": [
       { "hooks": [ { "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session_start.sh", "args": [] } ] } ],
+          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session_start.sh", "args": [] } ] },
+      { "hooks": [ { "type": "command",
+          "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/study_session.py\"", "args": [] } ] } ],
     "PostToolUse": [
       { "matcher": "Write|Edit",
         "hooks": [ { "type": "command",
