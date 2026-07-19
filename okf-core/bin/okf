@@ -1,4 +1,11 @@
-#!/usr/bin/env bash
-# placeholder — T-P2-5에서 작성 (okf CLI 엔트리)
-echo "okf: CLI 미구현 (T-P2-5 예정)" >&2
-exit 2
+#!/usr/bin/env python3
+"""okf CLI 엔트리 — 미설치 환경용(설치 시엔 [project.scripts]의 okf 사용)."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from okf_core.cli import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())
