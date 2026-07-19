@@ -24,5 +24,7 @@ jobs:
           uv build
       - name: 테스트
         run: uv run --with pytest --with pyyaml python -m pytest okf-core/tests -q
+      - name: 픽스처 스위트
+        run: uv run --with pyyaml python okf-core/scripts/run_fixture_suite.py
       - name: vendor 동기화 검사
         run: python3 okf-core/scripts/vendor_sync_check.py
