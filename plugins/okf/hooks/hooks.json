@@ -1,4 +1,15 @@
 {
-  "description": "placeholder — T-P5-3에서 hooks 3종(F-6) 정의",
-  "hooks": {}
+  "description": "OKF bundle context injection",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session_start.sh", "args": [] } ] } ],
+    "PostToolUse": [
+      { "matcher": "Write|Edit",
+        "hooks": [ { "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_tool_use.sh", "args": [] } ] } ],
+    "FileChanged": [
+      { "hooks": [ { "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/file_changed.sh", "args": [] } ] } ]
+  }
 }
