@@ -1,0 +1,14 @@
+[
+  {
+    "file": "a.md",
+    "rule": "POL.broken-link",
+    "level": "error",
+    "msg": "크로스링크 대상 없음: `/missing.md` (§9 거부 금지 항목 — 컨포먼스 판정에 영향 없음, §5.3)"
+  },
+  {
+    "file": "a.md",
+    "rule": "POL.description",
+    "level": "error",
+    "msg": "권장 필드 `description` 부재 (§9 거부 금지 항목 — 컨포먼스 판정에 영향 없음)"
+  }
+]
