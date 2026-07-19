@@ -26,7 +26,7 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from okf_core.parser import FORM_EXTERNAL, ParsedDoc, parse
+from okf_core.parser import FORM_EXTERNAL, ParsedDoc, walk_bundle
 
 RULE_FRONTMATTER = "OKF9.1"
 RULE_TYPE = "OKF9.2"
@@ -154,9 +154,7 @@ def _check_links(
 
 def validate_bundle(root: str | Path, strict: bool = False) -> list[Finding]:
     """번들 디렉터리를 §9 기준으로 검사하고 Finding 목록을 반환한다."""
-    root = Path(root)
-    md_files = sorted(p for p in root.rglob("*.md") if p.is_file())
-    parsed = [(p.relative_to(root).as_posix(), parse(p)) for p in md_files]
+    parsed = walk_bundle(root)
     existing = {rel for rel, _ in parsed}
 
     findings: list[Finding] = []
