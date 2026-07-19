@@ -17,15 +17,15 @@ jobs:
       - name: 업스트림 비교
         id: diff
         run: |
-          lock_spec=$(python3 -c "import json; print([e['ref'] for e in json.load(open('okf-core/vendor/vendor.lock')) if e['name']=='okf-spec'][0])")
-          lock_oracle=$(python3 -c "import json; print([e['ref'] for e in json.load(open('okf-core/vendor/vendor.lock')) if e['name']=='okf-validate-oracle'][0])")
+          lock_spec=$(python3 -c "import json; print([e['ref'] for e in json.load(open('okf-core/vendor/vendor.lock'))['entries'] if e['name']=='okf-spec'][0])")
+          lock_oracle=$(python3 -c "import json; print([e['ref'] for e in json.load(open('okf-core/vendor/vendor.lock'))['entries'] if e['name']=='okf-validate-oracle'][0])")
           live_spec=$(git ls-remote https://github.com/GoogleCloudPlatform/knowledge-catalog HEAD | cut -f1)
           live_oracle_line=$(git ls-remote --tags --sort=-v:refname https://github.com/scaccogatto/okf-skills 'refs/tags/okf--v*' | head -1)
           live_oracle=$(echo "$live_oracle_line" | cut -f1)
           live_oracle_tag=$(echo "$live_oracle_line" | cut -f2 | sed 's|refs/tags/||')
           changed=""
-          [ "$lock_spec" != "$live_spec" ] && changed="okf-spec"
-          [ "$lock_oracle" != "$live_oracle" ] && changed="$changed okf-validate-oracle"
+          if [ "$lock_spec" != "$live_spec" ]; then changed="okf-spec"; fi
+          if [ "$lock_oracle" != "$live_oracle" ]; then changed="$changed okf-validate-oracle"; fi
           {
             echo "changed_names=$changed"
             echo "spec_live=$live_spec"
