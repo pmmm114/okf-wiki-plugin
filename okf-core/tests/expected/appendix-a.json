@@ -1,8 +1,1 @@
-[
-  {
-    "file": "ghost.md",
-    "rule": "OKF9.1",
-    "level": "error",
-    "msg": "존재하지 않는 기대값 — 불일치 데모"
-  }
-]
+[]
