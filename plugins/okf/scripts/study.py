@@ -1,0 +1,113 @@
+"""study 오케스트레이션 CLI (S5, #77).
+
+``/study`` 커맨드·승격 스킬이 부르는 **기계적 조작**을 제공한다. 판정(어떤 후보를
+어떤 개념으로 만들지)은 모델의 몫이고, 여기서는 목록·원장·드레인·디스패치만 한다.
+
+  study list     <project>                              후보를 JSON으로 출력
+  study resolve  <project> --id ID --status S [--ref R] 원장 기록 + inbox 드레인
+  study clear    <project>                              현재 후보 전부 discard
+  study dispatch <project> --source S --concept-path P --concept-type T --concept-topic X
+                                                         핸들러 실행(경로·git·trust 게이트)
+
+``dispatch``는 trust 미승인 핸들러가 있으면 결과에 안내를 붙인다(가시적 저하) —
+개념은 이미 스킬이 로컬 번들에 승격·검증했고, 여기서 핸들러만 보류된다.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import okf_inbox
+import study_dispatch
+import study_trust
+
+
+def _load_study(project: str | Path) -> tuple[str, list[dict]]:
+    config = Path(project) / ".okf-wiki.json"
+    data = json.loads(config.read_text(encoding="utf-8")) if config.is_file() else {}
+    study = (data.get("study") if isinstance(data, dict) else None) or {}
+    return study.get("capture", "off"), study.get("handlers") or []
+
+
+def cmd_list(args) -> int:
+    print(json.dumps(okf_inbox.list_candidates(args.project), ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_resolve(args) -> int:
+    okf_inbox.record(args.project, args.id, args.status, args.ref)
+    dropped = okf_inbox.drop(args.project, [args.id])
+    print(
+        json.dumps({"id": args.id, "status": args.status, "dropped": dropped}, ensure_ascii=False)
+    )
+    return 0
+
+
+def cmd_clear(args) -> int:
+    for cand in okf_inbox.list_candidates(args.project):
+        okf_inbox.record(args.project, cand["id"], "discarded")
+    print(json.dumps({"discarded": okf_inbox.clear(args.project)}, ensure_ascii=False))
+    return 0
+
+
+def cmd_dispatch(args) -> int:
+    capture, handlers = _load_study(args.project)
+    if not handlers:
+        print(json.dumps({"ran": [], "failed": [], "skipped": [], "note": "핸들러 없음"}))
+        return 0
+    item = {
+        "source": args.source,
+        "project": str(args.project),
+        "concept": {
+            "path": args.concept_path,
+            "type": args.concept_type,
+            "topic": args.concept_topic,
+        },
+    }
+    check = study_trust.make_trust_check(args.project, handlers, capture)
+    result = study_dispatch.dispatch(args.project, item, handlers, check)
+    if any(s.get("reason") == "trust 미승인" for s in result["skipped"]):
+        result["note"] = (
+            "핸들러 로컬 미승인 — `/study --trust`(study_trust approve)로 승인 후 재실행"
+        )
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="study", description="study 오케스트레이션")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    lst = sub.add_parser("list", help="후보 목록(JSON)")
+    lst.add_argument("project", nargs="?", default=".")
+
+    res = sub.add_parser("resolve", help="원장 기록 + inbox 드레인")
+    res.add_argument("project", nargs="?", default=".")
+    res.add_argument("--id", required=True)
+    res.add_argument("--status", required=True, choices=["promoted", "discarded"])
+    res.add_argument("--ref")
+
+    clr = sub.add_parser("clear", help="후보 전부 discard")
+    clr.add_argument("project", nargs="?", default=".")
+
+    dsp = sub.add_parser("dispatch", help="핸들러 실행(게이트)")
+    dsp.add_argument("project", nargs="?", default=".")
+    dsp.add_argument("--source", default="manual")
+    dsp.add_argument("--concept-path", default="")
+    dsp.add_argument("--concept-type", default="")
+    dsp.add_argument("--concept-topic", default="")
+
+    args = ap.parse_args(argv)
+    handlers = {
+        "list": cmd_list,
+        "resolve": cmd_resolve,
+        "clear": cmd_clear,
+        "dispatch": cmd_dispatch,
+    }
+    return handlers[args.cmd](args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
