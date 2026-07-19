@@ -1,0 +1,70 @@
+# 릴리스 태그 생성·보호 실증 (T-P4-1)
+# 원격 작업 세션의 git 프록시는 refs/tags 푸시를 차단하므로, 태그 생성은
+# Actions 내부(GITHUB_TOKEN, contents: write)에서 수행한다.
+# mode=verify-protection은 태그 룰셋의 삭제·이동 차단을 파괴 실증한다 —
+# 거부(GH013)가 정상이고, 통과되면 룰셋 미비로 잡이 실패한다(복구 포함).
+name: release-tag
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "생성/검증할 태그 (예: v0.1.0)"
+        required: true
+      mode:
+        description: "create=태그 생성, verify-protection=룰셋 차단 실증"
+        required: true
+        default: create
+        type: choice
+        options: [create, verify-protection]
+permissions:
+  contents: write
+jobs:
+  release-tag:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - name: git 신원 설정
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: 태그 생성 (create)
+        if: inputs.mode == 'create'
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null 2>&1; then
+            echo "::error::태그 $TAG 는 이미 원격에 존재 — 불변 태그 원칙에 따라 생성 중단"
+            exit 1
+          fi
+          git tag -a "$TAG" -m "okf-core $TAG — repo 직배달(D2) 릴리스 태그" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+          echo "생성 완료: $TAG -> $GITHUB_SHA"
+      - name: 룰셋 차단 실증 (verify-protection)
+        if: inputs.mode == 'verify-protection'
+        run: |
+          git fetch origin "refs/tags/$TAG:refs/tags/$TAG" --no-tags
+          FAIL=0
+          echo "== (1) 삭제 시도 — 거부(GH013)가 정상 =="
+          if git push origin ":refs/tags/$TAG" > /tmp/del.log 2>&1; then
+            echo "::error::삭제가 통과됨 — 룰셋 미적용. 태그 즉시 복구"
+            git push origin "refs/tags/$TAG"
+            FAIL=1
+          else
+            cat /tmp/del.log
+          fi
+          echo "== (2) 이동(재지정) 시도 — 거부(GH013)가 정상 =="
+          PREV="$(git rev-parse "$GITHUB_SHA~1")"
+          if git push -f origin "$PREV:refs/tags/$TAG" > /tmp/mov.log 2>&1; then
+            echo "::error::이동이 통과됨 — 룰셋 미적용. 태그 원복"
+            git push -f origin "refs/tags/$TAG:refs/tags/$TAG"
+            FAIL=1
+          else
+            cat /tmp/mov.log
+          fi
+          if [ "$FAIL" -eq 1 ]; then
+            echo "::error::보호 실증 실패 — Settings→Rules→protect-release-tags 보강 필요"
+            exit 1
+          fi
+          echo "보호 실증 통과: 삭제·이동 모두 거부됨"
