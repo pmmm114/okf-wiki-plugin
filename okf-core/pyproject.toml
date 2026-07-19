@@ -6,6 +6,9 @@ requires-python = ">=3.10"
 dependencies = ["pyyaml"]
 license = "MIT"
 
+[project.scripts]
+okf = "okf_core.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
