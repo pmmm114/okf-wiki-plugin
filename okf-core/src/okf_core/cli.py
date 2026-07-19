@@ -9,6 +9,7 @@
 종료코드 계약은 각 서브커맨드가 따른다(F-3: 0 정상/컨포먼트, 1 비컨포먼트,
 2 실행 오류).
 """
+
 from __future__ import annotations
 
 import sys

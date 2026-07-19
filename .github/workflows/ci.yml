@@ -18,6 +18,10 @@ jobs:
           python3 -m json.tool plugins/okf/hooks/hooks.json > /dev/null
           python3 -m json.tool okf-core/vendor/vendor.lock > /dev/null
           python3 -m json.tool okf-core/src/okf_core/rules/v0_1.json > /dev/null
+      - name: 린트·포맷 검사 (ruff)
+        run: |
+          uvx ruff@0.15.8 check .
+          uvx ruff@0.15.8 format --check .
       - name: okf-core 빌드
         run: |
           cd okf-core

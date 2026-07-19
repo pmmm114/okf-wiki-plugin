@@ -13,6 +13,7 @@
 strict 수준: §9 위반 집합은 양쪽 모두 strict와 무관(우리 --strict는 POL.* 승격,
 오라클 --strict는 종료코드만 변경)이므로 기본 모드 실행이 동일 수준 비교다.
 """
+
 import json
 import re
 import subprocess
@@ -84,7 +85,8 @@ def main() -> int:
         lines.append(f"## {name} — 불일치 {len(mismatched)}건")
         for f, m, o in mismatched:
             lines.append(
-                f"- `{f}` — okf validate: {sorted(m) if m else '∅'} / 오라클: {sorted(o) if o else '∅'}"
+                f"- `{f}` — okf validate: {sorted(m) if m else '∅'} / "
+                f"오라클: {sorted(o) if o else '∅'}"
             )
         lines.append("")
         total += len(mismatched)

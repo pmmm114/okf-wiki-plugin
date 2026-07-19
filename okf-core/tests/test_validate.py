@@ -1,5 +1,6 @@
 """T-P2-2 §9 검사기 — 완료 기준 매핑: appendix-a 컨포먼트 / 규칙별 위반 픽스처 검출 /
 --format json F-3 계약 일치. 추가로 F-3 종료코드와 --strict 승격을 고정한다."""
+
 import json
 import re
 from pathlib import Path

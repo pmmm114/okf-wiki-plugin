@@ -8,7 +8,7 @@
 도구 선정 기록: 1순위였던 licensee는 Ruby 의존이라 무의존 CI 원칙에 맞지 않고,
 검사 대상이 고정 2항목이라 계획이 허용한 간단 스크립트로 확정.
 """
-import sys
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]

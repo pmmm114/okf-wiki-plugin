@@ -1,4 +1,5 @@
 """vendor.lock의 files 해시를 재계산해 대조한다 — 불일치·부재 시 목록 출력 후 exit 1 (T-P1-4)."""
+
 from __future__ import annotations
 
 import hashlib

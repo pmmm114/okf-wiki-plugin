@@ -21,3 +21,11 @@ only-include = ["okf-core/src/okf_core"]
 
 [tool.hatch.build.targets.wheel.sources]
 "okf-core/src" = ""
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["okf-core/vendor"]  # 벤더 무수정 원칙 — lint/format 대상 제외
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]

@@ -4,6 +4,7 @@
 `tests/expected/<이름>.json` 스냅샷과 비교한다. 불일치·기대값 부재는 실패(exit 1).
 `--update`는 실측으로 스냅샷을 다시 쓴다 — 생성분은 사람이 검수 후 커밋한다.
 """
+
 import json
 import sys
 from pathlib import Path
@@ -36,9 +37,7 @@ def main(argv: list[str]) -> int:
         path = EXPECTED / f"{name}.json"
         if update:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps(got, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-            )
+            path.write_text(json.dumps(got, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             print(f"갱신: {path.relative_to(ROOT)}")
             continue
         if not path.is_file():
