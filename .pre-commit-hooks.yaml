@@ -1,1 +1,11 @@
-# placeholder — T-P4-3에서 작성 (id: okf-validate)
+# pre-commit 소비 정의 (T-P4-3) — 소비 repo .pre-commit-config.yaml에서:
+#   repo: https://github.com/pmmm114/okf-wiki-plugin
+#   rev: <v태그>
+#   hooks: [{ id: okf-validate }]
+# language: python은 이 repo 루트를 pip 설치한다(루트 pyproject 셔틀 — #58).
+- id: okf-validate
+  name: okf validate (.okf --strict)
+  entry: okf validate .okf --strict
+  language: python
+  files: \.md$
+  pass_filenames: false
