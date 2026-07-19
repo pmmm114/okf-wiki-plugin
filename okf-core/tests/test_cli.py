@@ -56,7 +56,7 @@ def test_log_append_subcommand(tmp_path, capsys):
 def test_help_exists(capsys):
     assert main([]) == 0
     top = capsys.readouterr().out
-    for cmd in ("validate", "index", "graph", "context", "log"):
+    for cmd in ("validate", "index", "graph", "context", "log", "init"):
         assert cmd in top
     with pytest.raises(SystemExit) as exc:
         main(["validate", "--help"])
