@@ -81,12 +81,13 @@ repos:
 ## 개발
 
 ```bash
-uv run --with pytest --with pyyaml python -m pytest okf-core/tests -q  # 테스트
+uv run --with pytest --with pyyaml python -m pytest okf-core/tests -q  # 엔진 테스트
+uv run --no-project --with pytest python -m pytest plugins/okf/tests -q # 플러그인 테스트
 uvx ruff check . && uvx ruff format --check .                          # 린트·포맷
 ```
 
-PR은 CI(`core` 잡: 린트 → 빌드 → 테스트 → 픽스처 스냅샷 → 오라클 차동 →
-벤더 동기화 → 라이선스 → 플러그인 검증) 녹색 후 머지합니다. 에이전트 작업
+PR은 CI(`core` 잡: 린트 → 빌드 → 테스트 → 플러그인 테스트 → 픽스처 스냅샷 →
+오라클 차동 → 벤더 동기화 → 라이선스 → 플러그인 검증) 녹색 후 머지합니다. 에이전트 작업
 규칙은 [CLAUDE.md](CLAUDE.md), 벤더 반입 원칙은 [.okf/](.okf/) 자기 번들 참조.
 
 ## 라이선스
