@@ -52,3 +52,6 @@
 **설정은 `.okf-wiki.json`에, 상태는 `.okf-study/`에** — 섞지 않는다. `.okf-study/`는
 자체 `.gitignore`(`*` + `!.gitignore`)로 커밋에서 제외되며 `inbox.md`(후보 큐)·
 `ledger`(승격/폐기 원장)·`trust`(핸들러 로컬 승인)를 담는다.
+
+도입 절차(설치→`/okf-init`→핸들러 계약→trust 승인→사용)와 참조 핸들러 템플릿은
+repo 루트 `docs/adopting-study.md` 참조.
