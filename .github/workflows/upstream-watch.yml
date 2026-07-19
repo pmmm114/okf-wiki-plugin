@@ -1,1 +1,55 @@
-# placeholder — T-P3-6에서 작성 (주 1회 업스트림 감시 cron). 주석 전용으로 유지.
+# 업스트림 감시 (T-P3-6) — 주 1회 vendor.lock 핀과 업스트림 최신(knowledge-catalog
+# HEAD, okf-skills 최신 okf--v* 태그)을 비교하고, 변경 시 이슈만 생성한다.
+# 자동 반영 금지 — 알림 전용.
+name: upstream-watch
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  issues: write
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: 업스트림 비교
+        id: diff
+        run: |
+          lock_spec=$(python3 -c "import json; print([e['ref'] for e in json.load(open('okf-core/vendor/vendor.lock')) if e['name']=='okf-spec'][0])")
+          lock_oracle=$(python3 -c "import json; print([e['ref'] for e in json.load(open('okf-core/vendor/vendor.lock')) if e['name']=='okf-validate-oracle'][0])")
+          live_spec=$(git ls-remote https://github.com/GoogleCloudPlatform/knowledge-catalog HEAD | cut -f1)
+          live_oracle_line=$(git ls-remote --tags --sort=-v:refname https://github.com/scaccogatto/okf-skills 'refs/tags/okf--v*' | head -1)
+          live_oracle=$(echo "$live_oracle_line" | cut -f1)
+          live_oracle_tag=$(echo "$live_oracle_line" | cut -f2 | sed 's|refs/tags/||')
+          changed=""
+          [ "$lock_spec" != "$live_spec" ] && changed="okf-spec"
+          [ "$lock_oracle" != "$live_oracle" ] && changed="$changed okf-validate-oracle"
+          {
+            echo "changed_names=$changed"
+            echo "spec_live=$live_spec"
+            echo "oracle_live=$live_oracle"
+            echo "oracle_tag=$live_oracle_tag"
+          } >> "$GITHUB_OUTPUT"
+          echo "비교 — spec: $lock_spec ↔ $live_spec / oracle: $lock_oracle ↔ $live_oracle ($live_oracle_tag)"
+          if [ -n "$changed" ]; then echo "갱신 감지:$changed"; else echo "변경 없음"; fi
+      - name: 갱신 감지 이슈 생성
+        if: steps.diff.outputs.changed_names != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPEC_LIVE: ${{ steps.diff.outputs.spec_live }}
+          ORACLE_LIVE: ${{ steps.diff.outputs.oracle_live }}
+          ORACLE_TAG: ${{ steps.diff.outputs.oracle_tag }}
+        run: |
+          for name in ${{ steps.diff.outputs.changed_names }}; do
+            title="[vendor] upstream 갱신 감지: $name"
+            if [ -n "$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[].number')" ]; then
+              echo "기존 열린 이슈 있음 — 생략: $title"; continue
+            fi
+            case "$name" in
+              okf-spec) detail="knowledge-catalog HEAD = $SPEC_LIVE";;
+              *) detail="okf-skills 최신 태그 = $ORACLE_TAG ($ORACLE_LIVE)";;
+            esac
+            gh issue create --title "$title" --body "$detail — vendor.lock 핀과 불일치. 자동 반영 금지: 검토 후 수동 반입(vendor 절차) 여부를 결정한다."
+          done
