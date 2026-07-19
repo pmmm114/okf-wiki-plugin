@@ -3,16 +3,11 @@
   "hooks": {
     "SessionStart": [
       { "hooks": [ { "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session_start.sh", "args": [] } ] },
-      { "hooks": [ { "type": "command",
-          "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/study_session.py\"", "args": [] } ] } ],
+          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session_start.sh", "args": [] } ] } ],
     "PostToolUse": [
       { "matcher": "Write|Edit",
         "hooks": [ { "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_tool_use.sh", "args": [] } ] },
-      { "matcher": "Write",
-        "hooks": [ { "type": "command",
-          "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/study_hook.py\"", "args": [] } ] } ],
+          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_tool_use.sh", "args": [] } ] } ],
     "FileChanged": [
       { "hooks": [ { "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/scripts/file_changed.sh", "args": [] } ] } ]
