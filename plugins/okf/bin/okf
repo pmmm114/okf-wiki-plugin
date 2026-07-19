@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
-# placeholder — T-P5-4에서 작성 (동봉 엔진 uv run 셔틀)
-echo "okf: 플러그인 셔틀 미구현 (T-P5-4 예정)" >&2
-exit 2
+# okf 셔틀 (T-P5-4) — 동봉 엔진(core → okf-core 심링크)을 uv로 실행한다.
+# 네트워크 설치 스텝 없음: 플러그인 업데이트가 곧 엔진 업데이트다(D2 직배달).
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec uv run --project "$here/../core" okf "$@"
