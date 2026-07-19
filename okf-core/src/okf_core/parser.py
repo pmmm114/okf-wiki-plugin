@@ -79,6 +79,16 @@ def _extract_links(lines: list[str], start: int) -> list[Link]:
     return links
 
 
+def walk_bundle(root: str | Path) -> list[tuple[str, ParsedDoc]]:
+    """번들의 모든 .md를 정렬 순회해 (상대경로 posix, ParsedDoc) 목록 반환 — 파일당 1회 파싱."""
+    root = Path(root)
+    return [
+        (p.relative_to(root).as_posix(), parse(p))
+        for p in sorted(root.rglob("*.md"))
+        if p.is_file()
+    ]
+
+
 def parse(source: str | Path | bytes | bytearray) -> ParsedDoc:
     """파일 경로 또는 bytes를 받아 ParsedDoc을 반환한다. 예외는 던지지 않는 것을 지향하되
     입력 타입 오류만 TypeError."""
