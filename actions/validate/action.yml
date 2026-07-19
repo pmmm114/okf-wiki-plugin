@@ -1,1 +1,29 @@
-# placeholder — T-P4-2에서 작성 (composite action: inputs path/strict)
+# okf 번들 검증 composite action (T-P4-2, D2 직배달)
+# 소비: uses: pmmm114/okf-wiki-plugin/actions/validate@<v태그>
+# 엔진 버전은 소비 측 @ref가 결정하므로 version input을 두지 않는다 —
+# action 자기 사본에 동봉된 엔진을 로컬 설치해 실행한다.
+name: okf-validate
+description: Validate an OKF knowledge bundle with the bundled okf-core engine
+inputs:
+  path:
+    description: 검증할 번들 경로
+    required: false
+    default: .okf
+  strict:
+    description: 거부 금지 warn(깨진 링크·권장 필드 부재)을 error로 승격
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: 동봉 엔진 설치
+      shell: bash
+      run: python3 -m pip install --quiet "$GITHUB_ACTION_PATH/../../okf-core"
+    - name: okf validate
+      shell: bash
+      run: |
+        if [ "${{ inputs.strict }}" = "true" ]; then
+          okf validate "${{ inputs.path }}" --strict
+        else
+          okf validate "${{ inputs.path }}"
+        fi

@@ -36,3 +36,7 @@ jobs:
         run: python3 okf-core/scripts/vendor_sync_check.py
       - name: 라이선스 검사
         run: python3 okf-core/scripts/license_check.py
+      - name: 플러그인 검증
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin validate ./plugins/okf
