@@ -3,6 +3,10 @@
 [OKF(Open Knowledge Format) v0.1](okf-core/vendor/spec/SPEC.md) 지식 번들을
 만들고, 검증하고, Claude Code 세션에 주입하는 도구 모음입니다.
 
+> **비공식 고지** — 이 프로젝트는 Google과 무관한 비공식 도구이며, OKF
+> 스펙 원문은 Apache-2.0으로 무수정 벤더링했습니다
+> ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
+
 | 구성 | 경로 | 역할 |
 | --- | --- | --- |
 | 엔진 | `okf-core/` | 파서·§9 검사기·index/graph/context 생성기 + `okf` CLI |
