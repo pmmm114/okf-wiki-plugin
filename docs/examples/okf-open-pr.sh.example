@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# 참조 study 핸들러 템플릿 (예시 — 활성 핸들러 아님).
+#
+# 소비처가 이 파일을 자기 **커밋 경로**(예: scripts/okf-open-pr.sh)로 복사·수정해
+# 쓴다. 승격된 개념 하나를 받아 브랜치에 커밋하고 PR을 여는 골격이다.
+#
+# 계약(플러그인 → 핸들러):
+#   stdin : study 아이템 JSON { source, project, concept:{path,type,topic} }
+#   env   : OKF_TRIGGER(manual|memory)·OKF_CONCEPT_PATH·OKF_CONCEPT_TYPE·OKF_CONCEPT_TOPIC
+#   exit  : 0 성공 / 비0 실패(디스패처가 격리)
+#
+# 요건: 이 파일은 repo 트리 안 + git 추적 경로여야 실행된다(trust 내용 해시 게이트).
+# 목적지 repo·리뷰어·라벨은 하드코딩하지 말고 아래 placeholder를 채운다.
+set -euo pipefail
+
+payload="$(cat)"                      # study 아이템(JSON) — 필요 시 jq로 파싱
+concept="${OKF_CONCEPT_PATH:?OKF_CONCEPT_PATH 필요}"
+topic="${OKF_CONCEPT_TOPIC:-uncategorized}"
+type="${OKF_CONCEPT_TYPE:-concept}"
+
+# 저장 시점 정보만으로도 브랜치명을 만들 수 있다(Math.random 없이 결정론적으로).
+slug="$(basename "$concept" .md)"
+branch="study/${topic}/${slug}"
+
+# --- 소비처가 채울 부분(placeholder) --------------------------------------
+#   1) 대상 repo 작업본에서 브랜치 생성·개념 커밋
+#      git switch -c "$branch"
+#      git add "$concept" && git commit -m "study: promote ${type} ${slug}"
+#      git push -u origin "$branch"
+#   2) PR 생성 — 목적지·리뷰어·라벨은 소비처 정책
+#      gh pr create --fill --base main --head "$branch"   # 또는 API
+# --------------------------------------------------------------------------
+
+echo "study handler(example): would open PR for ${concept} (topic=${topic}, type=${type})"
