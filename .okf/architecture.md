@@ -18,7 +18,7 @@ tags: [engine, architecture]
 * validate — §9 3규칙만 error, 거부 금지 항목은 warn(§5.3·§9)
 * policy — 권장 필드 warn 뼈대(판정 상수는 규칙 데이터에서)
 * index / graph / context — §6 재생성, 링크 그래프, 주입용 압축 인덱스
-* cli — 서브커맨드 5종을 각 모듈 main으로 위임
+* cli — 서브커맨드 6종(validate·index·graph·context·log·init)을 각 모듈 main으로 위임
 
 판정 상수는 코드가 아니라 `rules/v0_1.json`에 있고, 엔진은 특정 소비자를
 모른다(무참조 grep 불변식).

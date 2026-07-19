@@ -1,10 +1,11 @@
-"""okf CLI (T-P2-5) — 서브커맨드 5종을 각 모듈의 main으로 위임한다.
+"""okf CLI (T-P2-5) — 서브커맨드 6종을 각 모듈의 main으로 위임한다.
 
   okf validate <path> [--strict] [--format json]
   okf index    <path> [--write]
   okf graph    <path> --json [--linked-to P]
   okf context  <path> [--max-chars N]
   okf log      append <path> -m MSG
+  okf init     <dir>
 
 종료코드 계약은 각 서브커맨드가 따른다(F-3: 0 정상/컨포먼트, 1 비컨포먼트,
 2 실행 오류).
@@ -14,7 +15,7 @@ from __future__ import annotations
 
 import sys
 
-from okf_core import context, graph, index, logmd, validate
+from okf_core import context, graph, index, init, logmd, validate
 
 _COMMANDS = {
     "validate": validate.main,
@@ -22,6 +23,7 @@ _COMMANDS = {
     "graph": graph.main,
     "context": context.main,
     "log": logmd.main,
+    "init": init.main,
 }
 
 _USAGE = """\
@@ -32,6 +34,7 @@ _USAGE = """\
   graph    <path> --json [--linked-to P]      링크 그래프·역링크 조회
   context  <path> [--max-chars N]             주입용 압축 인덱스
   log      append <path> -m MSG               log.md 항목 추가(§7)
+  init     <dir>                              §9 컨포먼트 최소 번들 스캐폴드
 
 각 서브커맨드의 도움말: okf <command> --help"""
 

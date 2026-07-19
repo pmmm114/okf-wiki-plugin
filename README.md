@@ -28,7 +28,7 @@ okf validate <번들경로> --strict
 종료코드: `0` 컨포먼트 / `1` 비컨포먼트 / `2` 실행 오류. `--format json`은
 발견 1건당 `{"file","rule","level","msg"}` 객체를 출력합니다.
 
-`okf` CLI 서브커맨드 5종:
+`okf` CLI 서브커맨드 6종:
 
 ```
 okf validate <path> [--strict] [--format json]   # §9 컨포먼스 검사
@@ -36,6 +36,7 @@ okf index    <path> [--write]                    # §6 형식 index.md 재생성
 okf graph    <path> --json [--linked-to P]       # 링크 그래프·역링크 조회
 okf context  <path> [--max-chars N]              # 주입용 압축 인덱스
 okf log      append <path> -m MSG                # log.md 항목 추가(§7)
+okf init     <dir>                               # §9 컨포먼트 최소 번들 스캐폴드
 ```
 
 ## Claude Code 플러그인 설치
