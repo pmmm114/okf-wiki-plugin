@@ -187,11 +187,31 @@ def clear(project: str | Path) -> list[str]:
 
 
 # --- resolved 원장 --------------------------------------------------------
+#
+# 전역 원장(#91 V4): 유효 홈이 있으면 promote/discard를 홈 원장에도 append하고
+# (write-through), 판정은 활성 원장 ∪ 홈 원장 조회다 — "repo A에서 promote한
+# 스니펫을 나중에 다른 위치에서 재캡처 → 재큐"라는 시간축 dedup 구멍(#2)을 막는다.
+# append-only·내용해시 키라 안전하고, 홈 미옵트인 시 현행 단일 원장으로 자연 저하.
 
 
-def is_resolved(project: str | Path, ident: str) -> bool:
-    """id가 promoted/discarded로 기록됐는지 여부."""
-    path = _ledger_path(project)
+def _global_ledger_root(project: str | Path) -> str | None:
+    """write-through 대상 홈 경로 — 없거나 자기 자신이면 None."""
+    try:
+        import okf_home
+    except ImportError:  # pragma: no cover - 단독 배포 등 비정상 배치 관용
+        return None
+    home, _reason = okf_home.home_state()
+    if home is None:
+        return None
+    try:
+        if Path(home).resolve() == Path(project).resolve():
+            return None
+    except OSError:
+        return None
+    return home
+
+
+def _ledger_has(path: Path, ident: str) -> bool:
     if not path.is_file():
         return False
     return any(
@@ -199,14 +219,34 @@ def is_resolved(project: str | Path, ident: str) -> bool:
     )
 
 
-def record(project: str | Path, ident: str, status: str, ref: str | None = None) -> None:
-    """id를 promoted/discarded로 원장에 기록한다(이미 있으면 무시)."""
-    if status not in ("promoted", "discarded"):
-        raise ValueError(f"알 수 없는 status: {status}")
-    if is_resolved(project, ident):
-        return
+def _ledger_append(project: str | Path, ident: str, status: str, ref: str | None) -> None:
     path = _ledger_path(project)
+    if _ledger_has(path, ident):
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     line = f"{ident} {status}" + (f" {ref}" if ref else "")
     with path.open("a", encoding="utf-8") as handle:
         handle.write(line + "\n")
+
+
+def is_resolved(project: str | Path, ident: str) -> bool:
+    """id가 promoted/discarded로 기록됐는지 — 활성 원장 ∪ 홈 원장 조회."""
+    if _ledger_has(_ledger_path(project), ident):
+        return True
+    home = _global_ledger_root(project)
+    return home is not None and _ledger_has(_ledger_path(home), ident)
+
+
+def record(project: str | Path, ident: str, status: str, ref: str | None = None) -> None:
+    """id를 promoted/discarded로 원장에 기록한다(이미 있으면 무시).
+
+    기록은 후보가 잡힌 스코프(project)의 원장이 정본이고, 유효 홈이 있으면 홈
+    원장에도 write-through한다. 교차 승격(#91 §4)은 이 함수로 원 스코프에
+    기록하되 ``ref``에 홈 개념 경로를 담는 규약이다.
+    """
+    if status not in ("promoted", "discarded"):
+        raise ValueError(f"알 수 없는 status: {status}")
+    _ledger_append(project, ident, status, ref)
+    home = _global_ledger_root(project)
+    if home is not None:
+        _ledger_append(home, ident, status, ref)
