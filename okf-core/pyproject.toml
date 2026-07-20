@@ -1,6 +1,6 @@
 [project]
 name = "okf-core"
-version = "0.1.0.dev0"
+version = "0.2.0.dev0"
 description = "OKF knowledge bundle engine: parser, conformance validator, index/graph/context tools"
 requires-python = ">=3.10"
 dependencies = ["pyyaml"]
