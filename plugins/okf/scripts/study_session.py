@@ -1,8 +1,10 @@
-"""study SessionStart 나즈 (S5, #77) — capture=auto의 능동 드레인 트리거.
+"""study SessionStart 나즈 (S5, #77 · #91 V2) — capture=auto의 능동 드레인 트리거.
 
-``capture: auto``이고 inbox에 후보가 쌓여 있으면 세션 시작 시 "N개 대기"를
-알려 모델이 승격 플로우를 능동적으로 돌리게 한다(auto = 저장 시 magic이 아니라
-살아있는 세션의 능동 드레인). `review`/`off`나 후보 0이면 무출력.
+활성 캡처 스코프(프로젝트/홈 폴백 — ``okf_home`` 해소)가 ``capture: auto``이고
+inbox에 후보가 쌓여 있으면 세션 시작 시 "N개 대기"를 알려 모델이 승격 플로우를
+능동적으로 돌리게 한다(auto = 저장 시 magic이 아니라 살아있는 세션의 능동 드레인).
+`review`/`off`나 후보 0이면 무출력. **무효 홈 포인터의 1줄 경고는 여기(SessionStart
+계열)가 방출 지점**이다(#91 §3 — PostToolUse 캡처 훅은 무음).
 """
 
 from __future__ import annotations
@@ -11,21 +13,17 @@ import json
 import os
 from pathlib import Path
 
+import okf_home
 import okf_inbox
 
 
 def run(project: str | Path) -> str | None:
-    config = Path(project) / ".okf-wiki.json"
-    if not config.is_file():
+    scope = okf_home.resolve_capture(project)
+    if scope["warning"]:
+        return scope["warning"]  # 옵트인 후 고장 = 가시화(세션당 1회 수준)
+    if scope["capture"] != "auto" or scope["target"] is None:
         return None
-    try:
-        data = json.loads(config.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-    study = (data.get("study") if isinstance(data, dict) else None) or {}
-    if study.get("capture") != "auto":
-        return None
-    pending = len(okf_inbox.list_candidates(project))
+    pending = len(okf_inbox.list_candidates(scope["target"]))
     if pending == 0:
         return None
     return (
