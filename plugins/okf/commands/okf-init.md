@@ -1,9 +1,27 @@
 ---
-description: OKF 지식 번들과 study 런타임을 이 repo에 세팅(멱등)
+description: OKF 지식 번들과 study 런타임을 이 repo에 세팅(멱등) — --home은 홈 포인터 마법사
+argument-hint: "[--home <path>]"
 ---
 
 이 repo에 OKF 번들과 study 런타임을 세팅한다. **멱등**하므로 여러 번 실행해도
-안전하고, 기존 파일은 덮어쓰지 않는다. 아래를 순서대로 수행하라.
+안전하고, 기존 파일은 덮어쓰지 않는다. 인자: `$ARGUMENTS`.
+
+**`--home <path>`가 주어지면 아래 대신 홈 포인터 마법사(#91)를 수행한다:**
+
+H1. **검증·기록**: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/okf_home.py" set <path>` 실행.
+    - `written: true` → H2로.
+    - `reason: ".okf-wiki.json 없음"` → 대상이 아직 소비 repo 골격이 아니다. 사용자
+      동의를 받아 **그 경로를 cwd로** 일반 초기화(아래 1~2단계)를 수행해 골격을
+      만들고 `set`을 재시도한다. 스캐폴드 시 `study.capture`는 `review`를 권장 안내.
+    - `reason: "대상 없음" | "git repo 아님"` → 사유를 그대로 보이고 종료(경로 오탈자
+      또는 git repo가 아닌 대상 — 홈은 실제 git repo여야 한다).
+H2. **trust 안내**: 홈 repo에 핸들러가 배선돼 있으면 로컬 승인이 필요함을 알리고
+    홈에서 `/study --trust` 실행을 안내한다(미승인이면 디스패치만 보류됨).
+H3. **확인 출력**: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/okf_home.py" status .`의
+    JSON을 요약해 "지금 이 위치에서 캡처/주입이 어디로 가는지"를 보여준다
+    (doctor(#97) 랜딩 전까지의 요약 대체).
+
+**인자가 없으면 아래를 순서대로 수행하라.**
 
 1. **번들 스캐폴드**: `.okf-wiki.json`의 `bundlePath`(없으면 `.okf`)가 가리키는
    디렉터리가 없으면 `"${CLAUDE_PLUGIN_ROOT}/bin/okf" init <bundlePath>`를 실행한다.

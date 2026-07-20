@@ -240,3 +240,58 @@ def is_memory_path(file_path: str, payload: dict | None, project: str | Path) ->
     if pattern is not None and pattern.search(file_path):
         return True
     return False
+
+
+# --- CLI — /okf-init --home·/study --scope·doctor(V6)가 소비하는 기계 단계 ---
+
+
+def _cli_status(project: str) -> dict:
+    return {
+        "pointer": read_pointer(),
+        "home": home_state()[0],
+        "invalid": home_state()[1],
+        "capture": resolve_capture(project),
+        "inject": resolve_inject(project),
+    }
+
+
+def _cli_set(path: str) -> dict:
+    """포인터를 검증 후 기록한다. 무효 대상은 기록하지 않고 사유를 돌려준다."""
+    expanded = _expand(path)
+    saved = os.environ.get(POINTER_ENV)
+    os.environ[POINTER_ENV] = expanded or "-"
+    try:
+        home, reason = home_state()
+    finally:
+        if saved is None:
+            os.environ.pop(POINTER_ENV, None)
+        else:
+            os.environ[POINTER_ENV] = saved
+    if home is None:
+        return {"written": False, "reason": reason}
+    pointer = Path(os.path.expanduser("~")) / _POINTER_REL
+    pointer.parent.mkdir(parents=True, exist_ok=True)
+    pointer.write_text(home + "\n", encoding="utf-8")
+    return {"written": True, "home": home, "pointer": str(pointer)}
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="okf_home", description="홈 프로젝트 폴백 해석기")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    status = sub.add_parser("status", help="현재 위치의 스코프 해소 결과(JSON)")
+    status.add_argument("project", nargs="?", default=".")
+    set_cmd = sub.add_parser("set", help="포인터 검증 후 기록(JSON)")
+    set_cmd.add_argument("path")
+    args = ap.parse_args(argv)
+    if args.cmd == "status":
+        result = _cli_status(os.path.abspath(args.project))
+    else:
+        result = _cli_set(args.path)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

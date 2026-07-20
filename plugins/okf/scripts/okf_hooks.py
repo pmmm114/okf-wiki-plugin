@@ -16,6 +16,8 @@ import signal
 import subprocess
 import sys
 
+import okf_home
+
 
 def _okf_timeout():
     # 초 — Claude Code 훅 타임아웃 한도(60초)를 잠식하지 않는 상한.
@@ -177,6 +179,15 @@ def _watch_paths(bundle):
 
 def hook_session_start():
     project = _project_dir()
+    # 홈 폴백(#91 V3): 프로젝트 설정 존재가 판별자, 없으면 유효 홈으로. SessionStart는
+    # 무효 포인터 경고의 방출 지점이다(§3) — PostToolUse 계열은 무음 유지.
+    resolved = okf_home.resolve_inject(project)
+    if resolved["warning"]:
+        _emit("SessionStart", {"additionalContext": resolved["warning"]})
+        return 0
+    if resolved["target"] is None:
+        return 0
+    project = resolved["target"]
     cfg = _load_config(project)
     if cfg is None:
         return 0
