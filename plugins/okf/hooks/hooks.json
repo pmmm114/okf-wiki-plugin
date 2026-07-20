@@ -3,7 +3,7 @@
   "hooks": {
     "SessionStart": [
       { "hooks": [ { "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session_start.sh", "args": [] } ] },
+          "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/okf_hooks.py\" session-start", "args": [] } ] },
       { "hooks": [ { "type": "command",
           "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/study_session.py\"", "args": [] } ] } ],
     "PostToolUse": [
