@@ -221,7 +221,8 @@ def is_memory_path(file_path: str, payload: dict | None, project: str | Path) ->
     """
     if not file_path.endswith(".md"):
         return False
-    # L0 — 명시 디렉토리(autoMemoryDirectory): 하위 깊이 무관 프리픽스 (#17 수정)
+    # [고의-red] L0 명시 디렉토리 판정 제거 — #16·#17 게이트 실증용
+    return bool(_LEGACY_MEMORY_RE.search(file_path))
     for dir_ in memory_dir_candidates(project):
         if file_path.startswith(dir_.rstrip("/") + "/"):
             return True
