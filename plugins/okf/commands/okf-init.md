@@ -17,9 +17,9 @@ H1. **검증·기록**: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/okf_home.py" set
       또는 git repo가 아닌 대상 — 홈은 실제 git repo여야 한다).
 H2. **trust 안내**: 홈 repo에 핸들러가 배선돼 있으면 로컬 승인이 필요함을 알리고
     홈에서 `/study --trust` 실행을 안내한다(미승인이면 디스패치만 보류됨).
-H3. **확인 출력**: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/okf_home.py" status .`의
-    JSON을 요약해 "지금 이 위치에서 캡처/주입이 어디로 가는지"를 보여준다
-    (doctor(#97) 랜딩 전까지의 요약 대체).
+H3. **확인 출력**: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/okf_doctor.py" .`를 실행해
+    "지금 이 위치에서 캡처/주입이 어디로 가는지"(결정 트레이스·건강·회복 안내)를
+    그대로 보여준다.
 
 **인자가 없으면 아래를 순서대로 수행하라.**
 
