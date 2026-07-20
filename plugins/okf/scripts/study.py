@@ -8,20 +8,86 @@
   study clear    <project>                              현재 후보 전부 discard
   study dispatch <project> --source S --concept-path P --concept-type T --concept-topic X
                                                          핸들러 실행(경로·git·trust 게이트)
+  study scan     <project> [--enqueue]                   미큐잉 후보 결정론 탐지(+재적재)
 
 ``dispatch``는 trust 미승인 핸들러가 있으면 결과에 안내를 붙인다(가시적 저하) —
 개념은 이미 스킬이 로컬 번들에 승격·검증했고, 여기서 핸들러만 보류된다.
+
+``scan``(#91 V6, #20)은 메모리 파일의 비-헤딩 라인을 내용해시로 원장∪inbox와
+차집합해 **파이프라인에 들어온 적 없는 후보**를 찾는다. ``--enqueue``는 멱등
+재적재다 — discard된 id는 원장이 영구 차단하고, 승격·디스패치는 하지 않는다
+(훅과 같은 계층의 기계 큐잉만).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 from pathlib import Path
 
+import okf_home
 import okf_inbox
 import study_dispatch
 import study_trust
+
+_HEADING_RE = re.compile(r"^\s*#")
+_SCAN_BULLET_RE = re.compile(r"^[*\-+]\s+")
+
+
+def _memory_dirs(project: str | Path) -> list[Path]:
+    """스캔 대상 메모리 디렉토리 — L0 명시 후보 + 기본형 글롭(전 프로젝트)."""
+    dirs = [Path(d) for d in okf_home.memory_dir_candidates(project)]
+    config = Path(os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude"))
+    projects = config / "projects"
+    if projects.is_dir():
+        for child in sorted(projects.iterdir()):
+            memory = child / "memory"
+            if memory.is_dir():
+                dirs.append(memory)
+    return dirs
+
+
+def _snippet_lines(text: str) -> list[str]:
+    lines = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or _HEADING_RE.match(line):
+            continue
+        lines.append(_SCAN_BULLET_RE.sub("", line))
+    return lines
+
+
+def scan_memory(project: str | Path, enqueue: bool = False) -> dict:
+    """미큐잉 후보를 결정론적으로 탐지(+선택 재적재)한다. 승격은 하지 않는다."""
+    known = {c["id"] for c in okf_inbox.list_candidates(project)}
+    unqueued: list[dict] = []
+    seen: set[str] = set()
+    files = 0
+    for directory in _memory_dirs(project):
+        for path in sorted(directory.rglob("*.md")):
+            if not path.is_file():
+                continue
+            files += 1
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for snippet in _snippet_lines(text):
+                ident = okf_inbox.content_hash(snippet)[:12]
+                if ident in seen or ident in known:
+                    continue
+                if okf_inbox.is_resolved(project, ident):
+                    continue  # promoted/discarded — 영구 제외
+                seen.add(ident)
+                unqueued.append({"id": ident, "snippet": snippet, "source": str(path)})
+    enqueued: list[str] = []
+    if enqueue:
+        for cand in unqueued:
+            okf_inbox.append(project, cand["snippet"], cand["source"])
+            enqueued.append(cand["id"])
+    return {"scanned_files": files, "unqueued": unqueued, "enqueued": enqueued}
 
 
 def _load_study(project: str | Path) -> tuple[str, list[dict]]:
@@ -49,6 +115,11 @@ def cmd_clear(args) -> int:
     for cand in okf_inbox.list_candidates(args.project):
         okf_inbox.record(args.project, cand["id"], "discarded")
     print(json.dumps({"discarded": okf_inbox.clear(args.project)}, ensure_ascii=False))
+    return 0
+
+
+def cmd_scan(args) -> int:
+    print(json.dumps(scan_memory(args.project, enqueue=args.enqueue), ensure_ascii=False))
     return 0
 
 
@@ -99,12 +170,17 @@ def main(argv: list[str] | None = None) -> int:
     dsp.add_argument("--concept-type", default="")
     dsp.add_argument("--concept-topic", default="")
 
+    scn = sub.add_parser("scan", help="미큐잉 후보 탐지(+--enqueue 재적재)")
+    scn.add_argument("project", nargs="?", default=".")
+    scn.add_argument("--enqueue", action="store_true")
+
     args = ap.parse_args(argv)
     handlers = {
         "list": cmd_list,
         "resolve": cmd_resolve,
         "clear": cmd_clear,
         "dispatch": cmd_dispatch,
+        "scan": cmd_scan,
     }
     return handlers[args.cmd](args)
 
