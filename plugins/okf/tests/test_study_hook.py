@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import okf_home
 import okf_inbox
 import study_hook
 
@@ -93,3 +94,73 @@ def test_main_emits_additional_context(tmp_path):
     out = json.loads(result.stdout)
     assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
     assert "인박스" in out["hookSpecificOutput"]["additionalContext"]
+
+
+# --- 홈 폴백 (#91 V2) -------------------------------------------------------
+
+
+def _make_home(tmp_path, config: dict):
+    home = tmp_path / "home-kb"
+    (home / ".git").mkdir(parents=True)
+    (home / ".okf-wiki.json").write_text(json.dumps(config), encoding="utf-8")
+    return home
+
+
+def test_scope_home_delegates_inbox_to_home(monkeypatch, tmp_path):
+    # #91 §2 규칙 1 — 위임 repo의 캡처가 홈 inbox로 (레벨은 위임 블록 값)
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
+    home = _make_home(tmp_path, {"study": {"capture": "off"}})
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    project = tmp_path / "work"
+    project.mkdir()
+    (project / ".okf-wiki.json").write_text(
+        json.dumps({"study": {"capture": "review", "scope": "home"}}), encoding="utf-8"
+    )
+    payload = {"tool_input": {"file_path": MEM, "content": "* delegated knowledge\n"}}
+    message = study_hook.run(payload, project)
+    assert message and "인박스" in message
+    assert len(okf_inbox.list_candidates(home)) == 1
+    assert okf_inbox.list_candidates(project) == []  # 프로젝트 쪽엔 흔적 없음(#1)
+
+
+def test_configless_dir_falls_back_to_home(monkeypatch, tmp_path):
+    # R1 핵심 — 설정 없는 위치(비-repo 동치)에서도 캡처가 홈으로
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
+    home = _make_home(tmp_path, {"study": {"capture": "review"}})
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    payload = {"tool_input": {"file_path": MEM, "content": "* anywhere knowledge\n"}}
+    message = study_hook.run(payload, scratch)
+    assert message and "인박스" in message
+    assert len(okf_inbox.list_candidates(home)) == 1
+
+
+def test_invalid_pointer_is_silent_in_posttooluse(monkeypatch, tmp_path):
+    # #9·#19 — PostToolUse 캡처 훅은 무효 포인터에도 무음 스킵
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(tmp_path / "nowhere"))
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    payload = {"tool_input": {"file_path": MEM, "content": "* x\n"}}
+    assert study_hook.run(payload, scratch) is None
+
+
+def test_auto_memory_directory_capture(monkeypatch, tmp_path):
+    # #17 e2e — autoMemoryDirectory로 옮긴 메모리도 캡처된다
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
+    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    memdir = tmp_path / "custom-memory"
+    (cfg / "settings.json").write_text(
+        json.dumps({"autoMemoryDirectory": str(memdir)}), encoding="utf-8"
+    )
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    _cfg(tmp_path, "review")
+    payload = {
+        "tool_input": {"file_path": str(memdir / "MEMORY.md"), "content": "* moved memory\n"}
+    }
+    message = study_hook.run(payload, tmp_path)
+    assert message and "인박스" in message
+    assert okf_inbox.list_candidates(tmp_path)[0]["snippet"] == "moved memory"

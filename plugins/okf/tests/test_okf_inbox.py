@@ -34,6 +34,21 @@ def test_append_dedup_same_id(tmp_path):
     assert len(okf_inbox.list_candidates(tmp_path)) == 1
 
 
+def test_concurrent_append_no_loss(tmp_path):
+    # #91 #6 — 홈 inbox 공유 핫스팟: 동시 append에도 후보 유실이 없어야 한다
+    import threading
+
+    def worker(index: int) -> None:
+        okf_inbox.append(tmp_path, f"snippet {index}", "src", date="2026-07-20")
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(16)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(okf_inbox.list_candidates(tmp_path)) == 16
+
+
 def test_newest_first_across_dates(tmp_path):
     okf_inbox.append(tmp_path, "old", "s", date="2026-07-18")
     okf_inbox.append(tmp_path, "new", "s", date="2026-07-19")
