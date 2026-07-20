@@ -138,13 +138,16 @@ repo**(예: 소비처 KB 클론)로 흐른다.
 - 포인터가 깨진 기간의 미큐잉은 `study scan`(원장·inbox 대비 차집합 탐지) →
   `study scan --enqueue`(멱등 재적재)로 회복한다. 막히면 `/okf-doctor`가 현재
   위치의 스코프 해소 결과와 이유를 그대로 보여준다.
+- 스코프를 넘는 중복 재큐(예: repo A에서 promote한 스니펫을 다른 위치에서 재저장)는
+  **전역 원장**이 막는다 — promote/discard가 홈 원장에도 write-through되고, 캡처
+  dedup은 활성 원장과 홈 원장을 함께 본다.
 
 상세 규약(포인터 값·유효 판정·해소 규칙·침묵 정책·`study.scope`/`memoryPathPattern`
 스키마)은 [`CONFIG.md`](../plugins/okf/skills/okf/reference/CONFIG.md)의 "홈 프로젝트
 폴백" 절이 정본이다.
 
-> 구현 랜딩: 본 절은 Epic #91의 확정 계약으로, 코드는 유닛 #93(캡처)·#94(주입·
-> 마법사)·#97(doctor·scan)에서 순차 랜딩한다.
+> 구현: Epic #91 전 유닛 랜딩 완료 — 캡처 폴백(#93)·주입 폴백과 마법사(#94)·
+> 전역 원장(#95)·doctor와 scan(#97). 본 절의 모든 명령은 실측 검증됐다.
 
 ## 요약
 

@@ -114,6 +114,8 @@ repo 루트 `docs/adopting-study.md` 참조.
 진단·회복은 `/okf-doctor`(해소 트레이스·건강·캡처 입구 진단)와
 `study scan [--enqueue]`(미큐잉 후보 결정론 탐지·멱등 재적재)가 담당한다.
 
-> 구현 배선: 본 절은 Epic #91의 확정 계약이다. 포인터·해소 로직은 공유 모듈
-> `scripts/okf_home.py` 한 곳에 두고 캡처 훅·주입 훅·doctor가 재사용한다(유닛
-> #93·#94·#97에서 랜딩 — 랜딩 전까지 본 절은 사전 계약 문서).
+> 구현 배선: 포인터·해소 로직은 공유 모듈 `scripts/okf_home.py` 한 곳에 있고
+> 캡처 훅(`study_hook`·`study_session`)·주입 훅(`okf_hooks` session-start)·doctor가
+> 재사용한다. promote/discard는 유효 홈이 있으면 홈 원장에도 write-through되어
+> 스코프를 넘는 재큐를 막는다(전역 원장). CLI: `okf_home.py status|set`,
+> `study.py scan [--enqueue]`, `okf_doctor.py` — 전부 Epic #91에서 랜딩 완료.
