@@ -22,7 +22,7 @@ def _capture_trace(project: str) -> list[str]:
     home, reason = okf_home.home_state()
     scope = okf_home.resolve_capture(project)
     if block is not None and block.get("scope") == "home":
-        why = "study 블록의 scope:\"home\" 위임"
+        why = 'study 블록의 scope:"home" 위임'
     elif block is not None:
         why = "프로젝트 study 블록 존재(명시가 이긴다)"
     elif scope["scope"] == "home":
@@ -103,7 +103,9 @@ def _entrance_lines(project: str) -> list[str]:
                 continue
             latest = mtime if latest is None else max(latest, mtime)
     if not memory_dirs:
-        lines.append("  입구 생존: 메모리 디렉토리 미발견 — 배치 변경 가능성(memoryPathPattern 검토)")
+        lines.append(
+            "  입구 생존: 메모리 디렉토리 미발견 — 배치 변경 가능성. memoryPathPattern 검토"
+        )
     elif latest is None:
         lines.append("  입구 생존: 디렉토리는 있으나 .md 기록 없음")
     else:
