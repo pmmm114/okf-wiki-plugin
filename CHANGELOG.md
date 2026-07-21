@@ -4,6 +4,33 @@
 (`docs/releasing.md` 참조). 태그 하나 = repo 전체 묶음(엔진 + 플러그인 +
 `actions/validate` + pre-commit)의 직배달(D2) 릴리스.
 
+## v0.3.0 — 2026-07-21
+
+### 추가
+
+- **study 마법사 — 주입 전용 홈에 캡처 활성 제안** (#110): `/okf-init --home`이 대상의
+  캡처 준비 상태(`capture_ready`: active/off/absent)를 판정해, 캡처가 꺼진 "주입 전용
+  홈"이면 동의를 받아 `study.capture: review`와 `.okf-study` 골격을 멱등 활성한다
+  (`okf_home enable-capture` — 판정·편집 모두 코드 경로, 이미 auto면 격하 금지).
+  doctor도 주입 전용 홈·capture=off에 켜는 법을 안내 (#111)
+
+### 수정
+
+- 훅 커맨드의 bare `python3` 직접 spawn이 최소 PATH 환경(GUI 앱 등)에서 ENOENT로
+  죽던 회귀 — `bin/okf-py` 부트스트랩 셔틀 경유로 전환(패치 v0.2.1과 동일 수정이
+  main 라인에도 포함) (#108)
+
+## v0.2.1 — 2026-07-21
+
+v0.2.0 태그에서 갈라 핫픽스만 백포트한 패치 릴리스(릴리스 브랜치 `release/v0.2`).
+
+### 수정
+
+- 훅 커맨드의 bare `python3` 직접 spawn이 최소 PATH 환경(GUI 앱 등)에서
+  `posix_spawn 'python3'` ENOENT로 죽던 회귀 — 인터프리터 부트스트랩 셔틀
+  `bin/okf-py` 경유로 전환(`hooks.json`·커맨드·doctor 안내문 전량), 재유입은
+  그렙 게이트가 차단 (#108)
+
 ## v0.2.0 — 2026-07-21
 
 ### 추가
