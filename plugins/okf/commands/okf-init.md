@@ -23,16 +23,19 @@ H3. **확인 출력**: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/okf_doctor.py" .`
 
 **인자가 없으면 아래를 순서대로 수행하라.**
 
-1. **번들 스캐폴드**: `.okf-wiki.json`의 `bundlePath`(없으면 `.okf`)가 가리키는
+1. **study 런타임 스캐폴드(가드 게이트 — 반드시 첫 단계)**: 프로젝트 루트에서
+   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/study_scaffold.py"`를 실행한다.
+   - **exit 3(가드 거부, #104)**: cwd가 git repo가 아니다. 스크립트가 출력한 거부
+     사유·대안(`/okf-init --home`)을 **그대로** 사용자에게 전하고 **종료한다** —
+     아래 2단계(번들)도 수행하지 않는다(로컬 산출물 0). 사용자가 사유를 보고도
+     로컬 스캐폴드를 명시적으로 원할 때만 `--force`로 재실행하고 2단계로 진행.
+   - exit 0: `.okf-study/.gitignore`(`*` + `!.gitignore`) 생성, `.okf-wiki.json`에
+     `study` 블록(`capture: "off"`, `handlers: []`) 보장(기존 키 보존). 출력에
+     홈 포인터 공존 고지("로컬 파이프라인이 홈 캡처보다 우선")가 있으면 그대로 전달.
+
+2. **번들 스캐폴드**: `.okf-wiki.json`의 `bundlePath`(없으면 `.okf`)가 가리키는
    디렉터리가 없으면 `"${CLAUDE_PLUGIN_ROOT}/bin/okf" init <bundlePath>`를 실행한다.
    이미 있으면 건너뛴다(엔진 `init`은 비어있지 않은 디렉터리를 거부한다).
-
-2. **study 런타임 스캐폴드**: 프로젝트 루트에서
-   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/study_scaffold.py"`를 실행한다.
-   - `.okf-study/.gitignore`(`*` + `!.gitignore`)를 생성 — inbox·ledger·trust 등
-     런타임 상태는 커밋되지 않고 무시 규칙만 커밋된다.
-   - `.okf-wiki.json`에 `study` 블록(`capture: "off"`, `handlers: []`)이 없으면
-     추가한다(기존 키 보존, 이미 있으면 무변경).
 
 3. **결과 요약**: 각 단계 수행/유지 상태를 알리고, `study.capture` 기본값이
    `off`(자동 캡처 꺼짐)임을 안내한다. 자동 캡처를 원하면 `review`/`auto`로 올리고,
