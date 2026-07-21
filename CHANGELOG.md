@@ -4,6 +4,18 @@
 (`docs/releasing.md` 참조). 태그 하나 = repo 전체 묶음(엔진 + 플러그인 +
 `actions/validate` + pre-commit)의 직배달(D2) 릴리스.
 
+## v0.2.1 — 2026-07-21
+
+v0.2.0 태그에서 갈라 핫픽스만 백포트한 패치 릴리스(릴리스 브랜치 `release/v0.2`).
+main은 다음 마이너(`0.3.0.dev0`) 집합소로 계속 굴러간다.
+
+### 수정
+
+- 훅 커맨드의 bare `python3` 직접 spawn이 최소 PATH 환경(GUI 앱 등)에서
+  `posix_spawn 'python3'` ENOENT로 죽던 회귀 — 인터프리터 부트스트랩 셔틀
+  `bin/okf-py` 경유로 전환(`hooks.json`·커맨드·doctor 안내문 전량), 재유입은
+  그렙 게이트가 차단 (#108)
+
 ## v0.2.0 — 2026-07-21
 
 ### 추가
