@@ -9,12 +9,22 @@ argument-hint: "[--home <path>]"
 **`--home <path>`가 주어지면 아래 대신 홈 포인터 마법사(#91)를 수행한다:**
 
 H1. **검증·기록**: `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/okf_home.py" set <path>` 실행.
-    - `written: true` → H2로.
+    - `written: true` → **`capture_ready` 값으로 H1a 분기** 후 H2로.
     - `reason: ".okf-wiki.json 없음"` → 대상이 아직 소비 repo 골격이 아니다. 사용자
       동의를 받아 **그 경로를 cwd로** 일반 초기화(아래 1~2단계)를 수행해 골격을
       만들고 `set`을 재시도한다. 스캐폴드 시 `study.capture`는 `review`를 권장 안내.
     - `reason: "대상 없음" | "git repo 아님"` → 사유를 그대로 보이고 종료(경로 오탈자
       또는 git repo가 아닌 대상 — 홈은 실제 git repo여야 한다).
+H1a. **캡처 준비 판정(스크립트 출력 `capture_ready` 기준 — 프롬프트 추측 금지)**:
+    - `"active"` → 홈이 이미 위치 무관 적재를 켠 상태다. 안내 없이 H2로.
+    - `"off" | "absent"` → 이 홈은 지금 **주입(읽기) 전용**이라, 다른 위치에서 저장한
+      메모리가 이 홈으로 적재되지 않는다. 사용자에게 그 사실과 "위치 무관 적재를
+      켜려면 홈에 캡처를 활성해야 한다"를 알리고 **동의를 받아**
+      `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/okf_home.py" enable-capture <path>`
+      를 실행한다(스크립트가 `.okf-study` 골격과 `study.capture: review`를 멱등 보장 —
+      판정·편집 모두 코드 경로). 성공 시 홈 repo에서 `.okf-wiki.json`·
+      `.okf-study/.gitignore`를 **커밋**하도록 안내한다. 동의하지 않으면 주입 전용으로
+      두고 H2로(강제하지 않는다 — 캡처는 홈 repo에 쓰기이므로 사용자 선택이다).
 H2. **trust 안내**: 홈 repo에 핸들러가 배선돼 있으면 로컬 승인이 필요함을 알리고
     홈에서 `/study --trust` 실행을 안내한다(미승인이면 디스패치만 보류됨).
 H3. **확인 출력**: `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/okf_doctor.py" .`를 실행해
