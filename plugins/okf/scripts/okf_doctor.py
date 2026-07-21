@@ -140,10 +140,9 @@ def _recovery_lines(project: str) -> list[str]:
     count = len(result["unqueued"])
     if count == 0:
         return []
-    return [
-        f"  미큐잉 후보 {count}개 — `python3 study.py scan {target} --enqueue`로 "
-        "재적재 후 /study로 선별 승격하라."
-    ]
+    plugin = Path(__file__).resolve().parent.parent
+    cmd = f'"{plugin}/bin/okf-py" "{plugin}/scripts/study.py" scan {target} --enqueue'
+    return [f"  미큐잉 후보 {count}개 — `{cmd}`로 재적재 후 /study로 선별 승격하라."]
 
 
 def run(project: str) -> str:

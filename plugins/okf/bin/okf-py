@@ -1,0 +1,23 @@
+#!/bin/sh
+# python 부트스트랩 셔틀 (#108) — 훅·커맨드의 Python 스크립트를 실행할
+# 인터프리터를 해석한 뒤 exec로 위임한다(stdin·인자·exit code 그대로 통과).
+# 훅 커맨드는 로그인 쉘 PATH 보정 없이 직접 spawn될 수 있어(GUI 앱 최소 PATH),
+# bare `python3`는 ENOENT로 죽는 환경이 있다. 인터프리터 탐색은 Python으로 쓸 수
+# 없는 부트스트랩이라 bin/ 셔틀만 shell이 허용된다(CLAUDE.md).
+set -eu
+if [ -n "${OKF_PYTHON:-}" ]; then
+  exec "$OKF_PYTHON" "$@"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$@"
+fi
+for py in /usr/bin/python3 /usr/local/bin/python3 /opt/homebrew/bin/python3; do
+  if [ -x "$py" ]; then
+    exec "$py" "$@"
+  fi
+done
+if command -v python >/dev/null 2>&1; then
+  exec python "$@"
+fi
+echo "okf: python3 인터프리터를 찾지 못함 — PATH에 python3를 추가하거나 OKF_PYTHON을 설정하라" >&2
+exit 127
