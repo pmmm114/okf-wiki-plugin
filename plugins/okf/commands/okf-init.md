@@ -8,7 +8,7 @@ argument-hint: "[--home <path>]"
 
 **`--home <path>`가 주어지면 아래 대신 홈 포인터 마법사(#91)를 수행한다:**
 
-H1. **검증·기록**: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/okf_home.py" set <path>` 실행.
+H1. **검증·기록**: `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/okf_home.py" set <path>` 실행.
     - `written: true` → H2로.
     - `reason: ".okf-wiki.json 없음"` → 대상이 아직 소비 repo 골격이 아니다. 사용자
       동의를 받아 **그 경로를 cwd로** 일반 초기화(아래 1~2단계)를 수행해 골격을
@@ -17,14 +17,14 @@ H1. **검증·기록**: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/okf_home.py" set
       또는 git repo가 아닌 대상 — 홈은 실제 git repo여야 한다).
 H2. **trust 안내**: 홈 repo에 핸들러가 배선돼 있으면 로컬 승인이 필요함을 알리고
     홈에서 `/study --trust` 실행을 안내한다(미승인이면 디스패치만 보류됨).
-H3. **확인 출력**: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/okf_doctor.py" .`를 실행해
+H3. **확인 출력**: `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/okf_doctor.py" .`를 실행해
     "지금 이 위치에서 캡처/주입이 어디로 가는지"(결정 트레이스·건강·회복 안내)를
     그대로 보여준다.
 
 **인자가 없으면 아래를 순서대로 수행하라.**
 
 1. **study 런타임 스캐폴드(가드 게이트 — 반드시 첫 단계)**: 프로젝트 루트에서
-   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/study_scaffold.py"`를 실행한다.
+   `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study_scaffold.py"`를 실행한다.
    - **exit 3(가드 거부, #104)**: cwd가 git repo가 아니다. 스크립트가 출력한 거부
      사유·대안(`/okf-init --home`)을 **그대로** 사용자에게 전하고 **종료한다** —
      아래 2단계(번들)도 수행하지 않는다(로컬 산출물 0). 사용자가 사유를 보고도
