@@ -12,7 +12,7 @@
           "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_tool_use.sh", "args": [] } ] },
       { "matcher": "Write",
         "hooks": [ { "type": "command",
-          "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/okf-py\" \"${CLAUDE_PLUGIN_ROOT}/scripts/study_hook.py\"", "args": [] } ] } ],
+          "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/study_hook.py\"", "args": [] } ] } ],
     "FileChanged": [
       { "hooks": [ { "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/scripts/file_changed.sh", "args": [] } ] } ]
