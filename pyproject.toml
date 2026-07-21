@@ -3,7 +3,7 @@
 # 루트에서 빌드할 수 있게 wheel 패키지 경로만 재지정한다.
 [project]
 name = "okf-core"
-version = "0.3.0.dev0"
+version = "0.3.0"
 description = "OKF knowledge bundle engine (root install shim)"
 requires-python = ">=3.10"
 dependencies = ["pyyaml"]
