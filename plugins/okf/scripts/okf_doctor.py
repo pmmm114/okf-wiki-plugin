@@ -65,8 +65,17 @@ def _home_notes(project: str) -> list[str]:
         lines.append(f"  포인터: {pointer} — 무효({reason})")
         return lines
     lines.append(f"  포인터: {home} (유효)")
-    if okf_home.study_block(okf_home.load_config(home)) is None:
-        lines.append("  메모: 반쪽 상태 — 주입 전용 홈(study 블록 없음, 캡처 비활성)")
+    cap_state = okf_home.home_capture_state(home)
+    if cap_state == "absent":
+        lines.append(
+            "  메모: 주입 전용 홈(study 블록 없음, 캡처 비활성) — 위치 무관 적재를 "
+            "켜려면 `/okf-init --home <홈>` 재실행(캡처 활성 제안)"
+        )
+    elif cap_state == "off":
+        lines.append(
+            "  메모: 홈 캡처 off(capture=off) — 켜려면 홈 study.capture를 review로 "
+            "(또는 `/okf-init --home <홈>` 재실행)"
+        )
     block = okf_home.study_block(okf_home.load_config(project))
     if block is not None and block.get("scope") == "home":
         if "capture" not in block:

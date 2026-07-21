@@ -75,6 +75,11 @@ repo 루트 `docs/adopting-study.md` 참조.
 - **유효 판정**: ① 대상 실재 ② git repo ③ `.okf-wiki.json` 존재 — 셋 중 하나라도
   깨지면 무효. 설정은 있으나 study 블록이 없는 **반쪽 상태는 무효가 아니라
   "주입 전용 홈"**(정상 — 캡처만 비활성).
+- **주입 전용 홈에 캡처 켜기**: `/okf-init --home`이 대상의 캡처 준비 상태
+  (`capture_ready`: `active`/`off`/`absent`)를 판정해, 캡처가 꺼져 있으면 동의를 받아
+  `study.capture: review`와 `.okf-study` 골격을 멱등 활성한다(스크립트
+  `okf_home.py enable-capture <홈>` — 판정·편집 모두 코드 경로, 홈 repo에 쓰기이므로
+  활성만 사용자 선택). 이미 `auto`면 격하하지 않는다.
 
 ### 스코프 해소 규칙
 

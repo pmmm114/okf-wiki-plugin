@@ -295,3 +295,105 @@ def test_entrance_invalid_pattern_tolerated(monkeypatch, tmp_path, capsys):
 
 def test_entrance_non_md_rejected(tmp_path):
     assert not okf_home.is_memory_path("/home/u/.claude/projects/p/memory/m.txt", {}, tmp_path)
+
+
+# --- home_capture_state / enable_home_capture (마법사 캡처 활성, 0.3.0) -------
+
+
+def test_capture_state_absent(tmp_path):
+    home = _home(tmp_path, {})  # study 블록 없음
+    assert okf_home.home_capture_state(home) == "absent"
+
+
+def test_capture_state_off(tmp_path):
+    home = _home(tmp_path, {"study": {"capture": "off"}})
+    assert okf_home.home_capture_state(home) == "off"
+
+
+@pytest.mark.parametrize("level", ["review", "auto"])
+def test_capture_state_active(tmp_path, level):
+    home = _home(tmp_path, {"study": {"capture": level}})
+    assert okf_home.home_capture_state(home) == "active"
+
+
+def test_enable_capture_from_absent_scaffolds_and_activates(tmp_path):
+    home = _home(tmp_path, {"bundlePath": ".okf"})  # study 블록 없음
+    result = okf_home.enable_home_capture(home)
+    assert result["before"] == "absent"
+    assert result["capture"] == "review" and result["changed"] is True
+    data = json.loads((home / ".okf-wiki.json").read_text(encoding="utf-8"))
+    assert data["study"]["capture"] == "review"
+    assert data["bundlePath"] == ".okf"  # 기존 키 보존
+    assert (home / ".okf-study" / ".gitignore").exists()  # 런타임 골격 보장
+    assert okf_home.home_capture_state(home) == "active"
+
+
+def test_enable_capture_from_off_bumps_preserving_handlers(tmp_path):
+    home = _home(
+        tmp_path,
+        {"study": {"capture": "off", "handlers": [{"name": "x", "command": "h.py"}]}},
+    )
+    result = okf_home.enable_home_capture(home)
+    assert result["before"] == "off" and result["changed"] is True
+    data = json.loads((home / ".okf-wiki.json").read_text(encoding="utf-8"))
+    assert data["study"]["capture"] == "review"
+    assert data["study"]["handlers"] == [{"name": "x", "command": "h.py"}]  # 보존
+
+
+def test_enable_capture_does_not_downgrade_auto(tmp_path):
+    home = _home(tmp_path, {"study": {"capture": "auto"}})
+    result = okf_home.enable_home_capture(home)  # 기본 level=review
+    assert result["changed"] is False
+    assert result["capture"] == "auto"  # 격하 금지
+    data = json.loads((home / ".okf-wiki.json").read_text(encoding="utf-8"))
+    assert data["study"]["capture"] == "auto"
+
+
+def test_enable_capture_level_auto(tmp_path):
+    home = _home(tmp_path, {})
+    result = okf_home.enable_home_capture(home, level="auto")
+    assert result["capture"] == "auto" and result["changed"] is True
+
+
+def test_enable_capture_idempotent(tmp_path):
+    home = _home(tmp_path, {})
+    okf_home.enable_home_capture(home)
+    before = (home / ".okf-wiki.json").read_text(encoding="utf-8")
+    second = okf_home.enable_home_capture(home)
+    assert second["changed"] is False  # 이미 active
+    assert (home / ".okf-wiki.json").read_text(encoding="utf-8") == before
+
+
+# --- CLI: set의 capture_ready · enable-capture 동사 --------------------------
+
+
+def test_cli_set_reports_capture_ready(monkeypatch, tmp_path, capsys):
+    home = _home(tmp_path, {})  # 주입 전용(캡처 absent)
+    assert okf_home.main(["set", str(home)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["written"] is True and out["capture_ready"] == "absent"
+
+
+def test_cli_set_capture_ready_active(monkeypatch, tmp_path, capsys):
+    home = _home(tmp_path, {"study": {"capture": "review"}})
+    assert okf_home.main(["set", str(home)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["capture_ready"] == "active"
+
+
+def test_cli_enable_capture_activates(tmp_path, capsys):
+    home = _home(tmp_path, {})
+    assert okf_home.main(["enable-capture", str(home)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["enabled"] is True and out["capture"] == "review"
+
+
+def test_cli_enable_capture_refuses_non_git(tmp_path, capsys):
+    # 유효 홈이 아니면(비-git) 편집 없이 사유 반환 — 반쪽 파이프라인 방지
+    bad = tmp_path / "not-git"
+    bad.mkdir()
+    (bad / ".okf-wiki.json").write_text("{}", encoding="utf-8")
+    assert okf_home.main(["enable-capture", str(bad)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["enabled"] is False and out["reason"] == okf_home.INVALID_NOT_GIT
+    assert not (bad / ".okf-study").exists()  # 편집 없음

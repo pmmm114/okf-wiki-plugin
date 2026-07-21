@@ -148,6 +148,53 @@ def resolve_inject(project: str | Path) -> dict:
     return {"target": home, "scope": "home", "warning": None}
 
 
+def home_capture_state(home: str | Path) -> str:
+    """유효 홈의 캡처 준비 상태를 반환한다 — 마법사·doctor의 기계 판정용.
+
+    - ``"active"``: study 블록의 capture가 review/auto (위치 무관 적재가 켜짐)
+    - ``"off"``: study 블록은 있으나 capture=off (명시적으로 꺼둠)
+    - ``"absent"``: study 블록 없음 — "주입 전용 홈"(캡처가 폴백으로 꺼짐)
+    """
+    block = study_block(load_config(home))
+    if block is None:
+        return "absent"
+    return "active" if block.get("capture") in ("review", "auto") else "off"
+
+
+def enable_home_capture(home: str | Path, level: str = "review") -> dict:
+    """홈에 캡처를 켠다(멱등) — study 런타임 스캐폴드 후 capture를 level로 올린다.
+
+    이미 active면(review/auto) 격하하지 않고 그대로 둔다. study 블록·``.okf-study``
+    골격이 없으면 스캐폴더로 보장한다(기존 키·핸들러 보존). 반환: 수행 상태 dict.
+    판정·편집은 전부 이 코드 경로다(#91 #20 — 프롬프트 재량 없음).
+    """
+    import study_scaffold  # lazy — study_scaffold가 okf_home을 import(순환 회피)
+
+    home = Path(home)
+    before = home_capture_state(home)
+    scaffold_actions = study_scaffold.scaffold(home)  # .okf-study + study(off) 보장
+    config_path = home / ".okf-wiki.json"
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    block = data.get("study")
+    if not isinstance(block, dict):
+        block = {}
+        data["study"] = block
+    if block.get("capture") in ("review", "auto"):
+        changed = False  # 이미 활성 — 격하 금지
+    else:
+        block["capture"] = level
+        config_path.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        changed = True
+    return {
+        "before": before,
+        "capture": block.get("capture"),
+        "changed": changed,
+        "scaffold": scaffold_actions,
+    }
+
+
 def _warning(reason: str | None) -> str | None:
     if reason is None:
         return None
@@ -272,7 +319,31 @@ def _cli_set(path: str) -> dict:
     pointer = Path(os.path.expanduser("~")) / _POINTER_REL
     pointer.parent.mkdir(parents=True, exist_ok=True)
     pointer.write_text(home + "\n", encoding="utf-8")
-    return {"written": True, "home": home, "pointer": str(pointer)}
+    # capture_ready로 "주입 전용 홈"을 기계 판정 → 마법사가 캡처 활성 제안 여부를 결정.
+    return {
+        "written": True,
+        "home": home,
+        "pointer": str(pointer),
+        "capture_ready": home_capture_state(home),
+    }
+
+
+def _cli_enable_capture(home: str, level: str) -> dict:
+    """홈에 캡처를 켠다(CLI). 유효 홈이 아니면 편집 없이 사유를 돌려준다."""
+    expanded = _expand(home)
+    saved = os.environ.get(POINTER_ENV)
+    os.environ[POINTER_ENV] = expanded or "-"
+    try:
+        valid, reason = home_state()
+    finally:
+        if saved is None:
+            os.environ.pop(POINTER_ENV, None)
+        else:
+            os.environ[POINTER_ENV] = saved
+    if valid is None:
+        return {"enabled": False, "reason": reason}
+    result = enable_home_capture(valid, level)
+    return {"enabled": True, "home": valid, **result}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -284,9 +355,14 @@ def main(argv: list[str] | None = None) -> int:
     status.add_argument("project", nargs="?", default=".")
     set_cmd = sub.add_parser("set", help="포인터 검증 후 기록(JSON)")
     set_cmd.add_argument("path")
+    enable = sub.add_parser("enable-capture", help="홈에 캡처(study.capture=review)를 켠다(JSON)")
+    enable.add_argument("home")
+    enable.add_argument("--level", default="review", choices=["review", "auto"])
     args = ap.parse_args(argv)
     if args.cmd == "status":
         result = _cli_status(os.path.abspath(args.project))
+    elif args.cmd == "enable-capture":
+        result = _cli_enable_capture(args.home, args.level)
     else:
         result = _cli_set(args.path)
     print(json.dumps(result, ensure_ascii=False, indent=2))

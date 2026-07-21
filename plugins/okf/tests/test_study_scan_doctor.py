@@ -120,6 +120,14 @@ def test_doctor_half_state_note(monkeypatch, tmp_path):
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
     out = okf_doctor.run(str(_project(tmp_path)))
     assert "주입 전용 홈" in out
+    assert "캡처 활성 제안" in out  # 회복 안내 — /okf-init --home 재실행
+
+
+def test_doctor_capture_off_note(monkeypatch, tmp_path):
+    home = _valid_home(tmp_path, {"capture": "off"})  # 블록은 있으나 off
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    out = okf_doctor.run(str(_project(tmp_path)))
+    assert "홈 캡처 off" in out and "review로" in out
 
 
 def test_doctor_meaningless_scope_combo(monkeypatch, tmp_path):
