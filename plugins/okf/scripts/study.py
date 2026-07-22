@@ -26,17 +26,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 from pathlib import Path
 
 import okf_home
 import okf_inbox
+import study_blocks
 import study_dispatch
 import study_store
 import study_trust
-
-_HEADING_RE = re.compile(r"^\s*#")
-_SCAN_BULLET_RE = re.compile(r"^[*\-+]\s+")
 
 
 def _memory_dirs(project: str | Path) -> list[Path]:
@@ -50,16 +47,6 @@ def _memory_dirs(project: str | Path) -> list[Path]:
             if memory.is_dir():
                 dirs.append(memory)
     return dirs
-
-
-def _snippet_lines(text: str) -> list[str]:
-    lines = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or _HEADING_RE.match(line):
-            continue
-        lines.append(_SCAN_BULLET_RE.sub("", line))
-    return lines
 
 
 def _scope(project: str | Path) -> tuple[str | None, str]:
@@ -94,18 +81,24 @@ def scan_memory(
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            for snippet in _snippet_lines(text):
+            for block in study_blocks.concept_blocks(text):  # 개념 블록 단위(#131)
+                snippet = " ".join(block)
+                if not snippet:
+                    continue
                 ident = okf_inbox.content_hash(snippet)[:12]
                 if ident in seen or ident in known:
                     continue
-                if runtime and okf_inbox.is_resolved(runtime, ident):
-                    continue  # promoted/discarded — 영구 제외
+                line_hashes = [okf_inbox.content_hash(line)[:12] for line in block]
+                if runtime and okf_inbox.block_resolved(runtime, ident, line_hashes):
+                    continue  # 블록/자식 전부 promoted·discarded — 영구 제외
                 seen.add(ident)
-                unqueued.append({"id": ident, "snippet": snippet, "source": str(path)})
+                unqueued.append(
+                    {"id": ident, "snippet": snippet, "source": str(path), "lines": line_hashes}
+                )
     enqueued: list[str] = []
     if enqueue and runtime:
         for cand in unqueued:
-            okf_inbox.append(runtime, cand["snippet"], cand["source"])
+            okf_inbox.append(runtime, cand["snippet"], cand["source"], line_hashes=cand["lines"])
             enqueued.append(cand["id"])
     return {"scanned_files": files, "unqueued": unqueued, "enqueued": enqueued}
 

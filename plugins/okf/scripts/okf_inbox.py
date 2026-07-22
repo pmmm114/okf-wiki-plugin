@@ -52,17 +52,56 @@ def _now() -> str:
 # --- inbox ----------------------------------------------------------------
 
 
-def append(runtime: str | Path, snippet: str, source: str, date: str | None = None) -> str:
-    """후보 스니펫을 inbox에 적재하고 id를 반환한다. 동일 id는 재적재하지 않는다."""
+def append(
+    runtime: str | Path,
+    snippet: str,
+    source: str,
+    date: str | None = None,
+    line_hashes: list[str] | None = None,
+) -> str:
+    """후보(개념 블록)를 inbox에 적재하고 id를 반환한다. 동일 id는 재적재하지 않는다.
+
+    ``line_hashes``는 블록의 자식 줄-해시(A2′, #131). 미지정이면 단일 줄 블록으로 보고
+    id 자신을 자식으로 둔다(구 단일-줄 호출부·마이그레이션 하위호환).
+    """
     snippet = _sanitize(snippet)
     source = _sanitize(source)
     ident = content_hash(snippet)[:_ID_LEN]
     if not study_store.available():
         return ident  # fail-closed: sqlite3 부재 → 무적재(캡처 off와 동형)
-    inserted = study_store.insert_candidate(runtime, ident, snippet, source, date or _today())
+    children = line_hashes if line_hashes is not None else [ident]
+    inserted = study_store.insert_candidate(
+        runtime, ident, snippet, source, date or _today(), children
+    )
     if inserted:
         journal_append(runtime, "capture", ident, source=source)  # 순서·시각 이력(#114 U5)
     return ident
+
+
+def block_resolved(
+    runtime: str | Path, block_id: str, line_hashes: list[str] | None = None
+) -> bool:
+    """개념 블록이 이미 처리됐는지 — 블록 id 자체가 resolved거나 **모든 자식 줄**이
+    resolved면 True. 자식 중 하나라도 미해소면 False → 리뷰로 올린다(A2′ #131)."""
+    if not study_store.available():
+        return False
+    if is_resolved(runtime, block_id):
+        return True
+    if not line_hashes:
+        return False
+    return all(is_resolved(runtime, h) for h in line_hashes)
+
+
+def candidate_lines(runtime: str | Path, ident: str) -> list[str]:
+    """후보(블록)의 자식 줄-해시를 순서대로 반환한다(A2′)."""
+    if not study_store.available():
+        return []
+    return study_store.candidate_lines(runtime, ident)
+
+
+def block_known_lines(runtime: str | Path, ident: str) -> list[str]:
+    """후보의 자식 줄 중 이미 처리(resolved)된 줄-해시 — 혼합-이력 표식(A2′)."""
+    return [h for h in candidate_lines(runtime, ident) if is_resolved(runtime, h)]
 
 
 def list_candidates(runtime: str | Path) -> list[dict]:
@@ -156,8 +195,15 @@ def record(runtime: str | Path, ident: str, status: str, ref: str | None = None)
         raise ValueError(f"알 수 없는 status: {status}")
     if not study_store.available():
         return
+    # A2′(#131): 블록 id + 자식 줄-해시를 함께 원장에 — 미래에 같은 줄이 **다른 그룹핑**
+    # 으로 재캡처돼도 줄-단위로 dedup되어 재부상하지 않는다(ledger 연속성).
+    children = [h for h in study_store.candidate_lines(runtime, ident) if h != ident]
     study_store.insert_resolution(runtime, ident, status, ref)
-    journal_append(runtime, status, ident, ref=ref)  # 순서·시각 이력(#114 U5)
+    journal_append(runtime, status, ident, ref=ref)  # 순서·시각 이력(#114 U5) — 블록만
+    for child in children:
+        study_store.insert_resolution(runtime, child, status, None)
     shared = _global_ledger_root(runtime)
     if shared is not None:
         study_store.insert_resolution(shared, ident, status, ref)
+        for child in children:
+            study_store.insert_resolution(shared, child, status, None)
