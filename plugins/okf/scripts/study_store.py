@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS candidate (
     captured_at   TEXT,
     ingested_at   TEXT,
     recurrence    INTEGER NOT NULL DEFAULT 1,
-    supersedes    TEXT
+    supersedes    TEXT,
+    simhash       TEXT
 );
 CREATE TABLE IF NOT EXISTS candidate_line (
     candidate_id TEXT NOT NULL,
@@ -68,6 +69,7 @@ _ADDED_COLUMNS = {
         "ingested_at": "TEXT",
         "recurrence": "INTEGER NOT NULL DEFAULT 1",
         "supersedes": "TEXT",
+        "simhash": "TEXT",
     },
     "resolution": {"invalidated_at": "TEXT"},
 }
@@ -151,21 +153,24 @@ def insert_candidate(
     line_hashes: list[str] | None = None,
     captured_at: str | None = None,
     ingested_at: str | None = None,
+    simhash: str | None = None,
 ) -> bool:
     """후보를 적재하고 **새로 들어갔는지**(True) 재등장인지(False) 반환한다.
 
     동일 id 재캡처는 **재등장 카운터를 올린다**(#132) — 승격 판단 신호. ``captured_at``
     (valid-time, 첫 캡처)·``ingested_at``(transaction-time)은 후보에 부착되는 이원
-    타임스탬프다. ``line_hashes``는 자식 줄-해시(A2′, #131).
+    타임스탬프다. ``line_hashes``는 자식 줄-해시(A2′, #131). ``simhash``는 근사중복
+    자문용 지문(#133).
     """
     with _connect(runtime) as conn:
         existed = (
             conn.execute("SELECT 1 FROM candidate WHERE id=?", (ident,)).fetchone() is not None
         )
         conn.execute(
-            "INSERT INTO candidate(id, snippet, source, captured_date, captured_at, ingested_at) "
-            "VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET recurrence = recurrence + 1",
-            (ident, snippet, source, captured_date, captured_at, ingested_at),
+            "INSERT INTO candidate(id, snippet, source, captured_date, captured_at, ingested_at, "
+            "simhash) VALUES(?,?,?,?,?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET recurrence = recurrence + 1",
+            (ident, snippet, source, captured_date, captured_at, ingested_at, simhash),
         )
         if not existed and line_hashes:
             conn.executemany(
@@ -198,6 +203,14 @@ def set_supersedes(runtime: str | Path, ident: str, target: str | None) -> None:
     """후보가 갱신하는 기존 개념 id를 기록한다(#132 supersedes 링크)."""
     with _connect(runtime) as conn:
         conn.execute("UPDATE candidate SET supersedes=? WHERE id=?", (target, ident))
+
+
+def list_fingerprints(runtime: str | Path) -> list[tuple[str, str | None]]:
+    """(id, simhash) 목록 — 근사중복 자문 스캔용(#133)."""
+    if not _exists(runtime):
+        return []
+    with _connect(runtime) as conn:
+        return [(r[0], r[1]) for r in conn.execute("SELECT id, simhash FROM candidate").fetchall()]
 
 
 def candidate_lines(runtime: str | Path, ident: str) -> list[str]:
