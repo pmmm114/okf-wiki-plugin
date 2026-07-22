@@ -4,7 +4,7 @@
 (`docs/releasing.md` 참조). 태그 하나 = repo 전체 묶음(엔진 + 플러그인 +
 `actions/validate` + pre-commit)의 직배달(D2) 릴리스.
 
-## v0.5.0 — (개발 중)
+## v0.5.0 — 2026-07-22
 
 ### 추가
 
@@ -19,6 +19,15 @@
   앵커 불변) (#133). 마이그레이션 2원천 — pre-0.4 홈·0.4.x 유저스코프 markdown →
   `study.db` 멱등 이관 + doctor 업그레이드 안내(`_sqlite3` 부재 시 `OKF_PYTHON`) (#134).
   문서·게이트 정합 (#135)
+- **릴리스 노트 생성기 + GitHub Release 자동 발행** (#143): 스쿼시 로그(PR 1건 = 한 줄)를
+  타입별(feat/fix/docs)로 묶어 마크다운으로 내는 stdlib 무의존·오프라인 생성기
+  (`scripts/release_notes.py`) + `release-tag.yml`이 태그 직후 그 출력으로 GitHub
+  Release를 자동 발행 (#142)
+
+### 문서
+
+- 설명형 README로 재구성 — Why·동작 방식·기억 계층·컨포먼스·trust (#144)
+- 배포·버전관리 가이드에 마일스톤 생성·부착 실무 추가 (#128)
 
 ## v0.4.0 — 2026-07-22
 
