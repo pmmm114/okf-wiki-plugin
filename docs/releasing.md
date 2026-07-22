@@ -62,6 +62,21 @@ pre-commit)의 직배달(D2) 릴리스다.
 - 목표일을 둘 수 있으나 **컷을 강제하지 않는다** — 게이트는 날짜가 아니라
   마일스톤 완성이다. 그래서 "정해진 항목만"이 구조적으로 지켜진다.
 
+### 마일스톤 생성·부착 (실무)
+
+- **언제**: 사이클 시작 시(범위가 정해지면) 마일스톤을 먼저 만들고 이슈를 붙인다.
+  Epic이면 Epic·유닛을 모두 같은 마일스톤에 부착한다.
+- **생성 방법** — Title은 태그와 **동일하게** `vX.Y.Z`:
+  - UI: repo → **Issues → Milestones → New milestone**.
+  - `gh`: `gh api repos/<owner>/<repo>/milestones -f title="vX.Y.Z" -f state=open -f description="<한 줄 요약>"`.
+- **부착**: 이슈/PR의 Milestone 필드를 그 마일스톤으로. `gh issue edit <N> --milestone vX.Y.Z`
+  또는 API(`PATCH .../issues/<N>` `milestone=<번호>`). 닫힌 이슈도 부착된다(사후 그룹핑 가능).
+- ⚠️ **에이전트 주의**: GitHub MCP에는 **마일스톤 생성 도구가 없다**(조회·이슈·PR·
+  브랜치만). 마일스톤 만들기는 **사람이 UI/`gh`로** 하고, 에이전트는 그 뒤 이슈
+  부착(issue update의 `milestone` **번호**)만 한다. 번호는 마일스톤 URL
+  `.../milestone/<N>`에 있다 — **제목이 아니라 번호**이고, 기존 마일스톤 번호와
+  헷갈리지 않도록 URL로 확인한다.
+
 ## 릴리스 컷 절차
 
 ```mermaid
@@ -88,6 +103,7 @@ flowchart LR
 
 ### 릴리스 체크리스트
 
+- [ ] 마일스톤 `vX.Y.Z` 생성(사람이 UI/`gh`) + 대상 이슈·Epic·유닛 부착
 - [ ] 마일스톤 100% 닫힘, 스코프 밖 항목 없음
 - [ ] `okf-core/pyproject.toml` 버전 `.dev0` 제거 **+ 루트 `pyproject.toml` 동기**
 - [ ] `CHANGELOG.md` 갱신(아래 생성법)
