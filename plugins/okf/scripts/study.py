@@ -150,6 +150,14 @@ def cmd_scan(args) -> int:
     return 0
 
 
+def cmd_log(args) -> int:
+    # 이벤트 저널(capture/promote/discard 이력) — 비-git 스테이징의 순서·로그(#114 U5)
+    _promote, runtime = _scope(args.project)
+    events = okf_inbox.read_journal(runtime, limit=args.limit) if runtime else []
+    print(json.dumps(events, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_dispatch(args) -> int:
     # 설정·핸들러·해시 루트는 승격 대상 repo, trust 파일은 런타임 루트(#114).
     promote, runtime = _scope(args.project)
@@ -205,6 +213,10 @@ def main(argv: list[str] | None = None) -> int:
     scn.add_argument("project", nargs="?", default=".")
     scn.add_argument("--enqueue", action="store_true")
 
+    lg = sub.add_parser("log", help="이벤트 저널(capture/promote/discard 이력) 출력")
+    lg.add_argument("project", nargs="?", default=".")
+    lg.add_argument("--limit", type=int, default=None)
+
     args = ap.parse_args(argv)
     handlers = {
         "list": cmd_list,
@@ -212,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         "clear": cmd_clear,
         "dispatch": cmd_dispatch,
         "scan": cmd_scan,
+        "log": cmd_log,
     }
     return handlers[args.cmd](args)
 

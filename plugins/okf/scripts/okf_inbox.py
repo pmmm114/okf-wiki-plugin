@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextlib
 import datetime
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -28,6 +29,7 @@ except ImportError:  # pragma: no cover - POSIX 외 플랫폼
 
 INBOX_NAME = "inbox.md"
 LEDGER_NAME = "ledger"
+JOURNAL_NAME = "journal.jsonl"
 INBOX_TITLE = "# Study Inbox"
 _ID_LEN = 12
 _SEP = " — "
@@ -57,6 +59,52 @@ def _ledger_path(runtime: str | Path) -> Path:
 
 def _today() -> str:
     return datetime.date.today().isoformat()
+
+
+def _now() -> str:
+    """이벤트 저널 타임스탬프(ISO, 초 단위). 테스트는 monkeypatch로 결정론화한다."""
+    return datetime.datetime.now().isoformat(timespec="seconds")
+
+
+# --- 이벤트 저널 (#114 U5) — 비-git 스테이징의 순서·이력 로그 ------------------
+#
+# capture/promote/discard를 append-only JSONL로 남긴다. 유저 스코프 스테이징은
+# git가 없어 `git log`식 이력이 없으므로, "무엇을 언제 어떤 순서로 캡처·처리했나"를
+# 이 저널이 담당한다. best-effort(실패는 본류를 안 깬다).
+
+
+def _journal_path(runtime: str | Path) -> Path:
+    return Path(runtime) / JOURNAL_NAME
+
+
+def journal_append(runtime: str | Path, action: str, ident: str, **extra) -> None:
+    """이벤트 저널에 한 줄 기록한다({ts, action, id, ...})."""
+    entry = {"ts": _now(), "action": action, "id": ident}
+    entry.update({key: value for key, value in extra.items() if value is not None})
+    path = _journal_path(runtime)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:  # pragma: no cover - 저널은 best-effort
+        pass
+
+
+def read_journal(runtime: str | Path, limit: int | None = None) -> list[dict]:
+    """이벤트 저널을 시간순(오래된→최신)으로 읽는다. limit면 최신 N개."""
+    path = _journal_path(runtime)
+    if not path.is_file():
+        return []
+    events = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            continue
+    return events[-limit:] if limit else events
 
 
 # --- inbox ----------------------------------------------------------------
@@ -149,6 +197,7 @@ def append(project: str | Path, snippet: str, source: str, date: str | None = No
         path = _inbox_path(project)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_serialize(groups), encoding="utf-8")
+        journal_append(project, "capture", ident, source=source)  # 순서·시각 이력(#114 U5)
     return ident
 
 
@@ -255,6 +304,7 @@ def record(runtime: str | Path, ident: str, status: str, ref: str | None = None)
     if status not in ("promoted", "discarded"):
         raise ValueError(f"알 수 없는 status: {status}")
     _ledger_append(runtime, ident, status, ref)
+    journal_append(runtime, status, ident, ref=ref)  # 순서·시각 이력(#114 U5)
     shared = _global_ledger_root(runtime)
     if shared is not None:
         _ledger_append(shared, ident, status, ref)

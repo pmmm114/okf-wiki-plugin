@@ -139,6 +139,17 @@ def _inbox_lines(project: str) -> list[str]:
     return lines or ["  (활성 inbox 없음)"]
 
 
+def _journal_lines(project: str) -> list[str]:
+    # 최근 이벤트 저널(순서·시각) — 비-git 스테이징의 로그(#114 U5)
+    runtime = okf_home.resolve_capture(project)["runtime_root"]
+    if runtime is None:
+        return ["  (활성 런타임 없음)"]
+    events = okf_inbox.read_journal(runtime, limit=5)
+    if not events:
+        return ["  (이력 없음)"]
+    return [f"  {e.get('ts', '?')} {e.get('action', '?')} {e.get('id', '?')}" for e in events]
+
+
 def _recovery_lines(project: str) -> list[str]:
     home, reason = okf_home.home_state()
     if reason is not None:
@@ -167,6 +178,7 @@ def run(project: str) -> str:
         ("홈", _home_notes(project)),
         ("캡처 입구", _entrance_lines(project)),
         ("inbox", _inbox_lines(project)),
+        ("최근 이력", _journal_lines(project)),
     ]
     recovery = _recovery_lines(project)
     if recovery:

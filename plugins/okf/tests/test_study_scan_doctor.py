@@ -153,6 +153,15 @@ def test_doctor_auto_memory_disabled(monkeypatch, tmp_path):
     assert "자동 메모리: 비활성" in out
 
 
+def test_doctor_shows_recent_journal(monkeypatch, tmp_path):
+    # #114 U5 — doctor가 이벤트 저널 최근 이력을 보인다
+    home = _valid_home(tmp_path, {"capture": "review"})
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    okf_inbox.append(okf_home.user_scope_runtime(), "저널 한 줄", "MEMORY.md")
+    out = okf_doctor.run(str(_project(tmp_path)))
+    assert "최근 이력" in out and "capture" in out
+
+
 def test_doctor_unqueued_recovery_hint(monkeypatch, tmp_path):
     _memory_file(tmp_path, ["eta fact"])
     home = _valid_home(tmp_path, {"capture": "review"})
