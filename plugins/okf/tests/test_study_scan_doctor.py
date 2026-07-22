@@ -186,3 +186,13 @@ def test_doctor_unqueued_recovery_hint(monkeypatch, tmp_path):
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
     out = okf_doctor.run(str(_project(tmp_path)))
     assert "[회복]" in out and "미큐잉 후보 1개" in out and "--enqueue" in out
+
+
+def test_doctor_shows_recurrence(monkeypatch, tmp_path):
+    # U3 #132 — 재등장(recurrence>1) 후보를 doctor 대기 요약에 표시
+    home = _valid_home(tmp_path, {"capture": "review"})
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    rt = okf_home.user_scope_runtime()
+    okf_inbox.append(rt, "recurring concept", "MEMORY.md")
+    okf_inbox.append(rt, "recurring concept", "MEMORY.md")  # 재캡처 → recurrence 2
+    assert "재등장" in okf_doctor.run(str(_project(tmp_path)))

@@ -15,10 +15,12 @@ import study_store
 
 def test_candidate_crud_roundtrip(tmp_path):
     assert study_store.insert_candidate(tmp_path, "aa", "snip", "src", "2026-07-22") is True
-    assert study_store.insert_candidate(tmp_path, "aa", "snip", "src", "2026-07-22") is False  # dup
+    assert (
+        study_store.insert_candidate(tmp_path, "aa", "snip", "src", "2026-07-22") is False
+    )  # 재등장
     assert study_store.has_candidate(tmp_path, "aa") is True
     assert study_store.list_candidates(tmp_path) == [
-        {"id": "aa", "date": "2026-07-22", "snippet": "snip", "source": "src"}
+        {"id": "aa", "date": "2026-07-22", "snippet": "snip", "source": "src", "recurrence": 2}
     ]
     assert study_store.delete_candidates(tmp_path, ["aa"]) == ["aa"]
     assert study_store.list_candidates(tmp_path) == []
@@ -77,3 +79,67 @@ def test_bad_status_raises_even_when_sqlite_absent(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError):
         okf_inbox.record(tmp_path, "id", "weird")
+
+
+# --- 시간축·승격 메타 (U3 #132) --------------------------------------------
+
+
+def test_recurrence_counts_recapture(tmp_path):
+    study_store.insert_candidate(tmp_path, "aa", "s", "src", "2026-07-22", captured_at="t0")
+    study_store.insert_candidate(tmp_path, "aa", "s", "src", "2026-07-23", captured_at="t9")
+    study_store.insert_candidate(tmp_path, "aa", "s", "src", "2026-07-24", captured_at="t9")
+    meta = study_store.candidate_meta(tmp_path, "aa")
+    assert meta["recurrence"] == 3  # 재캡처마다 카운터 증가(새 후보 X)
+    assert meta["captured_at"] == "t0"  # 첫 캡처 시각 불변(valid-time 원점)
+    assert len(study_store.list_candidates(tmp_path)) == 1
+
+
+def test_bitemporal_timestamps_attached(tmp_path):
+    okf_inbox.append(tmp_path, "concept", "M.md", captured_at="2026-07-22T09:00:00")
+    ident = okf_inbox.content_hash("concept")[:12]
+    meta = okf_inbox.candidate_meta(tmp_path, ident)
+    assert meta["captured_at"] == "2026-07-22T09:00:00"  # 넘긴 valid-time
+    assert meta["ingested_at"] is not None  # transaction-time은 현재 시각
+
+
+def test_supersedes_link_roundtrip(tmp_path):
+    okf_inbox.append(tmp_path, "new concept", "M.md")
+    ident = okf_inbox.content_hash("new concept")[:12]
+    assert okf_inbox.candidate_meta(tmp_path, ident)["supersedes"] is None
+    okf_inbox.set_supersedes(tmp_path, ident, "old-concept-id")
+    assert okf_inbox.candidate_meta(tmp_path, ident)["supersedes"] == "old-concept-id"
+
+
+def test_invalidate_does_not_delete(tmp_path):
+    okf_inbox.record(tmp_path, "id1", "promoted", ".okf/x.md")
+    okf_inbox.invalidate(tmp_path, "id1")
+    assert okf_inbox.is_resolved(tmp_path, "id1") is True  # dedup 판정엔 그대로(재부상 계속 차단)
+    assert study_store.resolution_invalidated_at(tmp_path, "id1") is not None  # 무효화 시각 보존
+
+
+def test_migration_adds_columns_to_old_db(tmp_path):
+    # 구 유닛(U1/U2) 스키마 db가 U3 코드에서 컬럼 보강돼 동작한다(#132)
+    import sqlite3
+
+    db = tmp_path / study_store.DB_NAME
+    conn = sqlite3.connect(str(db))
+    conn.executescript(
+        "CREATE TABLE candidate (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,"
+        " snippet TEXT NOT NULL, source TEXT NOT NULL DEFAULT '', captured_date TEXT NOT NULL);"
+        " CREATE TABLE resolution (id TEXT PRIMARY KEY, status TEXT NOT NULL, ref TEXT);"
+    )
+    conn.execute(
+        "INSERT INTO candidate(id, snippet, source, captured_date)"
+        " VALUES('old','s','src','2026-07-01')"
+    )
+    conn.commit()
+    conn.close()
+
+    assert study_store.list_candidates(tmp_path) == [
+        {"id": "old", "date": "2026-07-01", "snippet": "s", "source": "src", "recurrence": 1}
+    ]
+    assert (
+        study_store.insert_candidate(tmp_path, "new", "n", "src", "2026-07-02", captured_at="t")
+        is True
+    )
+    assert study_store.candidate_meta(tmp_path, "new")["captured_at"] == "t"

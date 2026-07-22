@@ -58,11 +58,14 @@ def append(
     source: str,
     date: str | None = None,
     line_hashes: list[str] | None = None,
+    captured_at: str | None = None,
 ) -> str:
-    """후보(개념 블록)를 inbox에 적재하고 id를 반환한다. 동일 id는 재적재하지 않는다.
+    """후보(개념 블록)를 inbox에 적재하고 id를 반환한다.
 
-    ``line_hashes``는 블록의 자식 줄-해시(A2′, #131). 미지정이면 단일 줄 블록으로 보고
-    id 자신을 자식으로 둔다(구 단일-줄 호출부·마이그레이션 하위호환).
+    동일 id 재캡처는 새 후보를 만들지 않고 **재등장 카운터를 올린다**(#132). ``line_hashes``
+    는 블록의 자식 줄-해시(A2′, #131); 미지정이면 단일 줄 블록으로 보고 id 자신을 자식으로
+    둔다. ``captured_at``(valid-time)은 미지정 시 현재 시각 — 마이그레이션은 원 캡처 시각을
+    넘긴다.
     """
     snippet = _sanitize(snippet)
     source = _sanitize(source)
@@ -70,12 +73,41 @@ def append(
     if not study_store.available():
         return ident  # fail-closed: sqlite3 부재 → 무적재(캡처 off와 동형)
     children = line_hashes if line_hashes is not None else [ident]
+    now = _now()
     inserted = study_store.insert_candidate(
-        runtime, ident, snippet, source, date or _today(), children
+        runtime,
+        ident,
+        snippet,
+        source,
+        date or _today(),
+        children,
+        captured_at=captured_at or now,
+        ingested_at=now,
     )
     if inserted:
         journal_append(runtime, "capture", ident, source=source)  # 순서·시각 이력(#114 U5)
     return ident
+
+
+def candidate_meta(runtime: str | Path, ident: str) -> dict:
+    """후보의 시간축·승격 메타 {captured_at, ingested_at, recurrence, supersedes}(#132)."""
+    if not study_store.available():
+        return {}
+    return study_store.candidate_meta(runtime, ident)
+
+
+def set_supersedes(runtime: str | Path, ident: str, target: str | None) -> None:
+    """후보가 갱신하는 기존 개념 id를 기록한다(#132 supersedes 링크)."""
+    if not study_store.available():
+        return
+    study_store.set_supersedes(runtime, ident, target)
+
+
+def invalidate(runtime: str | Path, ident: str) -> None:
+    """원장 항목을 무효화(보존) — 갱신·초과된 판정을 지우지 않고 시각만 새긴다(#132)."""
+    if not study_store.available():
+        return
+    study_store.invalidate_resolution(runtime, ident, _now())
 
 
 def block_resolved(

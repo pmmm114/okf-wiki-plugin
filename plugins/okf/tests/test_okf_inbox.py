@@ -18,6 +18,7 @@ def test_append_and_list_roundtrip(tmp_path):
         "date": "2026-07-19",
         "snippet": "테스트 명령은 uv run pytest",
         "source": "MEMORY.md",
+        "recurrence": 1,
     }
 
 
