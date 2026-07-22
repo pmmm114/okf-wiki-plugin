@@ -78,6 +78,22 @@ def _home_notes(project: str) -> list[str]:
             "  메모: 홈 캡처 off(capture=off) — 켜려면 홈 study.capture를 review로 "
             "(또는 `/okf-init --home <홈>` 재실행)"
         )
+    # 홈 부합(#114 U3) — 번들 존재 + 런타임 누수 진단(홈은 순수 목적지여야 한다)
+    home_config = okf_home.load_config(home)
+    bundle_path = ".okf"
+    if isinstance(home_config, dict) and isinstance(home_config.get("bundlePath"), str):
+        bundle_path = home_config["bundlePath"]
+    if (Path(home) / bundle_path).is_dir():
+        lines.append(
+            f"  부합: 번들 {bundle_path} 있음(`okf validate {bundle_path} --strict`로 건강 확인)"
+        )
+    else:
+        lines.append(f"  부합: ⚠ 번들 {bundle_path} 없음 — 홈 repo엔 큐레이션 번들이 필요")
+    if (Path(home) / ".okf-study").exists():
+        lines.append(
+            "  부합: ⚠ 홈에 `.okf-study` 런타임 잔존 — 홈은 순수 목적지여야 한다. "
+            "`study migrate`로 유저 스코프 이동(#114)"
+        )
     block = okf_home.study_block(okf_home.load_config(project))
     if block is not None and block.get("scope") == "home":
         if "capture" not in block:

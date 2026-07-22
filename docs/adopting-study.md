@@ -97,7 +97,7 @@
 있다. **그대로 쓰는 활성 핸들러가 아니라** 소비처가 자기 커밋 경로(예: `scripts/`)로
 복사·수정하는 골격이다. 목적지 repo는 하드코딩하지 말고 소비처가 채운다.
 
-## 7. 홈 프로젝트 폴백 — repo 밖에서도 적립 (Epic #91)
+## 7. 홈 프로젝트 폴백 — repo 밖에서도 적립 (Epic #91·#114)
 
 슬로건: **"자기 파이프라인이 있으면 거기로, 없으면 홈으로."**
 
@@ -105,49 +105,63 @@
 위치에서도**(스크래치 폴더·무설정 repo 포함) 캡처·주입이 사용자가 지정한 **홈
 repo**(예: 소비처 KB 클론)로 흐른다.
 
+### 지식 홈 repo 패턴 (#114)
+
+홈은 **순수 지식 목적지**다 — 큐레이션된 지식만 담고 런타임 스테이징을 담지 않는다.
+
+| 요소 | 규약 |
+| --- | --- |
+| 구조 | `.okf/` 큐레이션 번들(index·log·개념, strict-valid) + `.okf-wiki.json`(홈 지목 설정, `study.capture`). **런타임(inbox/ledger/trust)은 홈에 없다** |
+| 런타임 위치 | `~/.claude/okf/study`(유저 스코프) — 스테이징은 홈 repo가 아니라 여기에 쌓인다 |
+| 역할 | 승격 대상 — `/study`가 후보를 검수해 `.okf/`에 큐레이션 편집만 쓴다(git diff로 확인·커밋) |
+| 검증 | `okf validate .okf --strict`(번들 건강) + `/okf-doctor`(홈 부합·스코프 트레이스) |
+
+→ 홈은 스캐폴드·조작 대상이 아니다. **홈 안에서 세션을 열 필요가 없고**(그러면
+okf 스킬 유지 플로우가 켜져 기존 지식을 재평가한다), 승격만 `/study`로 한다.
+
 ### 셋업 (1회)
 
 ```
-/okf-init --home <홈 repo 경로>     # 검증 → 포인터(~/.claude/okf/home-project) 기록
-/study --trust                      # 홈 repo에서 핸들러 로컬 승인
+/okf-init --home <홈 repo 경로>     # 검증 → 포인터 기록 + (주입 전용이면) 캡처 활성 제안
+/study --trust                      # 홈 핸들러 로컬 승인(있으면)
 ```
 
-홈 repo는 §1~§5를 갖춘 **보통의 소비 repo**다 — 보안 모델(커밋 핸들러 + trust)도
-그대로다. 홈 설정의 `study.capture`는 `review` 권장(`auto`는 세션 시작 넛지가 모든
-무설정 세션에 따라온다).
+홈 repo는 `.okf/`가 이미 있는 지식 repo면 된다. `study.capture`가 꺼져 있으면
+마법사가 켜기를 제안한다 — 홈 `.okf-wiki.json`의 설정만 켜고 런타임은 유저
+스코프에 둔다(홈엔 `.okf-study`를 만들지 않는다). `review` 권장(`auto`는 세션
+시작 넛지가 모든 무설정 세션에 따라온다).
 
 ### 위치별 동작
 
-| 내가 있는 곳 | 캡처 → | 주입 ← |
+| 내가 있는 곳 | 캡처(스테이징) → | 주입 ← |
 | --- | --- | --- |
-| study 블록 있는 repo | 그 repo inbox | 그 repo 번들 |
-| `scope:"home"` 선언 repo | **홈** inbox | 그 repo 번들 |
-| 주입 전용 설정 repo(study 블록 없음) | **홈** inbox | 그 repo 번들 |
-| 무설정 repo · 비-repo 폴더 | **홈** inbox | **홈** 번들 |
+| study 블록 있는 repo | 그 repo `.okf-study` | 그 repo 번들 |
+| `scope:"home"` 선언 repo | **유저 스코프** | 그 repo 번들 |
+| 주입 전용 설정 repo(study 블록 없음) | **유저 스코프** | 그 repo 번들 |
+| 무설정 repo · 비-repo 폴더 | **유저 스코프** | **홈** 번들 |
+| 홈 repo 자신 | **유저 스코프** | 홈 번들 |
 
-- 자동 캡처의 스코프는 위치가 정하고(이벤트당 정확히 하나), 의도가 있을 때만
-  `/study --scope home|project`로 벽을 넘는다.
-- 운영 권고: **프로젝트 파이프라인은 최소로** — 대부분의 repo는 study 블록 없이
-  두면 적재가 홈 단일 경로로 수렴한다. 자기 번들이 정말 필요한 repo만 로컬
-  파이프라인을 두고 핸들러를 홈 쪽으로 배선한다.
+승격은 언제나 홈 `.okf/`로 간다(위 스테이징 → `/study` 검수 → 홈 번들). 자동 캡처의
+스코프는 위치가 정하고(이벤트당 정확히 하나), 의도가 있을 때만 `/study --scope
+home|project`로 벽을 넘는다.
 
 ### 이력·회복
 
-- 지식·이력의 **정본은 번들 + log.md + git**이다. inbox는 드레인되면 삭제되는
-  소모품 큐 — 유실돼도 사라지는 건 미검토 후보뿐이다(캡처의 원천은 메모리 파일).
-- 포인터가 깨진 기간의 미큐잉은 `study scan`(원장·inbox 대비 차집합 탐지) →
-  `study scan --enqueue`(멱등 재적재)로 회복한다. 막히면 `/okf-doctor`가 현재
-  위치의 스코프 해소 결과와 이유를 그대로 보여준다.
-- 스코프를 넘는 중복 재큐(예: repo A에서 promote한 스니펫을 다른 위치에서 재저장)는
-  **전역 원장**이 막는다 — promote/discard가 홈 원장에도 write-through되고, 캡처
-  dedup은 활성 원장과 홈 원장을 함께 본다.
+- 지식·이력의 **정본은 번들 + log.md + git**이다. 유저 스코프 스테이징
+  (inbox·journal)은 드레인되면 소모되는 큐다. 순서·시각 이력은 `study log`
+  (이벤트 저널: capture/promote/discard)로 조회하고, 승격 시 캡처 일자를 홈
+  `.okf/log.md`에 새겨 **버저닝을 git에 남긴다**(#114 U5).
+- 포인터가 깨진 기간의 미큐잉은 `study scan` → `study scan --enqueue`(멱등)로
+  회복한다. 막히면 `/okf-doctor`가 현재 위치의 스코프 해소·홈 부합을 보여준다.
+- 스코프를 넘는 중복 재큐는 **전역(유저 스코프 공유) 원장**이 막는다 —
+  promote/discard가 공유 원장에도 write-through되고 dedup이 함께 본다.
 
-상세 규약(포인터 값·유효 판정·해소 규칙·침묵 정책·`study.scope`/`memoryPathPattern`
-스키마)은 [`CONFIG.md`](../plugins/okf/skills/okf/reference/CONFIG.md)의 "홈 프로젝트
-폴백" 절이 정본이다.
+상세 규약(포인터 값·유효 판정·해소 규칙·침묵 정책·스키마)은
+[`CONFIG.md`](../plugins/okf/skills/okf/reference/CONFIG.md)의 "홈 프로젝트 폴백"
+절이 정본이다.
 
-> 구현: Epic #91 전 유닛 랜딩 완료 — 캡처 폴백(#93)·주입 폴백과 마법사(#94)·
-> 전역 원장(#95)·doctor와 scan(#97). 본 절의 모든 명령은 실측 검증됐다.
+> 구현: Epic #91(폴백·마법사·전역 원장·doctor) + #114(런타임 유저 스코프 분리·홈
+> 순수 목적지·이벤트 저널). 본 절의 모든 명령은 실측 검증됐다.
 
 ## 요약
 
