@@ -9,6 +9,8 @@
   study dispatch <project> --source S --concept-path P --concept-type T --concept-topic X
                                                          핸들러 실행(경로·git·trust 게이트)
   study scan     <project> [--enqueue]                   미큐잉 후보 결정론 탐지(+재적재)
+  study log      <project> [--limit N]                    이벤트 저널(capture/promote/discard)
+  study migrate  [<project>]                              홈 .okf-study → 유저 스코프 멱등 이동
 
 ``dispatch``는 trust 미승인 핸들러가 있으면 결과에 안내를 붙인다(가시적 저하) —
 개념은 이미 스킬이 로컬 번들에 승격·검증했고, 여기서 핸들러만 보류된다.
@@ -158,6 +160,49 @@ def cmd_log(args) -> int:
     return 0
 
 
+def cmd_migrate(args) -> int:
+    # 기존 홈 <home>/.okf-study 런타임을 유저 스코프로 멱등 이동(#114 U4) — 홈을 순수 목적지로.
+    import shutil
+
+    home, reason = okf_home.home_state()
+    if home is None:
+        print(
+            json.dumps(
+                {"migrated": False, "reason": reason or "홈 포인터 없음"}, ensure_ascii=False
+            )
+        )
+        return 0
+    src = Path(home) / ".okf-study"
+    dst = str(okf_home.user_scope_runtime())
+    if not src.exists():
+        print(json.dumps({"migrated": False, "reason": "홈에 .okf-study 없음"}, ensure_ascii=False))
+        return 0
+    moved = {"candidates": 0, "ledger": 0, "trust": False}
+    for cand in okf_inbox.list_candidates(src):
+        if okf_inbox.is_resolved(dst, cand["id"]):
+            continue
+        before = len(okf_inbox.list_candidates(dst))
+        okf_inbox.append(dst, cand["snippet"], cand["source"], date=cand["date"])
+        if len(okf_inbox.list_candidates(dst)) > before:
+            moved["candidates"] += 1
+    src_ledger = src / "ledger"
+    if src_ledger.is_file():
+        for line in src_ledger.read_text(encoding="utf-8").splitlines():
+            parts = line.split(" ", 2)
+            if len(parts) >= 2 and parts[1] in ("promoted", "discarded"):
+                if not okf_inbox.is_resolved(dst, parts[0]):
+                    okf_inbox.record(dst, parts[0], parts[1], parts[2] if len(parts) > 2 else None)
+                    moved["ledger"] += 1
+    src_trust, dst_trust = src / "trust", Path(dst) / "trust"
+    if src_trust.is_file() and not dst_trust.is_file():
+        dst_trust.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src_trust, dst_trust)
+        moved["trust"] = True
+    shutil.rmtree(src)  # 내용은 유저 스코프로 이관됨 — 홈을 순수 목적지로 되돌린다
+    print(json.dumps({"migrated": True, "moved": moved, "removed": str(src)}, ensure_ascii=False))
+    return 0
+
+
 def cmd_dispatch(args) -> int:
     # 설정·핸들러·해시 루트는 승격 대상 repo, trust 파일은 런타임 루트(#114).
     promote, runtime = _scope(args.project)
@@ -217,6 +262,9 @@ def main(argv: list[str] | None = None) -> int:
     lg.add_argument("project", nargs="?", default=".")
     lg.add_argument("--limit", type=int, default=None)
 
+    mig = sub.add_parser("migrate", help="기존 홈 .okf-study 런타임 → 유저 스코프 멱등 이동")
+    mig.add_argument("project", nargs="?", default=".")
+
     args = ap.parse_args(argv)
     handlers = {
         "list": cmd_list,
@@ -225,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         "dispatch": cmd_dispatch,
         "scan": cmd_scan,
         "log": cmd_log,
+        "migrate": cmd_migrate,
     }
     return handlers[args.cmd](args)
 
