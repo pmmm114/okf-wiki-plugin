@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS candidate (
     source        TEXT NOT NULL DEFAULT '',
     captured_date TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS candidate_line (
+    candidate_id TEXT NOT NULL,
+    line_hash    TEXT NOT NULL,
+    seq          INTEGER NOT NULL,
+    PRIMARY KEY (candidate_id, seq)
+);
 CREATE TABLE IF NOT EXISTS resolution (
     id     TEXT PRIMARY KEY,
     status TEXT NOT NULL,
@@ -115,15 +121,41 @@ def _connect(runtime: str | Path):
 
 
 def insert_candidate(
-    runtime: str | Path, ident: str, snippet: str, source: str, captured_date: str
+    runtime: str | Path,
+    ident: str,
+    snippet: str,
+    source: str,
+    captured_date: str,
+    line_hashes: list[str] | None = None,
 ) -> bool:
-    """후보를 적재하고 실제로 새로 들어갔는지 반환한다(동일 id는 무시)."""
+    """후보를 적재하고 실제로 새로 들어갔는지 반환한다(동일 id는 무시).
+
+    ``line_hashes``는 개념 블록의 자식 줄-해시(A2′, #131) — ledger 연속성 매칭용.
+    """
     with _connect(runtime) as conn:
         cur = conn.execute(
             "INSERT OR IGNORE INTO candidate(id, snippet, source, captured_date) VALUES(?,?,?,?)",
             (ident, snippet, source, captured_date),
         )
+        if cur.rowcount > 0 and line_hashes:
+            conn.executemany(
+                "INSERT OR IGNORE INTO candidate_line(candidate_id, line_hash, seq) VALUES(?,?,?)",
+                [(ident, lh, i) for i, lh in enumerate(line_hashes)],
+            )
         return cur.rowcount > 0
+
+
+def candidate_lines(runtime: str | Path, ident: str) -> list[str]:
+    """후보의 자식 줄-해시를 순서대로 반환한다(A2′)."""
+    if not _exists(runtime):
+        return []
+    with _connect(runtime) as conn:
+        return [
+            r[0]
+            for r in conn.execute(
+                "SELECT line_hash FROM candidate_line WHERE candidate_id=? ORDER BY seq", (ident,)
+            ).fetchall()
+        ]
 
 
 def has_candidate(runtime: str | Path, ident: str) -> bool:
@@ -157,6 +189,7 @@ def delete_candidates(runtime: str | Path, ids: list[str] | set[str]) -> list[st
             ).fetchall()
         ]
         conn.execute(f"DELETE FROM candidate WHERE id IN ({marks})", ids)
+        conn.execute(f"DELETE FROM candidate_line WHERE candidate_id IN ({marks})", ids)
     return removed
 
 
@@ -166,6 +199,7 @@ def clear_candidates(runtime: str | Path) -> list[str]:
     with _connect(runtime) as conn:
         ids = [r[0] for r in conn.execute(f"SELECT id FROM candidate {_ORDER}").fetchall()]
         conn.execute("DELETE FROM candidate")
+        conn.execute("DELETE FROM candidate_line")
     return ids
 
 

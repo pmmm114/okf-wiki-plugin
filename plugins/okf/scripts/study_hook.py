@@ -18,14 +18,12 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 from pathlib import Path
 
 import okf_home
 import okf_inbox
-
-_BULLET_RE = re.compile(r"^[*\-+]\s+")
+import study_blocks
 
 
 def _dig(data, *keys):
@@ -34,15 +32,6 @@ def _dig(data, *keys):
             return None
         data = data.get(key)
     return data
-
-
-def _extract_snippet(content: str) -> str:
-    """저장 내용에서 후보 스니펫(최신 비헤딩 라인)을 뽑는다."""
-    lines = [line.strip() for line in content.splitlines() if line.strip()]
-    for line in reversed(lines):
-        if not line.startswith("#"):
-            return _BULLET_RE.sub("", line)
-    return ""  # 헤딩뿐이면 지식 후보 아님
 
 
 def run(payload: dict, project: str | Path) -> str | None:
@@ -62,15 +51,23 @@ def run(payload: dict, project: str | Path) -> str | None:
             content = Path(file_path).read_text(encoding="utf-8", errors="replace")
         except OSError:
             return None
-    snippet = _extract_snippet(content)
-    if not snippet:
+
+    # 저장 내용의 **모든 개념 블록**을 적재한다(#131) — 예전 "마지막 줄만"의 과소 캡처를
+    # 없애고 scan과 동일 단위로 통일한다. 이미 처리된 블록(자식 전부 resolved)은 건너뛴다.
+    appended = 0
+    for block in study_blocks.concept_blocks(content):
+        snippet = " ".join(block)
+        if not snippet:
+            continue
+        line_hashes = [okf_inbox.content_hash(line)[:12] for line in block]
+        bid = okf_inbox.content_hash(snippet)[:12]
+        if okf_inbox.block_resolved(runtime, bid, line_hashes):
+            continue  # 블록 id 또는 모든 자식 줄이 이미 promoted/discarded
+        okf_inbox.append(runtime, snippet, file_path, line_hashes=line_hashes)
+        appended += 1
+    if not appended:
         return None
 
-    ident = okf_inbox.content_hash(snippet)[:12]
-    if okf_inbox.is_resolved(runtime, ident):
-        return None  # 이미 promoted/discarded된 메모리 → 재적재 안 함
-
-    okf_inbox.append(runtime, snippet, file_path)
     pending = len(okf_inbox.list_candidates(runtime))
     return f"메모리 후보를 study 인박스에 적재({pending}개 대기). /study로 검토·승격하라."
 
