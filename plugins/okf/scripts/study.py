@@ -32,6 +32,7 @@ from pathlib import Path
 import okf_home
 import okf_inbox
 import study_dispatch
+import study_store
 import study_trust
 
 _HEADING_RE = re.compile(r"^\s*#")
@@ -177,6 +178,17 @@ def cmd_migrate(args) -> int:
     if not src.exists():
         print(json.dumps({"migrated": False, "reason": "홈에 .okf-study 없음"}, ensure_ascii=False))
         return 0
+    src_trust = src / "trust"
+    # U1은 스토어(study.db)+trust 이관만 다룬다. v0.4.x markdown 잔존은 U5에서 리더를
+    # 붙여 이관하므로, 인식 못 하는 형식은 **파괴 금지**(rmtree로 데이터 유실 방지).
+    if not (src / study_store.DB_NAME).is_file() and not src_trust.is_file():
+        print(
+            json.dumps(
+                {"migrated": False, "reason": "레거시 markdown 형식(U5에서 이관 추가)"},
+                ensure_ascii=False,
+            )
+        )
+        return 0
     moved = {"candidates": 0, "ledger": 0, "trust": False}
     for cand in okf_inbox.list_candidates(src):
         if okf_inbox.is_resolved(dst, cand["id"]):
@@ -185,15 +197,11 @@ def cmd_migrate(args) -> int:
         okf_inbox.append(dst, cand["snippet"], cand["source"], date=cand["date"])
         if len(okf_inbox.list_candidates(dst)) > before:
             moved["candidates"] += 1
-    src_ledger = src / "ledger"
-    if src_ledger.is_file():
-        for line in src_ledger.read_text(encoding="utf-8").splitlines():
-            parts = line.split(" ", 2)
-            if len(parts) >= 2 and parts[1] in ("promoted", "discarded"):
-                if not okf_inbox.is_resolved(dst, parts[0]):
-                    okf_inbox.record(dst, parts[0], parts[1], parts[2] if len(parts) > 2 else None)
-                    moved["ledger"] += 1
-    src_trust, dst_trust = src / "trust", Path(dst) / "trust"
+    for ident, status, ref in study_store.list_resolutions(src):
+        if not okf_inbox.is_resolved(dst, ident):
+            okf_inbox.record(dst, ident, status, ref)
+            moved["ledger"] += 1
+    dst_trust = Path(dst) / "trust"
     if src_trust.is_file() and not dst_trust.is_file():
         dst_trust.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src_trust, dst_trust)

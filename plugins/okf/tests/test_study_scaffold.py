@@ -130,4 +130,8 @@ def test_gitignore_rules_hide_runtime_state(tmp_path):
     assert _is_ignored(tmp_path, ".okf-study/inbox.md")
     assert _is_ignored(tmp_path, ".okf-study/ledger")
     assert _is_ignored(tmp_path, ".okf-study/trust")
+    # SQLite 스토어와 WAL 사이드카도 `*` 규칙이 덮는다(U1 #130).
+    assert _is_ignored(tmp_path, ".okf-study/study.db")
+    assert _is_ignored(tmp_path, ".okf-study/study.db-wal")
+    assert _is_ignored(tmp_path, ".okf-study/study.db-shm")
     assert not _is_ignored(tmp_path, ".okf-study/.gitignore")
