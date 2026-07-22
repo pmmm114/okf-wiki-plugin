@@ -205,12 +205,13 @@ def _recovery_lines(project: str) -> list[str]:
     if runtime is None:
         return []
     result = study_cli.scan_memory(project, runtime, enqueue=False)
-    count = len(result["unqueued"])
-    if count == 0:
+    unqueued = result["unqueued"]
+    if not unqueued:
         return []
+    files = len({c["source"] for c in unqueued})  # 후보(블록/줄) 수가 아닌 파일 수로 집계
     plugin = Path(__file__).resolve().parent.parent
     cmd = f'"{plugin}/bin/okf-py" "{plugin}/scripts/study.py" scan {project} --enqueue'
-    return [f"  미큐잉 후보 {count}개 — `{cmd}`로 재적재 후 /study로 선별 승격하라."]
+    return [f"  미큐잉 후보가 있는 파일 {files}개 — `{cmd}`로 재적재 후 /study로 선별 승격하라."]
 
 
 def run(project: str) -> str:

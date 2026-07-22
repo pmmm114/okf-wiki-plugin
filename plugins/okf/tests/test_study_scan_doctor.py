@@ -181,11 +181,12 @@ def test_doctor_shows_recent_journal(monkeypatch, tmp_path):
 
 
 def test_doctor_unqueued_recovery_hint(monkeypatch, tmp_path):
-    _memory_file(tmp_path, ["eta fact"])
+    # 미큐잉 집계는 후보(블록/줄) 수가 아니라 **파일 수** — 한 파일의 두 후보도 "파일 1개"
+    _memory_file(tmp_path, ["eta fact", "theta fact"])
     home = _valid_home(tmp_path, {"capture": "review"})
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
     out = okf_doctor.run(str(_project(tmp_path)))
-    assert "[회복]" in out and "미큐잉 후보 1개" in out and "--enqueue" in out
+    assert "[회복]" in out and "미큐잉 후보가 있는 파일 1개" in out and "--enqueue" in out
 
 
 def test_doctor_shows_recurrence(monkeypatch, tmp_path):
