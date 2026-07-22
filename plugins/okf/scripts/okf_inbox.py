@@ -25,6 +25,7 @@ import datetime
 import hashlib
 from pathlib import Path
 
+import study_simhash
 import study_store
 
 _ID_LEN = 12
@@ -83,10 +84,33 @@ def append(
         children,
         captured_at=captured_at or now,
         ingested_at=now,
+        simhash=study_simhash.fingerprint_hex(snippet),  # 근사중복 자문 지문(#133)
     )
     if inserted:
         journal_append(runtime, "capture", ident, source=source)  # 순서·시각 이력(#114 U5)
     return ident
+
+
+def near_duplicates(
+    runtime: str | Path, ident: str, threshold: int = study_simhash.DEFAULT_THRESHOLD
+) -> list[str]:
+    """``ident``와 SimHash 해밍거리 ``threshold`` 이하인 다른 후보 id들 — **자문 전용**.
+
+    재서술된 근사중복(정확 해시가 놓치는 것)을 표면화한다. 자동병합·게이팅 없음,
+    정확 해시 앵커를 대체하지 않는다(#133). 임계는 실측 튜닝 대상.
+    """
+    if not study_store.available():
+        return []
+    fingerprints = study_store.list_fingerprints(runtime)
+    target = next((hx for cid, hx in fingerprints if cid == ident), None)
+    if not target:
+        return []
+    target_int = int(target, 16)
+    return [
+        cid
+        for cid, hx in fingerprints
+        if cid != ident and hx and study_simhash.hamming(target_int, int(hx, 16)) <= threshold
+    ]
 
 
 def candidate_meta(runtime: str | Path, ident: str) -> dict:

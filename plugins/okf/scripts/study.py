@@ -10,6 +10,7 @@
                                                          핸들러 실행(경로·git·trust 게이트)
   study scan     <project> [--enqueue]                   미큐잉 후보 결정론 탐지(+재적재)
   study log      <project> [--limit N]                    이벤트 저널(capture/promote/discard)
+  study near     <project> [--threshold N]                근사중복 자문(SimHash 해밍거리)
   study migrate  [<project>]                              홈 .okf-study → 유저 스코프 멱등 이동
 
 ``dispatch``는 trust 미승인 핸들러가 있으면 결과에 안내를 붙인다(가시적 저하) —
@@ -32,6 +33,7 @@ import okf_home
 import okf_inbox
 import study_blocks
 import study_dispatch
+import study_simhash
 import study_store
 import study_trust
 
@@ -143,6 +145,19 @@ def cmd_clear(args) -> int:
 def cmd_scan(args) -> int:
     _promote, runtime = _scope(args.project)
     print(json.dumps(scan_memory(args.project, runtime, enqueue=args.enqueue), ensure_ascii=False))
+    return 0
+
+
+def cmd_near(args) -> int:
+    # 근사중복 자문(#133) — 재서술 후보를 트리아지에서 표면화한다(자동병합·게이팅 없음).
+    _promote, runtime = _scope(args.project)
+    pairs: dict[str, list[str]] = {}
+    if runtime:
+        for cand in okf_inbox.list_candidates(runtime):
+            dups = okf_inbox.near_duplicates(runtime, cand["id"], threshold=args.threshold)
+            if dups:
+                pairs[cand["id"]] = dups
+    print(json.dumps(pairs, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -263,6 +278,10 @@ def main(argv: list[str] | None = None) -> int:
     lg.add_argument("project", nargs="?", default=".")
     lg.add_argument("--limit", type=int, default=None)
 
+    nr = sub.add_parser("near", help="근사중복 자문(SimHash 해밍거리) — 재서술 후보 표면화")
+    nr.add_argument("project", nargs="?", default=".")
+    nr.add_argument("--threshold", type=int, default=study_simhash.DEFAULT_THRESHOLD)
+
     mig = sub.add_parser("migrate", help="기존 홈 .okf-study 런타임 → 유저 스코프 멱등 이동")
     mig.add_argument("project", nargs="?", default=".")
 
@@ -274,6 +293,7 @@ def main(argv: list[str] | None = None) -> int:
         "dispatch": cmd_dispatch,
         "scan": cmd_scan,
         "log": cmd_log,
+        "near": cmd_near,
         "migrate": cmd_migrate,
     }
     return handlers[args.cmd](args)
