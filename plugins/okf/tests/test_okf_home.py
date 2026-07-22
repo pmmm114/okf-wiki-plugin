@@ -334,7 +334,7 @@ def test_capture_state_active(tmp_path, level):
     assert okf_home.home_capture_state(home) == "active"
 
 
-def test_enable_capture_from_absent_scaffolds_and_activates(tmp_path):
+def test_enable_capture_from_absent_activates_without_home_runtime(tmp_path):
     home = _home(tmp_path, {"bundlePath": ".okf"})  # study 블록 없음
     result = okf_home.enable_home_capture(home)
     assert result["before"] == "absent"
@@ -342,7 +342,10 @@ def test_enable_capture_from_absent_scaffolds_and_activates(tmp_path):
     data = json.loads((home / ".okf-wiki.json").read_text(encoding="utf-8"))
     assert data["study"]["capture"] == "review"
     assert data["bundlePath"] == ".okf"  # 기존 키 보존
-    assert (home / ".okf-study" / ".gitignore").exists()  # 런타임 골격 보장
+    # #114 U2 — 홈엔 런타임(.okf-study)을 만들지 않는다; 런타임은 유저 스코프
+    assert not (home / ".okf-study").exists()
+    assert okf_home.user_scope_runtime().is_dir()
+    assert result["runtime_root"] == str(okf_home.user_scope_runtime())
     assert okf_home.home_capture_state(home) == "active"
 
 

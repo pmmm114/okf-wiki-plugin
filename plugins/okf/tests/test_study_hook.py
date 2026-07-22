@@ -141,6 +141,19 @@ def test_configless_dir_falls_back_to_home(monkeypatch, tmp_path):
     assert len(okf_inbox.list_candidates(_rt(scratch))) == 1
 
 
+def test_capture_never_writes_to_home_repo(monkeypatch, tmp_path):
+    # #114 U2 — 홈 폴백 캡처는 유저 스코프에만 적재, 홈 repo에 런타임을 만들지 않는다
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
+    home = _make_home(tmp_path, {"study": {"capture": "review"}})
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    payload = {"tool_input": {"file_path": MEM, "content": "* home-clean check\n"}}
+    assert study_hook.run(payload, scratch)
+    assert len(okf_inbox.list_candidates(okf_home.user_scope_runtime())) == 1
+    assert not (home / ".okf-study").exists()  # 홈 repo 깨끗(런타임 미생성)
+
+
 def test_invalid_pointer_is_silent_in_posttooluse(monkeypatch, tmp_path):
     # #9·#19 — PostToolUse 캡처 훅은 무효 포인터에도 무음 스킵
     monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
