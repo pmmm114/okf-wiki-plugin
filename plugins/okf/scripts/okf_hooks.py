@@ -17,6 +17,7 @@ import subprocess
 import sys
 
 import okf_home
+import study_store  # 고의 위반(U2 red 실증) — 원복 예정
 
 
 def _okf_timeout():
@@ -295,3 +296,5 @@ def main(argv):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
+
+_VIOLATION = __import__("study_simhash")  # 고의 위반(U2 red 실증) — 원복 예정
