@@ -4,6 +4,22 @@
 (`docs/releasing.md` 참조). 태그 하나 = repo 전체 묶음(엔진 + 플러그인 +
 `actions/validate` + pre-commit)의 직배달(D2) 릴리스.
 
+## v0.5.0 — (개발 중)
+
+### 추가
+
+- **스터디 스테이징 재설계 — 개념 원자 + SQLite 런타임 스토어 + 근사중복·시간축
+  메타** (Epic #129): markdown `inbox.md`·평문 `ledger`·jsonl `journal.jsonl` 3종을
+  단일 SQLite `study.db`로 대체 — 공개 API 시그니처 보존, 전역원장 write-through·
+  교차 dedup 이식, `_sqlite3` 부재 fail-closed (#130). 캡처 원자를 줄 → **개념 블록**
+  으로 올리고 훅·scan 두 경로를 통일, 줄-해시 자식 병존으로 ledger 연속성 + 혼합-이력
+  표식 (#131). 시간축·승격 메타 — bitemporal(captured/ingested)·재등장 카운터·
+  supersedes 링크·무효화-보존(invalidate-don't-delete) + doctor·provenance (#132).
+  SimHash 자문 근사중복 — stdlib로 재서술 후보 표면화(자동병합·게이팅 없음, 정확 해시
+  앵커 불변) (#133). 마이그레이션 2원천 — pre-0.4 홈·0.4.x 유저스코프 markdown →
+  `study.db` 멱등 이관 + doctor 업그레이드 안내(`_sqlite3` 부재 시 `OKF_PYTHON`) (#134).
+  문서·게이트 정합 (#135)
+
 ## v0.4.0 — 2026-07-22
 
 ### 추가

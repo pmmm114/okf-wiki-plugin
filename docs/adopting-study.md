@@ -18,7 +18,8 @@
 - `.okf/` — 지식 번들(없을 때만 스캐폴드)
 - `.okf-wiki.json` — 프로젝트 설정(있으면 `study` 블록만 보강)
 - `.okf-study/` — 런타임 상태 디렉터리 + 자체 `.gitignore`(`*` + `!.gitignore`).
-  `inbox.md`·`ledger`·`trust`는 커밋되지 않고 무시 규칙만 커밋된다.
+  스테이징 `study.db`(후보·원장·저널)·WAL 사이드카·`trust`는 커밋되지 않고 무시
+  규칙만 커밋된다.
 
 ## 2. 설정 — `.okf-wiki.json`
 
@@ -42,7 +43,7 @@
 ## 3. 사용 흐름
 
 ```
-메모리 저장 ──(review)──▶ .okf-study/inbox.md 후보 적재
+메모리 저장 ──(review)──▶ 개념 블록 후보 적재(스테이징 study.db)
                               │
                        /study │ (선택 승격: 판정=사람+모델)
                               ▼
@@ -147,12 +148,17 @@ home|project`로 벽을 넘는다.
 
 ### 이력·회복
 
-- 지식·이력의 **정본은 번들 + log.md + git**이다. 유저 스코프 스테이징
-  (inbox·journal)은 드레인되면 소모되는 큐다. 순서·시각 이력은 `study log`
-  (이벤트 저널: capture/promote/discard)로 조회하고, 승격 시 캡처 일자를 홈
-  `.okf/log.md`에 새겨 **버저닝을 git에 남긴다**(#114 U5).
+- 지식·이력의 **정본은 번들 + log.md + git**이다. 스테이징(후보 큐·원장·이벤트 저널)은
+  **단일 SQLite `study.db`**(#130)에 담기는 소모성 런타임 상태다 — 드레인되면 소모된다.
+  순서·시각 이력은 `study log`(이벤트 저널)로 조회하고, 승격 시 캡처 일자·재등장 수를
+  홈 `.okf/log.md`에 새겨 **버저닝을 git에 남긴다**(#114 U5 · #132).
+- 캡처 원자는 **개념 블록**(#131) — 여러 줄에 걸친 한 개념이 후보 1개다. 재캡처는
+  재등장 카운터를 올리고(#132), 재서술된 근사중복은 `study near`가 자문 표시한다
+  (SimHash — 자동병합·게이팅 없음, 정확 해시 앵커 불변, #133).
 - 포인터가 깨진 기간의 미큐잉은 `study scan` → `study scan --enqueue`(멱등)로
-  회복한다. 막히면 `/okf-doctor`가 현재 위치의 스코프 해소·홈 부합을 보여준다.
+  회복한다. 막히면 `/okf-doctor`가 스코프 해소·홈 부합·스토어 건강(`_sqlite3` 유무·
+  레거시 markdown 잔존)을 보여준다. 옛 markdown 스테이징은 `study migrate`가 `study.db`
+  로 멱등 이관한다(#134).
 - 스코프를 넘는 중복 재큐는 **전역(유저 스코프 공유) 원장**이 막는다 —
   promote/discard가 공유 원장에도 write-through되고 dedup이 함께 본다.
 

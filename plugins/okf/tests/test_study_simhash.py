@@ -6,7 +6,11 @@
 
 from __future__ import annotations
 
+import json
+
+import okf_home
 import okf_inbox
+import study
 import study_simhash
 
 
@@ -59,3 +63,22 @@ def test_near_duplicates_is_advisory_only(tmp_path):
 def test_near_duplicates_empty_without_sqlite(monkeypatch, tmp_path):
     monkeypatch.setattr(okf_inbox.study_store, "sqlite3", None)
     assert okf_inbox.near_duplicates(tmp_path, "whatever") == []
+
+
+def test_study_near_cli(monkeypatch, tmp_path, capsys):
+    # 실측: `study near` 서브커맨드가 근사중복 쌍을 JSON으로 낸다(#133 U6)
+    monkeypatch.setenv("HOME", str(tmp_path / "h"))
+    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    project = tmp_path / "repo"
+    project.mkdir()
+    (project / ".okf-wiki.json").write_text(
+        json.dumps({"study": {"capture": "review"}}), encoding="utf-8"
+    )
+    rt = okf_home.resolve_capture(project)["runtime_root"]
+    a = okf_inbox.append(rt, "alpha beta gamma", "M.md")
+    okf_inbox.append(rt, "gamma beta alpha", "M.md")  # 재배열 → 지문 동일
+
+    assert study.main(["near", str(project), "--threshold", "0"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert a in out and out[a]  # 근사중복 쌍이 잡힌다

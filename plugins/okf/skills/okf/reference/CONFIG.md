@@ -48,14 +48,23 @@
 `capture` 사다리(한 칸당 자동 단계 하나 추가):
 
 - `off`(기본): 저장 감지 훅 무동작 — `/study`로 수동 승격.
-- `review`: 저장 시 후보를 `.okf-study/inbox.md`에 적재만 — `/study`로 드레인.
+- `review`: 저장 시 **개념 블록** 후보를 스테이징 스토어에 적재만 — `/study`로 드레인.
 - `auto`: review + 살아있는 세션이 알아서 드레인·승격(모델 개입·trust 필요).
 
 **설정은 `.okf-wiki.json`에, 상태는 런타임 루트에** — 섞지 않는다. 런타임 루트는
-`inbox.md`(후보 큐)·`ledger`(승격/폐기 원장)·`journal.jsonl`(이벤트 이력)·`trust`
-(핸들러 로컬 승인)를 담고, 위치는 **스코프가 정한다**(#114): 자기 study 블록이
-있는 프로젝트는 `<repo>/.okf-study/`(자체 `.gitignore`로 커밋 제외), 홈/폴백은
-유저 스코프 `~/.claude/okf/study/`. 홈은 순수 목적지라 런타임을 담지 않는다.
+후보 큐·승격/폐기 원장·이벤트 저널을 **하나의 SQLite `study.db`**(#130)와 `trust`
+(핸들러 로컬 승인)로 담고, 위치는 **스코프가 정한다**(#114): 자기 study 블록이
+있는 프로젝트는 `<repo>/.okf-study/`(자체 `.gitignore`로 `study.db`·WAL 사이드카까지
+커밋 제외), 홈/폴백은 유저 스코프 `~/.claude/okf/study/`. 홈은 순수 목적지라 런타임을
+담지 않는다.
+
+- **캡처 원자는 개념 블록**(#131): 여러 줄에 걸친 한 개념이 후보 1개로 묶인다(줄-해시
+  자식 병존으로 ledger 연속성). 재캡처는 재등장 카운터를 올리고(#132), 재서술된
+  근사중복은 `study near`로 자문 표시(SimHash — 자동병합·게이팅 없음, 정확 해시 앵커
+  불변, #133). 지식 정본은 git 번들 + `log.md`이고 `study.db`는 소모성 런타임 상태다.
+- **`_sqlite3` 부재 파이썬**에선 스테이징이 fail-closed(무동작)한다 — `OKF_PYTHON`을
+  SQLite 포함 빌드로 지정하면 활성된다(`/okf-doctor`가 감지·안내). 옛 markdown
+  스테이징(pre-0.5)은 `study migrate`가 `study.db`로 멱등 이관한다(#134).
 
 도입 절차(설치→`/okf-init`→핸들러 계약→trust 승인→사용)와 참조 핸들러 템플릿은
 repo 루트 `docs/adopting-study.md` 참조.
