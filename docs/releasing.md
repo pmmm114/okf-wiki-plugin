@@ -85,7 +85,7 @@ flowchart LR
   F --> R[릴리스 PR<br/>.dev0 제거 + CHANGELOG]
   R --> S[스쿼시 머지<br/>= 릴리스 커밋]
   S --> T[release-tag.yml<br/>mode=create]
-  T --> G[GitHub Release<br/>+ 노트]
+  T --> G[GitHub Release<br/>자동 노트 · release_notes.py]
   G --> N[main → 다음 .dev0]
 ```
 
@@ -98,7 +98,9 @@ flowchart LR
    `refs/tags` 푸시를 막으므로 이 경로가 유일). 이미 있으면 워크플로가 중단.
 4. **(관례) 보호 실증** — 필요 시 `mode=verify-protection`으로 태그 삭제·이동
    차단을 파괴 실증한다(branching.md §파괴 감지).
-5. **GitHub Release** — 태그에서 릴리스 노트와 함께 발행. 소비처 참조 지점.
+5. **GitHub Release** — `release-tag.yml mode=create`가 태그 직후 `scripts/release_notes.py`
+   출력으로 **자동 발행**한다(소비처 참조 지점). 별도 수동 발행 불필요 — 문구를 다듬고
+   싶으면 발행된 Release를 편집.
 6. **다음 사이클** — main을 `X.(Y+1).0.dev0`로 올리는 후속 커밋.
 
 ### 릴리스 체크리스트
@@ -106,20 +108,30 @@ flowchart LR
 - [ ] 마일스톤 `vX.Y.Z` 생성(사람이 UI/`gh`) + 대상 이슈·Epic·유닛 부착
 - [ ] 마일스톤 100% 닫힘, 스코프 밖 항목 없음
 - [ ] `okf-core/pyproject.toml` 버전 `.dev0` 제거 **+ 루트 `pyproject.toml` 동기**
-- [ ] `CHANGELOG.md` 갱신(아래 생성법)
+- [ ] `CHANGELOG.md` 갱신(`scripts/release_notes.py` 출력 검수·붙여넣기 — 아래 생성법)
 - [ ] `core` 잡 녹색 + `okf validate .okf --strict` error·warn 0
-- [ ] `release-tag.yml mode=create`로 태그 생성(로컬 태그 푸시 금지)
-- [ ] GitHub Release 발행, 소비 예시 핀 갱신 확인(`actions/validate@vX.Y.Z`, pre-commit `rev`)
+- [ ] `release-tag.yml mode=create`로 태그 생성 **+ GitHub Release 자동 발행**(로컬 태그 푸시 금지)
+- [ ] 발행된 Release 본문 확인, 소비 예시 핀 갱신 확인(`actions/validate@vX.Y.Z`, pre-commit `rev`)
 - [ ] main을 다음 `.dev0`로 올림
 
 ## CHANGELOG / 릴리스 노트
 
-스쿼시라 태그 사이 `main` 로그가 **PR 1건 = 한 줄**(`제목 (#NN)`)이다. 그대로
-타입별로 묶으면 노트가 된다:
+스쿼시라 태그 사이 `main` 로그가 **PR 1건 = 한 줄**(`type(scope): 제목 (#NN)`)이다.
+`scripts/release_notes.py`가 이 로그를 파싱해 **추가(feat)·수정(fix)·문서(docs)·기타**로
+묶어 마크다운으로 낸다 — 예전에 수기로 하던 `git log --pretty` + prefix 그룹핑의 자동화다
+(stdlib·무의존·오프라인·결정론). `chore`·`release`(버전 범프·릴리스 커밋)는 기본 제외:
 
 ```bash
-git log v0.1.0..HEAD --pretty='- %s'   # feat/fix/docs… 프리픽스로 그룹핑
+python3 scripts/release_notes.py                # 직전 태그..HEAD (다음 릴리스 미리보기)
+python3 scripts/release_notes.py --to v0.4.0    # v0.3.0..v0.4.0 (특정 릴리스 재생성)
+python3 scripts/release_notes.py --from v0.1.0 --to HEAD --all   # 범위·제외타입 지정
 ```
+
+- **GitHub Release 본문은 태그 생성 시 자동 발행**된다 — `release-tag.yml mode=create`가
+  태그를 만든 직후 이 스크립트 출력으로 Release를 만든다(아래 컷 절차 5번, 더는 수동 아님).
+  문구를 다듬고 싶으면 발행된 Release를 편집한다.
+- `CHANGELOG.md`(파일) 섹션은 아직 **사람이 이 출력을 검수·붙여넣기** 한다(릴리스 PR
+  스텝) — 산문 다듬기·Epic 묶기 여지를 남긴다. 파일까지의 완전 자동화는 후속 과제(#142 향후).
 
 ## 배포·소비
 
