@@ -4,6 +4,27 @@
 (`docs/releasing.md` 참조). 태그 하나 = repo 전체 묶음(엔진 + 플러그인 +
 `actions/validate` + pre-commit)의 직배달(D2) 릴리스.
 
+## v0.4.0 — 2026-07-22
+
+### 추가
+
+- **홈 = 순수 지식 목적지 — 스터디 런타임 유저 스코프 이동** (Epic #114): 런타임
+  루트 리졸버로 `promote_target`(승격 대상)과 `runtime_root`(런타임 위치)를 분리
+  하고, 홈/폴백 캡처의 런타임(inbox·ledger·trust·journal)을 유저 스코프
+  `~/.claude/okf/study`로 이동 — 홈은 `.okf/`만 담는 순수 목적지가 된다. 홈
+  자기참조도 유저 스코프로 특수처리해 홈 안 세션의 지식 재평가 뿌리를 차단
+  (#121). 마법사(`/okf-init --home`)는 홈에 `.okf-study`를 만들지 않고 `study.
+  capture` 설정만 켠다 (#122). 비-git 스테이징의 이벤트 저널(`journal.jsonl`)·
+  `study log`·doctor 이력 + 승격 provenance를 git 홈 `log.md`로 이관 (#123).
+  "지식 홈 repo 패턴" 정본 + doctor 홈 부합 진단 (#124). `study migrate`(레거시
+  홈 런타임 → 유저 스코프 멱등 이동) + 런타임-in-홈 회귀 게이트 (#125)
+
+### 수정
+
+- 훅 exec form(`args` 존재 → 셸 없음)에서 `command`의 셸용 따옴표가 파일명에
+  박혀 `posix_spawn` ENOENT가 재발하던 회귀 — `command`(단일 실행파일)/`args`
+  (스크립트·서브커맨드) 분리로 해소, 그렙 게이트 강화 (#120)
+
 ## v0.3.0 — 2026-07-21
 
 ### 추가
