@@ -96,3 +96,44 @@ def test_ledger_dedup_and_bad_status(tmp_path):
     assert ledger.count("id1") == 1
     with pytest.raises(ValueError):
         okf_inbox.record(tmp_path, "id2", "weird")
+
+
+# --- 이벤트 저널 (#114 U5) — 순서·시각·이력 -----------------------------------
+
+
+def test_journal_records_capture(monkeypatch, tmp_path):
+    monkeypatch.setattr(okf_inbox, "_now", lambda: "2026-07-22T10:00:00")
+    ident = okf_inbox.append(tmp_path, "snippet", "MEMORY.md")
+    events = okf_inbox.read_journal(tmp_path)
+    assert len(events) == 1
+    assert events[0] == {
+        "ts": "2026-07-22T10:00:00",
+        "action": "capture",
+        "id": ident,
+        "source": "MEMORY.md",
+    }
+
+
+def test_journal_records_promote_and_discard(monkeypatch, tmp_path):
+    monkeypatch.setattr(okf_inbox, "_now", lambda: "2026-07-22T11:00:00")
+    okf_inbox.record(tmp_path, "aaaa11112222", "promoted", ref=".okf/x.md")
+    okf_inbox.record(tmp_path, "bbbb33334444", "discarded")
+    events = okf_inbox.read_journal(tmp_path)
+    assert [e["action"] for e in events] == ["promoted", "discarded"]
+    assert events[0]["ref"] == ".okf/x.md"
+    assert "ref" not in events[1]  # None extra는 기록하지 않음
+
+
+def test_journal_dedup_capture_not_doubled(tmp_path):
+    okf_inbox.append(tmp_path, "dup", "s")
+    okf_inbox.append(tmp_path, "dup", "s")  # 동일 id 재적재 = 저널에 안 남음
+    captures = [e for e in okf_inbox.read_journal(tmp_path) if e["action"] == "capture"]
+    assert len(captures) == 1
+
+
+def test_journal_limit_returns_latest(tmp_path):
+    for i in range(3):
+        okf_inbox.append(tmp_path, f"line {i}", "s")
+    latest = okf_inbox.read_journal(tmp_path, limit=2)
+    assert len(latest) == 2 and [e["source"] for e in latest] == ["s", "s"]
+    assert okf_inbox.read_journal(tmp_path / "nope") == []  # 부재 = 빈 목록

@@ -106,3 +106,11 @@ def test_session_silent_when_review(tmp_path):
 def test_session_silent_when_no_candidates(tmp_path):
     _cfg(tmp_path, "auto", [])
     assert study_session.run(tmp_path) is None
+
+
+def test_log_outputs_journal(tmp_path, capsys):
+    ident = okf_inbox.append(_rt(tmp_path), "a", "s")
+    study.main(["log", str(tmp_path)])
+    out = _out(capsys)
+    assert len(out) == 1
+    assert out[0]["action"] == "capture" and out[0]["id"] == ident
