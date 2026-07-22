@@ -197,19 +197,19 @@ def home_capture_state(home: str | Path) -> str:
 
 
 def enable_home_capture(home: str | Path, level: str = "review") -> dict:
-    """홈에 캡처를 켠다(멱등) — study 런타임 스캐폴드 후 capture를 level로 올린다.
+    """홈에 캡처를 켠다(멱등) — 홈 ``.okf-wiki.json``의 ``study.capture``(설정)만 올린다.
 
-    이미 active면(review/auto) 격하하지 않고 그대로 둔다. study 블록·``.okf-study``
-    골격이 없으면 스캐폴더로 보장한다(기존 키·핸들러 보존). 반환: 수행 상태 dict.
-    판정·편집은 전부 이 코드 경로다(#91 #20 — 프롬프트 재량 없음).
+    **홈에 ``.okf-study`` 런타임을 만들지 않는다**(#114 U2 — 홈은 순수 목적지).
+    런타임(inbox/ledger/trust)은 유저 스코프(``~/.claude/okf/study``)에 보장한다.
+    이미 active면(review/auto) 격하하지 않는다. 판정·편집은 전부 이 코드 경로다
+    (#20 — 프롬프트 재량 없음). 반환: 수행 상태 dict.
     """
-    import study_scaffold  # lazy — study_scaffold가 okf_home을 import(순환 회피)
-
     home = Path(home)
     before = home_capture_state(home)
-    scaffold_actions = study_scaffold.scaffold(home)  # .okf-study + study(off) 보장
     config_path = home / ".okf-wiki.json"
-    data = json.loads(config_path.read_text(encoding="utf-8"))
+    data = json.loads(config_path.read_text(encoding="utf-8")) if config_path.is_file() else {}
+    if not isinstance(data, dict):
+        data = {}
     block = data.get("study")
     if not isinstance(block, dict):
         block = {}
@@ -222,11 +222,13 @@ def enable_home_capture(home: str | Path, level: str = "review") -> dict:
             json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
         changed = True
+    runtime = user_scope_runtime()  # 런타임은 홈이 아니라 유저 스코프에
+    runtime.mkdir(parents=True, exist_ok=True)
     return {
         "before": before,
         "capture": block.get("capture"),
         "changed": changed,
-        "scaffold": scaffold_actions,
+        "runtime_root": str(runtime),
     }
 
 
