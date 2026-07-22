@@ -153,6 +153,24 @@ def test_doctor_auto_memory_disabled(monkeypatch, tmp_path):
     assert "자동 메모리: 비활성" in out
 
 
+def test_doctor_home_conformance_bundle_present(monkeypatch, tmp_path):
+    # #114 U3 — 홈 부합: 번들 존재를 진단
+    home = _valid_home(tmp_path, {"capture": "review"})
+    (home / ".okf").mkdir()
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    out = okf_doctor.run(str(_project(tmp_path)))
+    assert "부합: 번들 .okf 있음" in out
+
+
+def test_doctor_home_conformance_flags_leaked_runtime(monkeypatch, tmp_path):
+    # #114 U3 — 홈에 런타임(.okf-study)이 잔존하면 마이그레이션 경고(순수 목적지 위반)
+    home = _valid_home(tmp_path, {"capture": "review"})
+    (home / ".okf-study").mkdir()
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    out = okf_doctor.run(str(_project(tmp_path)))
+    assert "런타임 잔존" in out and "migrate" in out
+
+
 def test_doctor_shows_recent_journal(monkeypatch, tmp_path):
     # #114 U5 — doctor가 이벤트 저널 최근 이력을 보인다
     home = _valid_home(tmp_path, {"capture": "review"})
