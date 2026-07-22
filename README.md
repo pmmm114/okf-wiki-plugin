@@ -216,20 +216,54 @@ uv run --with pyyaml python okf-core/scripts/run_fixture_suite.py       # 픽스
 - 미승인 상태의 `auto`는 **가시적 저하**다: 개념은 로컬 번들에 승격·검증되고
   **핸들러 실행만 보류**된다("N개 승격됨; `/study --trust`로 승인" 안내).
 
-### 홈 프로젝트 폴백 (선택)
+### 스코프 우선순위와 설정 (User / Project)
 
-슬로건: **"자기 파이프라인이 있으면 거기로, 없으면 홈으로."** 폴백을 켜면
-코드 repo가 아닌 위치(스크래치 폴더·무설정 repo 포함)에서도 캡처·주입이
-사용자가 지정한 **홈 repo**로 흐른다.
+`study`의 적재 목적지는 **두 스코프**로 설정한다. 해소기가 위치마다 **정확히
+하나**를 고른다 — 슬로건대로 **"자기 파이프라인이 있으면 거기로(Project), 없으면
+홈으로(User)."**
+
+| 스코프 | 설정 위치 | 런타임·trust | 이기는 조건 |
+| --- | --- | --- | --- |
+| **Project** | `<repo>/.okf-wiki.json`의 `study` 블록 | `<repo>/.okf-study/` | 그 repo에 `study` 블록이 **있을 때**(명시가 이긴다 — `capture:"off"`도 이 자리에선 홈 폴백을 끈다) |
+| **User** | 포인터 `~/.claude/okf/home-project` → 홈 repo | `~/.claude/okf/study/` | repo에 `study` 블록이 **없을 때**, 비-git 폴더 |
+
+우선순위는 **Project 블록이 있으면 Project, 없으면 User(홈)**. 한 이벤트의 스코프는
+늘 정확히 하나이며, `/study --scope home|project`로 그때그때 벽을 넘는다.
+
+**User scope — 비-git 폴더 어디서나 홈 repo로 적재:**
 
 ```
-/okf-init --home <홈 repo 경로>   # 검증 → 포인터 기록 (+ 주입 전용이면 캡처 활성 제안)
+/okf-init --home <홈 repo 경로>   # ~/.claude/okf/home-project 포인터 기록 + 캡처 활성 제안
+/study --trust                    # 홈 핸들러를 유저 스코프에 승인
 ```
 
-홈은 **순수 지식 목적지**다 — 큐레이션된 지식만 담고 런타임 스테이징은 담지
-않는다(스테이징은 유저 스코프 `~/.claude/okf/study`에 쌓인다). 진단·회복은
-`/okf-doctor`(스코프 해소 트레이스·건강)와 `study scan`이 담당한다. 상세는
-[docs/adopting-study.md](docs/adopting-study.md) §7 참조.
+홈은 **순수 지식 목적지**다 — 큐레이션된 지식만 담고 런타임 스테이징은 담지 않는다
+(스테이징·trust는 유저 스코프 `~/.claude/okf/study`에 격리). 홈 repo의
+`.okf-wiki.json`에 핸들러를 배선하고 **커밋**해 둔다:
+
+```json
+{ "study": { "capture": "review",
+             "handlers": [{ "name": "kb-pr", "command": "scripts/okf-open-pr.sh" }] } }
+```
+
+> 비-git 폴더에서 `/okf-init`(인자 없이)을 돌리지 않는다 — `capture:"off"` 블록이
+> 생겨 그 자리의 홈 폴백까지 꺼버리므로, 가드가 exit 3으로 차단하고 `--home`을
+> 안내한다. 비-git은 `--home` 포인터만 쓴다.
+
+**Project scope — 이 repo만의 파이프라인:**
+
+```
+/okf-init          # <repo>/.okf-wiki.json study 블록 + .okf-study/ 런타임(멱등)
+/study --trust     # 이 repo의 .okf-study/trust에 승인
+```
+
+그 repo의 `study.handlers`가 홈보다 우선하고 런타임·trust도 repo 안에 격리된다.
+블록을 만들지 않으면 자동으로 User(홈) 폴백을 따른다. 진단·회복은
+`/okf-doctor`(스코프 해소 트레이스·건강)와 `study scan`이 담당한다.
+
+정본 해소 규칙(캡처 4단·주입 3단·침묵 정책)은
+[CONFIG.md](plugins/okf/skills/okf/reference/CONFIG.md)의 "홈 프로젝트 폴백" 절,
+도입 상세는 [docs/adopting-study.md](docs/adopting-study.md) §7.
 
 ## 일상 명령
 
