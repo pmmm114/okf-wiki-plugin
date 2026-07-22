@@ -15,6 +15,8 @@ from pathlib import Path
 import okf_home
 import okf_inbox
 import study as study_cli
+import study_legacy
+import study_store
 
 
 def _capture_trace(project: str) -> list[str]:
@@ -150,6 +152,24 @@ def _pending_summary(runtime: str) -> str:
     return f"{len(cands)}" + (f" (재등장 {recurring})" if recurring else "")
 
 
+def _store_notes(project: str) -> list[str]:
+    # 스테이징 스토어 건강(#130) + 레거시 markdown 잔존 감지·마이그레이션 안내(#134)
+    if not study_store.available():
+        return [
+            "  ⚠ 이 파이썬에 sqlite3(_sqlite3) 없음 — 스테이징 비활성(fail-closed). "
+            "OKF_PYTHON을 SQLite 포함 파이썬으로 지정하라."
+        ]
+    lines = ["  sqlite3: 사용 가능"]
+    if study_legacy.has_legacy(str(okf_home.user_scope_runtime())):
+        lines.append(
+            "  ⚠ 유저 스코프에 레거시 markdown 스테이징 잔존 — `study migrate`로 study.db 이관"
+        )
+    home, _reason = okf_home.home_state()
+    if home is not None and study_legacy.has_legacy(Path(home) / ".okf-study"):
+        lines.append("  ⚠ 홈에 레거시 markdown 스테이징 잔존 — `study migrate`로 유저 스코프 이관")
+    return lines
+
+
 def _inbox_lines(project: str) -> list[str]:
     lines = []
     scope = okf_home.resolve_capture(project)
@@ -200,6 +220,7 @@ def run(project: str) -> str:
         ("주입", _inject_trace(project)),
         ("홈", _home_notes(project)),
         ("캡처 입구", _entrance_lines(project)),
+        ("스토어", _store_notes(project)),
         ("inbox", _inbox_lines(project)),
         ("최근 이력", _journal_lines(project)),
     ]

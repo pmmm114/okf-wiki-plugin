@@ -33,6 +33,7 @@ import okf_home
 import okf_inbox
 import study_blocks
 import study_dispatch
+import study_legacy
 import study_simhash
 import study_store
 import study_trust
@@ -169,53 +170,64 @@ def cmd_log(args) -> int:
     return 0
 
 
-def cmd_migrate(args) -> int:
-    # 기존 홈 <home>/.okf-study 런타임을 유저 스코프로 멱등 이동(#114 U4) — 홈을 순수 목적지로.
-    import shutil
+def _import_into(dst: str, cands: list[dict], resolutions: list, moved: dict) -> None:
+    """레거시 후보·원장을 dst study.db로 dedup 이관한다(단일 줄 → 단일 줄 블록, 연속성).
 
-    home, reason = okf_home.home_state()
-    if home is None:
-        print(
-            json.dumps(
-                {"migrated": False, "reason": reason or "홈 포인터 없음"}, ensure_ascii=False
-            )
-        )
-        return 0
-    src = Path(home) / ".okf-study"
-    dst = str(okf_home.user_scope_runtime())
-    if not src.exists():
-        print(json.dumps({"migrated": False, "reason": "홈에 .okf-study 없음"}, ensure_ascii=False))
-        return 0
-    src_trust = src / "trust"
-    # U1은 스토어(study.db)+trust 이관만 다룬다. v0.4.x markdown 잔존은 U5에서 리더를
-    # 붙여 이관하므로, 인식 못 하는 형식은 **파괴 금지**(rmtree로 데이터 유실 방지).
-    if not (src / study_store.DB_NAME).is_file() and not src_trust.is_file():
-        print(
-            json.dumps(
-                {"migrated": False, "reason": "레거시 markdown 형식(U5에서 이관 추가)"},
-                ensure_ascii=False,
-            )
-        )
-        return 0
-    moved = {"candidates": 0, "ledger": 0, "trust": False}
-    for cand in okf_inbox.list_candidates(src):
+    옛 후보 스니펫은 단일 줄이라 id = content_hash(snippet)[:12]가 자식 줄-해시와 같다
+    → 재부상 차단(A2′)이 자동으로 이어진다.
+    """
+    for cand in cands:
         if okf_inbox.is_resolved(dst, cand["id"]):
             continue
         before = len(okf_inbox.list_candidates(dst))
         okf_inbox.append(dst, cand["snippet"], cand["source"], date=cand["date"])
         if len(okf_inbox.list_candidates(dst)) > before:
             moved["candidates"] += 1
-    for ident, status, ref in study_store.list_resolutions(src):
+    for ident, status, ref in resolutions:
         if not okf_inbox.is_resolved(dst, ident):
             okf_inbox.record(dst, ident, status, ref)
             moved["ledger"] += 1
-    dst_trust = Path(dst) / "trust"
-    if src_trust.is_file() and not dst_trust.is_file():
-        dst_trust.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src_trust, dst_trust)
-        moved["trust"] = True
-    shutil.rmtree(src)  # 내용은 유저 스코프로 이관됨 — 홈을 순수 목적지로 되돌린다
-    print(json.dumps({"migrated": True, "moved": moved, "removed": str(src)}, ensure_ascii=False))
+
+
+def cmd_migrate(args) -> int:
+    # 레거시 스테이징을 유저 스코프 study.db로 멱등 이관(#114 U4 · #134 U5). 2원천:
+    # (a) pre-0.4 홈 <home>/.okf-study, (b) 0.4.x 유저 스코프 markdown. 둘 다 옛 3종 파일.
+    import shutil
+
+    dst = str(okf_home.user_scope_runtime())
+    home, reason = okf_home.home_state()
+    moved = {"candidates": 0, "ledger": 0, "trust": False, "sources": []}
+
+    # (b) 유저 스코프 자체의 옛 markdown → 같은 디렉토리 study.db로 인플레이스 이관 후 소모.
+    if study_legacy.has_legacy(dst):
+        _import_into(
+            dst, study_legacy.read_candidates(dst), study_legacy.read_resolutions(dst), moved
+        )
+        study_legacy.remove_legacy(dst)
+        moved["sources"].append("user-scope-markdown")
+
+    # (a) 홈 <home>/.okf-study → 유저 스코프. markdown·study.db·trust 모두 흡수 후 rmtree.
+    if home is not None:
+        src = Path(home) / ".okf-study"
+        if src.exists():
+            _import_into(
+                dst, study_legacy.read_candidates(src), study_legacy.read_resolutions(src), moved
+            )
+            _import_into(
+                dst, okf_inbox.list_candidates(src), study_store.list_resolutions(src), moved
+            )
+            src_trust, dst_trust = src / "trust", Path(dst) / "trust"
+            if src_trust.is_file() and not dst_trust.is_file():
+                dst_trust.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src_trust, dst_trust)
+                moved["trust"] = True
+            shutil.rmtree(src)  # 홈을 순수 목적지로 되돌린다
+            moved["sources"].append("home")
+
+    result = {"migrated": bool(moved["sources"]), "moved": moved}
+    if not moved["sources"]:
+        result["reason"] = reason or "이관할 레거시 스테이징 없음"
+    print(json.dumps(result, ensure_ascii=False))
     return 0
 
 
