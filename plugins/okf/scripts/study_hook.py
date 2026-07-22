@@ -22,8 +22,8 @@ import sys
 from pathlib import Path
 
 import okf_home
-import okf_inbox
 import study_blocks
+import study_inbox
 
 
 def _dig(data, *keys):
@@ -59,16 +59,16 @@ def run(payload: dict, project: str | Path) -> str | None:
         snippet = " ".join(block)
         if not snippet:
             continue
-        line_hashes = [okf_inbox.content_hash(line)[:12] for line in block]
-        bid = okf_inbox.content_hash(snippet)[:12]
-        if okf_inbox.block_resolved(runtime, bid, line_hashes):
+        line_hashes = [study_inbox.content_hash(line)[:12] for line in block]
+        bid = study_inbox.content_hash(snippet)[:12]
+        if study_inbox.block_resolved(runtime, bid, line_hashes):
             continue  # 블록 id 또는 모든 자식 줄이 이미 promoted/discarded
-        okf_inbox.append(runtime, snippet, file_path, line_hashes=line_hashes)
+        study_inbox.append(runtime, snippet, file_path, line_hashes=line_hashes)
         appended += 1
     if not appended:
         return None
 
-    pending = len(okf_inbox.list_candidates(runtime))
+    pending = len(study_inbox.list_candidates(runtime))
     return f"메모리 후보를 study 인박스에 적재({pending}개 대기). /study로 검토·승격하라."
 
 

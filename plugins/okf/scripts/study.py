@@ -30,9 +30,9 @@ import os
 from pathlib import Path
 
 import okf_home
-import okf_inbox
 import study_blocks
 import study_dispatch
+import study_inbox
 import study_legacy
 import study_simhash
 import study_store
@@ -71,7 +71,7 @@ def scan_memory(
     """
     if runtime is None:
         runtime = _scope(project)[1]
-    known = {c["id"] for c in okf_inbox.list_candidates(runtime)} if runtime else set()
+    known = {c["id"] for c in study_inbox.list_candidates(runtime)} if runtime else set()
     unqueued: list[dict] = []
     seen: set[str] = set()
     files = 0
@@ -88,11 +88,11 @@ def scan_memory(
                 snippet = " ".join(block)
                 if not snippet:
                     continue
-                ident = okf_inbox.content_hash(snippet)[:12]
+                ident = study_inbox.content_hash(snippet)[:12]
                 if ident in seen or ident in known:
                     continue
-                line_hashes = [okf_inbox.content_hash(line)[:12] for line in block]
-                if runtime and okf_inbox.block_resolved(runtime, ident, line_hashes):
+                line_hashes = [study_inbox.content_hash(line)[:12] for line in block]
+                if runtime and study_inbox.block_resolved(runtime, ident, line_hashes):
                     continue  # 블록/자식 전부 promoted·discarded — 영구 제외
                 seen.add(ident)
                 unqueued.append(
@@ -101,7 +101,7 @@ def scan_memory(
     enqueued: list[str] = []
     if enqueue and runtime:
         for cand in unqueued:
-            okf_inbox.append(runtime, cand["snippet"], cand["source"], line_hashes=cand["lines"])
+            study_inbox.append(runtime, cand["snippet"], cand["source"], line_hashes=cand["lines"])
             enqueued.append(cand["id"])
     return {"scanned_files": files, "unqueued": unqueued, "enqueued": enqueued}
 
@@ -115,7 +115,7 @@ def _load_study(project: str | Path) -> tuple[str, list[dict]]:
 
 def cmd_list(args) -> int:
     _promote, runtime = _scope(args.project)
-    cands = okf_inbox.list_candidates(runtime) if runtime else []
+    cands = study_inbox.list_candidates(runtime) if runtime else []
     print(json.dumps(cands, ensure_ascii=False, indent=2))
     return 0
 
@@ -124,8 +124,8 @@ def cmd_resolve(args) -> int:
     _promote, runtime = _scope(args.project)
     dropped: list[str] = []
     if runtime:
-        okf_inbox.record(runtime, args.id, args.status, args.ref)
-        dropped = okf_inbox.drop(runtime, [args.id])
+        study_inbox.record(runtime, args.id, args.status, args.ref)
+        dropped = study_inbox.drop(runtime, [args.id])
     print(
         json.dumps({"id": args.id, "status": args.status, "dropped": dropped}, ensure_ascii=False)
     )
@@ -136,9 +136,9 @@ def cmd_clear(args) -> int:
     _promote, runtime = _scope(args.project)
     discarded: list[str] = []
     if runtime:
-        for cand in okf_inbox.list_candidates(runtime):
-            okf_inbox.record(runtime, cand["id"], "discarded")
-        discarded = okf_inbox.clear(runtime)
+        for cand in study_inbox.list_candidates(runtime):
+            study_inbox.record(runtime, cand["id"], "discarded")
+        discarded = study_inbox.clear(runtime)
     print(json.dumps({"discarded": discarded}, ensure_ascii=False))
     return 0
 
@@ -154,8 +154,8 @@ def cmd_near(args) -> int:
     _promote, runtime = _scope(args.project)
     pairs: dict[str, list[str]] = {}
     if runtime:
-        for cand in okf_inbox.list_candidates(runtime):
-            dups = okf_inbox.near_duplicates(runtime, cand["id"], threshold=args.threshold)
+        for cand in study_inbox.list_candidates(runtime):
+            dups = study_inbox.near_duplicates(runtime, cand["id"], threshold=args.threshold)
             if dups:
                 pairs[cand["id"]] = dups
     print(json.dumps(pairs, ensure_ascii=False, indent=2))
@@ -165,7 +165,7 @@ def cmd_near(args) -> int:
 def cmd_log(args) -> int:
     # 이벤트 저널(capture/promote/discard 이력) — 비-git 스테이징의 순서·로그(#114 U5)
     _promote, runtime = _scope(args.project)
-    events = okf_inbox.read_journal(runtime, limit=args.limit) if runtime else []
+    events = study_inbox.read_journal(runtime, limit=args.limit) if runtime else []
     print(json.dumps(events, ensure_ascii=False, indent=2))
     return 0
 
@@ -177,15 +177,15 @@ def _import_into(dst: str, cands: list[dict], resolutions: list, moved: dict) ->
     → 재부상 차단(A2′)이 자동으로 이어진다.
     """
     for cand in cands:
-        if okf_inbox.is_resolved(dst, cand["id"]):
+        if study_inbox.is_resolved(dst, cand["id"]):
             continue
-        before = len(okf_inbox.list_candidates(dst))
-        okf_inbox.append(dst, cand["snippet"], cand["source"], date=cand["date"])
-        if len(okf_inbox.list_candidates(dst)) > before:
+        before = len(study_inbox.list_candidates(dst))
+        study_inbox.append(dst, cand["snippet"], cand["source"], date=cand["date"])
+        if len(study_inbox.list_candidates(dst)) > before:
             moved["candidates"] += 1
     for ident, status, ref in resolutions:
-        if not okf_inbox.is_resolved(dst, ident):
-            okf_inbox.record(dst, ident, status, ref)
+        if not study_inbox.is_resolved(dst, ident):
+            study_inbox.record(dst, ident, status, ref)
             moved["ledger"] += 1
 
 
@@ -214,7 +214,7 @@ def cmd_migrate(args) -> int:
                 dst, study_legacy.read_candidates(src), study_legacy.read_resolutions(src), moved
             )
             _import_into(
-                dst, okf_inbox.list_candidates(src), study_store.list_resolutions(src), moved
+                dst, study_inbox.list_candidates(src), study_store.list_resolutions(src), moved
             )
             src_trust, dst_trust = src / "trust", Path(dst) / "trust"
             if src_trust.is_file() and not dst_trust.is_file():

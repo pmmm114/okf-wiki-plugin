@@ -9,9 +9,9 @@ from __future__ import annotations
 import json
 
 import okf_home
-import okf_inbox
 import pytest
 import study
+import study_inbox
 import study_legacy
 
 
@@ -39,9 +39,9 @@ def test_migrate_moves_runtime_to_user_scope(monkeypatch, tmp_path, capsys):
     legacy = home / ".okf-study"  # 구 모델: 홈 안 런타임
     # 구 상태는 포인터를 걸기 전에 만든다 — 그래야 record가 유저 스코프로
     # write-through하지 않아 "이관 대상"으로 남는다(업그레이드 전 상태 재현).
-    okf_inbox.append(legacy, "legacy candidate", "MEMORY.md")
-    okf_inbox.record(legacy, "aaaa11112222", "promoted", ref=".okf/x.md")
-    okf_inbox.record(legacy, "bbbb33334444", "discarded")
+    study_inbox.append(legacy, "legacy candidate", "MEMORY.md")
+    study_inbox.record(legacy, "aaaa11112222", "promoted", ref=".okf/x.md")
+    study_inbox.record(legacy, "bbbb33334444", "discarded")
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
 
     assert study.main(["migrate"]) == 0
@@ -51,9 +51,9 @@ def test_migrate_moves_runtime_to_user_scope(monkeypatch, tmp_path, capsys):
 
     assert not legacy.exists()  # 홈 런타임 제거 → 순수 목적지
     us = okf_home.user_scope_runtime()
-    assert len(okf_inbox.list_candidates(us)) == 1
-    assert okf_inbox.is_resolved(us, "aaaa11112222")
-    assert okf_inbox.is_resolved(us, "bbbb33334444")
+    assert len(study_inbox.list_candidates(us)) == 1
+    assert study_inbox.is_resolved(us, "aaaa11112222")
+    assert study_inbox.is_resolved(us, "bbbb33334444")
 
 
 def test_migrate_copies_trust(monkeypatch, tmp_path, capsys):
@@ -72,7 +72,7 @@ def test_migrate_copies_trust(monkeypatch, tmp_path, capsys):
 def test_migrate_idempotent_second_run_noop(monkeypatch, tmp_path, capsys):
     home = _home(tmp_path)
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    okf_inbox.append(home / ".okf-study", "c", "s")
+    study_inbox.append(home / ".okf-study", "c", "s")
     study.main(["migrate"])
     capsys.readouterr()
 
@@ -112,7 +112,7 @@ def _write_legacy_markdown(directory, cands, resolutions):
     directory.mkdir(parents=True, exist_ok=True)
     lines = ["# Study Inbox", ""]
     for snippet, source, date in cands:
-        ident = okf_inbox.content_hash(snippet)[:12]
+        ident = study_inbox.content_hash(snippet)[:12]
         lines.append(f"## {date}")
         lines.append(f"* **memory**: {snippet} — {source} <!-- id:{ident} -->")
     (directory / study_legacy.INBOX_NAME).write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -137,8 +137,8 @@ def test_migrate_imports_home_legacy_markdown(monkeypatch, tmp_path, capsys):
     assert out["moved"]["candidates"] == 1 and out["moved"]["ledger"] == 1
 
     us = okf_home.user_scope_runtime()
-    assert len(okf_inbox.list_candidates(us)) == 1
-    assert okf_inbox.is_resolved(us, "aaaa11112222")
+    assert len(study_inbox.list_candidates(us)) == 1
+    assert study_inbox.is_resolved(us, "aaaa11112222")
     assert not legacy.exists()  # 홈은 순수 목적지로
 
 
@@ -149,7 +149,7 @@ def test_migrate_imports_userscope_legacy_markdown(tmp_path, capsys):
     assert study.main(["migrate"]) == 0  # 홈 포인터 없이도 (b) 원천 처리
     out = json.loads(capsys.readouterr().out)
     assert out["migrated"] is True and "user-scope-markdown" in out["moved"]["sources"]
-    assert len(okf_inbox.list_candidates(us)) == 1
+    assert len(study_inbox.list_candidates(us)) == 1
     assert not study_legacy.has_legacy(us)  # 옛 markdown 소모됨
 
 
@@ -163,17 +163,17 @@ def test_migrate_both_sources_together(monkeypatch, tmp_path, capsys):
     assert study.main(["migrate"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert set(out["moved"]["sources"]) == {"user-scope-markdown", "home"}
-    assert len(okf_inbox.list_candidates(us)) == 2  # 양쪽 이관
+    assert len(study_inbox.list_candidates(us)) == 2  # 양쪽 이관
 
 
 def test_migrate_legacy_markdown_ledger_continuity(monkeypatch, tmp_path):
     # 레거시 promoted 줄-id → 이관 후 그 줄만의 블록은 재부상하지 않는다(A2′)
     home = _home(tmp_path)
     snippet = "already promoted line"
-    ident = okf_inbox.content_hash(snippet)[:12]
+    ident = study_inbox.content_hash(snippet)[:12]
     _write_legacy_markdown(home / ".okf-study", [], [(ident, "promoted", ".okf/x.md")])
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
     study.main(["migrate"])
 
     us = str(okf_home.user_scope_runtime())
-    assert okf_inbox.block_resolved(us, ident, [ident]) is True  # 자식=옛 id, resolved
+    assert study_inbox.block_resolved(us, ident, [ident]) is True  # 자식=옛 id, resolved

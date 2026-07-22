@@ -9,9 +9,9 @@ from __future__ import annotations
 import json
 
 import okf_home
-import okf_inbox
 import pytest
 import study_hook
+import study_inbox
 import study_store
 
 
@@ -50,7 +50,7 @@ def test_record_writes_through_to_shared(monkeypatch, tmp_path):
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
     project = tmp_path / "repo-a"  # 자기 파이프라인 repo의 런타임(테스트에선 이 dir 자체)
     project.mkdir()
-    okf_inbox.record(project, "abc123def456", "promoted", ref=".okf/x.md")
+    study_inbox.record(project, "abc123def456", "promoted", ref=".okf/x.md")
     entry = "abc123def456 promoted .okf/x.md"
     assert entry in _ledger_text(project)  # 원 스코프 = 정본
     assert entry in _ledger_text(_shared())  # write-through(유저 스코프)
@@ -59,10 +59,10 @@ def test_record_writes_through_to_shared(monkeypatch, tmp_path):
 def test_is_resolved_consults_home_ledger(monkeypatch, tmp_path):
     home = _valid_home(tmp_path)
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    okf_inbox.record(home, "feedbeefcafe", "discarded")
+    study_inbox.record(home, "feedbeefcafe", "discarded")
     other = tmp_path / "elsewhere"
     other.mkdir()
-    assert okf_inbox.is_resolved(other, "feedbeefcafe")  # 홈 원장 경유
+    assert study_inbox.is_resolved(other, "feedbeefcafe")  # 홈 원장 경유
 
 
 def test_time_axis_requeue_blocked_end_to_end(monkeypatch, tmp_path):
@@ -72,8 +72,8 @@ def test_time_axis_requeue_blocked_end_to_end(monkeypatch, tmp_path):
     repo_a = tmp_path / "repo-a"
     repo_a.mkdir()
     snippet = "promoted knowledge"
-    ident = okf_inbox.content_hash(snippet)[:12]
-    okf_inbox.record(repo_a, ident, "promoted")  # write-through로 홈 원장에도 기록
+    ident = study_inbox.content_hash(snippet)[:12]
+    study_inbox.record(repo_a, ident, "promoted")  # write-through로 홈 원장에도 기록
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     payload = {
@@ -83,20 +83,20 @@ def test_time_axis_requeue_blocked_end_to_end(monkeypatch, tmp_path):
         }
     }
     assert study_hook.run(payload, scratch) is None  # 재큐 없음
-    assert okf_inbox.list_candidates(_shared()) == []  # 유저 스코프 인박스에도 재적재 없음
+    assert study_inbox.list_candidates(_shared()) == []  # 유저 스코프 인박스에도 재적재 없음
 
 
 def test_record_on_shared_itself_no_duplicate(monkeypatch, tmp_path):
     home = _valid_home(tmp_path)
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
     # 활성 런타임이 곧 공유 원장이면 write-through가 자기 자신 → 이중 기록 없음
-    okf_inbox.record(_shared(), "aaaa11112222", "promoted")
+    study_inbox.record(_shared(), "aaaa11112222", "promoted")
     assert _ledger_text(_shared()).count("aaaa11112222") == 1
 
 
 def test_no_pointer_keeps_local_only(tmp_path):
     project = tmp_path / "repo-a"
     project.mkdir()
-    okf_inbox.record(project, "bbbb33334444", "discarded")
+    study_inbox.record(project, "bbbb33334444", "discarded")
     assert "bbbb33334444" in _ledger_text(project)
-    assert okf_inbox.is_resolved(project, "bbbb33334444")  # 현행 동작 무회귀
+    assert study_inbox.is_resolved(project, "bbbb33334444")  # 현행 동작 무회귀

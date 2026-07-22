@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import okf_inbox
+import study_inbox
 import study_legacy
 
 
@@ -10,7 +10,7 @@ def _write_inbox(directory, entries):
     """entries: [(snippet, source, date)] → 옛 inbox.md 포맷으로 쓴다."""
     lines = ["# Study Inbox", ""]
     for snippet, source, date in entries:
-        ident = okf_inbox.content_hash(snippet)[:12]
+        ident = study_inbox.content_hash(snippet)[:12]
         lines.append(f"## {date}")
         lines.append(f"* **memory**: {snippet} — {source} <!-- id:{ident} -->")
     (directory / study_legacy.INBOX_NAME).write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -27,7 +27,7 @@ def test_read_candidates_parses_old_bullets(tmp_path):
     cands = study_legacy.read_candidates(tmp_path)
     assert cands == [
         {
-            "id": okf_inbox.content_hash("테스트 명령")[:12],
+            "id": study_inbox.content_hash("테스트 명령")[:12],
             "date": "2026-07-01",
             "snippet": "테스트 명령",
             "source": "MEMORY.md",

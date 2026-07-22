@@ -14,7 +14,7 @@
 (다르게 고쳐 쓴 메모는 해시가 달라 새 항목).
 
 결정성이 필요한 값(``_now``·``content_hash``)은 **이 모듈이 소유**한다 — 테스트가
-``okf_inbox._now``를 monkeypatch하는 계약을 지키기 위해서다(스토어는 순수 영속 계층
+``study_inbox._now``를 monkeypatch하는 계약을 지키기 위해서다(스토어는 순수 영속 계층
 이라 SQL ``CURRENT_TIMESTAMP``를 쓰지 않는다). ``_sqlite3`` 부재 파이썬에서는
 ``study_store.available()``가 False가 되고 모든 조작이 **fail-closed 무동작**한다.
 """
