@@ -138,7 +138,9 @@ repo 루트 `docs/adopting-study.md` 참조.
 > 캡처 스코프·런타임 루트·캡처 입구 판정은 study 층 `scripts/study_scope.py`에 있다
 > (#145 U3 분할 — import는 study_scope→okf_home 단방향). 캡처 훅(`study_hook`·
 > `study_session`)은 `study_scope`를, 주입 훅(`okf_hooks` session-start)은
-> `okf_home`을, doctor는 둘 다 재사용한다. promote/discard는 유효 홈이 있으면 홈
-> 원장에도 write-through되어 스코프를 넘는 재큐를 막는다(전역 원장). CLI:
-> `study_scope.py status|set|enable-capture`, `study.py scan [--enqueue]`,
-> `okf_doctor.py` — 해소 규칙은 Epic #91에서 랜딩, 모듈 분할은 #145 U3.
+> `okf_home`을 재사용한다. doctor는 generic(`okf_home`)만 하드 의존하고 study
+> 진단(캡처 트레이스·입구·스토어·inbox·회복)은 `study_doctor` 심으로 선택
+> 위임한다(#145 U4 — 있으면 실행, 없으면 생략). promote/discard는 유효 홈이
+> 있으면 홈 원장에도 write-through되어 스코프를 넘는 재큐를 막는다(전역 원장).
+> CLI: `study_scope.py status|set|enable-capture`, `study.py scan [--enqueue]`,
+> `okf_doctor.py` — 해소 규칙은 Epic #91에서 랜딩, 모듈 분할은 #145 U3·U4.
