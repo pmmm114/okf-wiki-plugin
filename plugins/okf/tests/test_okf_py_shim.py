@@ -1,9 +1,12 @@
-"""bin/okf-py 부트스트랩 셔틀 + bare python3 금지 게이트 (#108).
+"""bin/okf-py 부트스트랩 셔틀 + 훅 spawn 게이트 (#108).
 
-훅 커맨드는 로그인 쉘 PATH 보정 없이 직접 spawn될 수 있어(GUI 앱 최소 PATH)
-bare `python3`가 ENOENT로 죽는다 — v0.2.0 실사용 회귀. 셔틀의 해석 순서
-(OKF_PYTHON → PATH python3 → 관례 절대경로 → PATH python)와 통과 계약
-(stdin·인자·exit code 무변형), 그리고 재유입을 막는 그렙 게이트를 고정한다.
+훅 커맨드는 로그인 쉘 PATH 보정 없이 직접 spawn된다(exec form: `args` 존재 →
+셸 없음). 그래서 두 가지 ENOENT 회귀가 났다 — (1) bare `python3`는 최소 PATH
+(GUI 앱)에서 죽고, (2) #108을 셔틀로 고치며 `command`에 남긴 셸용 따옴표가
+벗겨지지 않아 파일명에 박혀 다시 죽었다(`posix_spawn '"…/bin/okf-py"'`). 셔틀의
+해석 순서(OKF_PYTHON → PATH python3 → 관례 절대경로 → PATH python)와 통과 계약
+(stdin·인자·exit code 무변형), 그리고 재유입을 막는 그렙 게이트(bare python3 +
+exec form 따옴표·공백)를 고정한다.
 """
 
 from __future__ import annotations
@@ -96,23 +99,41 @@ def test_no_interpreter_visible_127(tmp_path):
     assert b"OKF_PYTHON" in res.stderr
 
 
-# --- 재유입 게이트 (#108 — bare python3 금지) --------------------------------
+# --- 재유입 게이트 (#108 bare python3 금지 + exec form 따옴표·공백 금지) ------
 
 
-def test_hooks_json_commands_shuttle_only():
+def _hook_specs():
     data = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
-    commands = [
-        h["command"]
-        for groups in data["hooks"].values()
-        for entry in groups
-        for h in entry["hooks"]
-    ]
-    assert commands
-    for cmd in commands:
+    return [h for groups in data["hooks"].values() for entry in groups for h in entry["hooks"]]
+
+
+def test_hooks_json_exec_form_no_shell_quoting():
+    """훅은 exec form(`args` 존재)으로 spawn된다 — 셸이 없어 `command`의 따옴표·
+    공백이 벗겨지지 않는다. #108(`posix_spawn 'python3'`)을 셔틀로 고치며 command에
+    셸용 따옴표를 남겼더니, 그 따옴표가 파일명에 그대로 박혀 다시 ENOENT가 났다
+    (`posix_spawn '"…/bin/okf-py"'` — #108 후속 회귀). 계약: `command`는 따옴표·공백
+    없는 단일 실행파일, 인자·서브커맨드는 전부 `args`로. bare python3 금지도 유지."""
+    specs = _hook_specs()
+    assert specs
+    for h in specs:
+        cmd = h["command"]
+        args = h.get("args", [])
+        # exec form: command는 단일 토큰이어야 한다. 따옴표는 리터럴 경로 문자가
+        # 되고(=회귀 원인), 공백은 argv 분리를 일으킨다 — 둘 다 spawn을 깬다.
+        assert '"' not in cmd, f"command 따옴표 금지(exec form 오염): {cmd}"
+        assert " " not in cmd, f"command 공백 금지(인자는 args로): {cmd}"
+        # #108: 인터프리터는 bin/okf-py 셔틀 경유 — bare python3 직접 spawn 금지.
         assert "python3" not in cmd, cmd
-        assert cmd.startswith('"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" ') or cmd.startswith(
-            "${CLAUDE_PLUGIN_ROOT}/scripts/"  # 레거시 .sh 직접 경로(셔뱅 spawn)
-        ), cmd
+        assert all("python3" not in a for a in args), args
+        # 각 args 원소는 argv 하나로 그대로 전달된다 — 따옴표 금지(리터럴이 된다).
+        assert all('"' not in a for a in args), args
+        if cmd.endswith("/bin/okf-py"):  # Python 훅: 셔틀 + 스크립트 경로는 args로
+            assert cmd == "${CLAUDE_PLUGIN_ROOT}/bin/okf-py", cmd
+            assert args and args[0].startswith("${CLAUDE_PLUGIN_ROOT}/scripts/"), args
+            assert args[0].endswith(".py"), args
+        else:  # 레거시 .sh: 셔뱅 절대경로로 직접 spawn(#108 미해당)
+            assert cmd.startswith("${CLAUDE_PLUGIN_ROOT}/scripts/"), cmd
+            assert cmd.endswith(".sh"), cmd
 
 
 def test_command_docs_no_bare_python3():
