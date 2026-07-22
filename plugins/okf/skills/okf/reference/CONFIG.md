@@ -90,7 +90,7 @@ repo 루트 `docs/adopting-study.md` 참조.
   "주입 전용 홈"**(정상 — 캡처만 비활성).
 - **주입 전용 홈에 캡처 켜기**: `/okf-init --home`이 대상의 캡처 준비 상태
   (`capture_ready`: `active`/`off`/`absent`)를 판정해, 캡처가 꺼져 있으면 동의를 받아
-  홈 `study.capture: review`(설정)만 켠다(스크립트 `okf_home.py enable-capture <홈>`
+  홈 `study.capture: review`(설정)만 켠다(스크립트 `study_scope.py enable-capture <홈>`
   — 판정·편집 모두 코드 경로). 런타임(inbox/ledger/trust)은 **홈이 아니라 유저
   스코프 `~/.claude/okf/study`**에 보장한다 — 홈엔 `.okf-study`를 만들지 않는다
   (#114 U2, 홈은 순수 목적지). 홈 설정에 쓰기이므로 활성만 사용자 선택이고,
@@ -134,8 +134,11 @@ repo 루트 `docs/adopting-study.md` 참조.
 진단·회복은 `/okf-doctor`(해소 트레이스·건강·캡처 입구 진단)와
 `study scan [--enqueue]`(미큐잉 후보 결정론 탐지·멱등 재적재)가 담당한다.
 
-> 구현 배선: 포인터·해소 로직은 공유 모듈 `scripts/okf_home.py` 한 곳에 있고
-> 캡처 훅(`study_hook`·`study_session`)·주입 훅(`okf_hooks` session-start)·doctor가
-> 재사용한다. promote/discard는 유효 홈이 있으면 홈 원장에도 write-through되어
-> 스코프를 넘는 재큐를 막는다(전역 원장). CLI: `okf_home.py status|set`,
-> `study.py scan [--enqueue]`, `okf_doctor.py` — 전부 Epic #91에서 랜딩 완료.
+> 구현 배선: 포인터·홈 판정·주입 해소는 generic 공유 모듈 `scripts/okf_home.py`에,
+> 캡처 스코프·런타임 루트·캡처 입구 판정은 study 층 `scripts/study_scope.py`에 있다
+> (#145 U3 분할 — import는 study_scope→okf_home 단방향). 캡처 훅(`study_hook`·
+> `study_session`)은 `study_scope`를, 주입 훅(`okf_hooks` session-start)은
+> `okf_home`을, doctor는 둘 다 재사용한다. promote/discard는 유효 홈이 있으면 홈
+> 원장에도 write-through되어 스코프를 넘는 재큐를 막는다(전역 원장). CLI:
+> `study_scope.py status|set|enable-capture`, `study.py scan [--enqueue]`,
+> `okf_doctor.py` — 해소 규칙은 Epic #91에서 랜딩, 모듈 분할은 #145 U3.

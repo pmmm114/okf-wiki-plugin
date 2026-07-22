@@ -3,7 +3,7 @@
 Claude Code 메모리 저장을 감지해 ``study.capture`` 정책대로 후보를 inbox에
 적재한다. **훅은 절대 승격·디스패치하지 않는다**(모델 부재) — 적재 또는
 무동작뿐이다. 메모리 경로 판정과 캡처 스코프 해소(프로젝트/홈 폴백)는
-``okf_home``에 위임한다 — 무효 홈 포인터는 이 훅에서 **무음 스킵**이다
+``study_scope``에 위임한다 — 무효 홈 포인터는 이 훅에서 **무음 스킵**이다
 (경고 방출은 SessionStart 계열의 몫, #91 §3).
 
 - `capture` `off`(또는 study 부재·홈 미옵트인): 무동작.
@@ -21,9 +21,9 @@ import os
 import sys
 from pathlib import Path
 
-import okf_home
 import study_blocks
 import study_inbox
+import study_scope
 
 
 def _dig(data, *keys):
@@ -37,9 +37,9 @@ def _dig(data, *keys):
 def run(payload: dict, project: str | Path) -> str | None:
     """페이로드를 처리하고 적재 시 안내 문자열을, 아니면 None을 반환한다."""
     file_path = _dig(payload, "tool_input", "file_path")
-    if not file_path or not okf_home.is_memory_path(file_path, payload, project):
+    if not file_path or not study_scope.is_memory_path(file_path, payload, project):
         return None
-    scope = okf_home.resolve_capture(project)
+    scope = study_scope.resolve_capture(project)
     # 무효 포인터(warning 있음)도 여기선 무음 — PostToolUse는 경고 방출 지점이 아니다
     if scope["capture"] not in ("review", "auto") or scope["runtime_root"] is None:
         return None

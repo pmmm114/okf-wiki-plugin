@@ -11,6 +11,7 @@ import json
 import okf_home
 import study
 import study_inbox
+import study_scope
 import study_simhash
 
 
@@ -75,7 +76,7 @@ def test_study_near_cli(monkeypatch, tmp_path, capsys):
     (project / ".okf-wiki.json").write_text(
         json.dumps({"study": {"capture": "review"}}), encoding="utf-8"
     )
-    rt = okf_home.resolve_capture(project)["runtime_root"]
+    rt = study_scope.resolve_capture(project)["runtime_root"]
     a = study_inbox.append(rt, "alpha beta gamma", "M.md")
     study_inbox.append(rt, "gamma beta alpha", "M.md")  # 재배열 → 지문 동일
 

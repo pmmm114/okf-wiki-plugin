@@ -130,5 +130,6 @@ def test_cli_status_reports_resolution(monkeypatch, tmp_path, capsys):
     assert okf_home.main(["status", str(scratch)]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["home"] == str(home)
-    assert result["capture"]["target"] == str(home)
     assert result["inject"]["target"] == str(home)
+    # #145 U3 — 캡처 해소는 study 층(study_scope status) 소관: generic status에 없음
+    assert "capture" not in result

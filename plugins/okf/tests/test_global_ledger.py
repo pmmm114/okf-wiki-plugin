@@ -12,6 +12,7 @@ import okf_home
 import pytest
 import study_hook
 import study_inbox
+import study_scope
 import study_store
 
 
@@ -42,7 +43,7 @@ def _ledger_text(runtime):
 
 
 def _shared():
-    return okf_home.user_scope_runtime()  # 공유(유저 스코프) 원장 루트
+    return study_scope.user_scope_runtime()  # 공유(유저 스코프) 원장 루트
 
 
 def test_record_writes_through_to_shared(monkeypatch, tmp_path):

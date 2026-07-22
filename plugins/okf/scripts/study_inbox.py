@@ -6,7 +6,7 @@
 (study·hook·session·doctor·trust)를 건드리지 않는다.
 
 첫 인자는 **런타임 루트**(스토어가 사는 디렉토리)다 — 자기 파이프라인 repo면
-``<repo>/.okf-study``, 홈/폴백이면 유저 스코프(``okf_home.resolve_capture``의
+``<repo>/.okf-study``, 홈/폴백이면 유저 스코프(``study_scope.resolve_capture``의
 ``runtime_root``). 승격 대상 repo와 분리된다(#114).
 
 ``id``는 스니펫 **내용 해시**(sha256) 앞 12자로, 선택 승격·폐기·중복 판정의 안정
@@ -216,12 +216,13 @@ def _global_ledger_root(runtime: str | Path) -> str | None:
     """
     try:
         import okf_home
+        import study_scope
     except ImportError:  # pragma: no cover - 단독 배포 등 비정상 배치 관용
         return None
     home, _reason = okf_home.home_state()
     if home is None:
         return None
-    shared = str(okf_home.user_scope_runtime())
+    shared = str(study_scope.user_scope_runtime())
     try:
         if Path(runtime).resolve() == Path(shared).resolve():
             return None

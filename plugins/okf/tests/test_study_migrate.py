@@ -13,6 +13,7 @@ import pytest
 import study
 import study_inbox
 import study_legacy
+import study_scope
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +51,7 @@ def test_migrate_moves_runtime_to_user_scope(monkeypatch, tmp_path, capsys):
     assert out["moved"]["candidates"] == 1 and out["moved"]["ledger"] == 2
 
     assert not legacy.exists()  # 홈 런타임 제거 → 순수 목적지
-    us = okf_home.user_scope_runtime()
+    us = study_scope.user_scope_runtime()
     assert len(study_inbox.list_candidates(us)) == 1
     assert study_inbox.is_resolved(us, "aaaa11112222")
     assert study_inbox.is_resolved(us, "bbbb33334444")
@@ -66,7 +67,8 @@ def test_migrate_copies_trust(monkeypatch, tmp_path, capsys):
     assert study.main(["migrate"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["moved"]["trust"] is True
-    assert (okf_home.user_scope_runtime() / "trust").read_text(encoding="utf-8") == "deadbeefcafe\n"
+    trust = (study_scope.user_scope_runtime() / "trust").read_text(encoding="utf-8")
+    assert trust == "deadbeefcafe\n"
 
 
 def test_migrate_idempotent_second_run_noop(monkeypatch, tmp_path, capsys):
@@ -95,11 +97,11 @@ def test_gate_home_fallback_runtime_never_in_home(monkeypatch, tmp_path):
     # co-location 문제가 재발한다. 무설정 위치와 홈 자신 양쪽에서 검증한다.
     home = _home(tmp_path, "review")
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    user_scope = str(okf_home.user_scope_runtime())
+    user_scope = str(study_scope.user_scope_runtime())
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     for loc in (scratch, home):
-        runtime = okf_home.resolve_capture(loc)["runtime_root"]
+        runtime = study_scope.resolve_capture(loc)["runtime_root"]
         assert runtime == user_scope
         assert not runtime.startswith(str(home))  # 홈 repo 안이 아니다
 
@@ -136,14 +138,14 @@ def test_migrate_imports_home_legacy_markdown(monkeypatch, tmp_path, capsys):
     assert out["migrated"] is True and "home" in out["moved"]["sources"]
     assert out["moved"]["candidates"] == 1 and out["moved"]["ledger"] == 1
 
-    us = okf_home.user_scope_runtime()
+    us = study_scope.user_scope_runtime()
     assert len(study_inbox.list_candidates(us)) == 1
     assert study_inbox.is_resolved(us, "aaaa11112222")
     assert not legacy.exists()  # 홈은 순수 목적지로
 
 
 def test_migrate_imports_userscope_legacy_markdown(tmp_path, capsys):
-    us = okf_home.user_scope_runtime()
+    us = study_scope.user_scope_runtime()
     _write_legacy_markdown(us, [("userscope fact", "MEMORY.md", "2026-07-02")], [])
 
     assert study.main(["migrate"]) == 0  # 홈 포인터 없이도 (b) 원천 처리
@@ -154,7 +156,7 @@ def test_migrate_imports_userscope_legacy_markdown(tmp_path, capsys):
 
 
 def test_migrate_both_sources_together(monkeypatch, tmp_path, capsys):
-    us = okf_home.user_scope_runtime()
+    us = study_scope.user_scope_runtime()
     _write_legacy_markdown(us, [("from userscope", "M", "2026-07-02")], [])
     home = _home(tmp_path)
     _write_legacy_markdown(home / ".okf-study", [("from home", "M", "2026-07-01")], [])
@@ -175,5 +177,5 @@ def test_migrate_legacy_markdown_ledger_continuity(monkeypatch, tmp_path):
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
     study.main(["migrate"])
 
-    us = str(okf_home.user_scope_runtime())
+    us = str(study_scope.user_scope_runtime())
     assert study_inbox.block_resolved(us, ident, [ident]) is True  # 자식=옛 id, resolved

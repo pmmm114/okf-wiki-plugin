@@ -14,6 +14,7 @@ import pytest
 import study as study_cli
 import study_hook
 import study_inbox
+import study_scope
 
 
 @pytest.fixture(autouse=True)
@@ -175,7 +176,7 @@ def test_doctor_shows_recent_journal(monkeypatch, tmp_path):
     # #114 U5 — doctor가 이벤트 저널 최근 이력을 보인다
     home = _valid_home(tmp_path, {"capture": "review"})
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    study_inbox.append(okf_home.user_scope_runtime(), "저널 한 줄", "MEMORY.md")
+    study_inbox.append(study_scope.user_scope_runtime(), "저널 한 줄", "MEMORY.md")
     out = okf_doctor.run(str(_project(tmp_path)))
     assert "최근 이력" in out and "capture" in out
 
@@ -193,7 +194,7 @@ def test_doctor_shows_recurrence(monkeypatch, tmp_path):
     # U3 #132 — 재등장(recurrence>1) 후보를 doctor 대기 요약에 표시
     home = _valid_home(tmp_path, {"capture": "review"})
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    rt = okf_home.user_scope_runtime()
+    rt = study_scope.user_scope_runtime()
     study_inbox.append(rt, "recurring concept", "MEMORY.md")
     study_inbox.append(rt, "recurring concept", "MEMORY.md")  # 재캡처 → recurrence 2
     assert "재등장" in okf_doctor.run(str(_project(tmp_path)))
@@ -203,7 +204,7 @@ def test_doctor_flags_userscope_legacy_markdown(monkeypatch, tmp_path):
     # U5 #134 — 유저 스코프 레거시 markdown 잔존을 doctor가 감지·안내
     home = _valid_home(tmp_path, {"capture": "review"})
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    us = okf_home.user_scope_runtime()
+    us = study_scope.user_scope_runtime()
     us.mkdir(parents=True, exist_ok=True)
     (us / "inbox.md").write_text("# Study Inbox\n", encoding="utf-8")
     out = okf_doctor.run(str(_project(tmp_path)))

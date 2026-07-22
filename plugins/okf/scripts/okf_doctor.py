@@ -16,13 +16,14 @@ import okf_home
 import study as study_cli
 import study_inbox
 import study_legacy
+import study_scope
 import study_store
 
 
 def _capture_trace(project: str) -> list[str]:
-    block = okf_home.study_block(okf_home.load_config(project))
+    block = study_scope.study_block(okf_home.load_config(project))
     home, reason = okf_home.home_state()
-    scope = okf_home.resolve_capture(project)
+    scope = study_scope.resolve_capture(project)
     if block is not None and block.get("scope") == "home":
         why = 'study 블록의 scope:"home" 위임'
     elif block is not None:
@@ -69,7 +70,7 @@ def _home_notes(project: str) -> list[str]:
         lines.append(f"  포인터: {pointer} — 무효({reason})")
         return lines
     lines.append(f"  포인터: {home} (유효)")
-    cap_state = okf_home.home_capture_state(home)
+    cap_state = study_scope.home_capture_state(home)
     if cap_state == "absent":
         lines.append(
             "  메모: 주입 전용 홈(study 블록 없음, 캡처 비활성) — 위치 무관 적재를 "
@@ -96,7 +97,7 @@ def _home_notes(project: str) -> list[str]:
             "  부합: ⚠ 홈에 `.okf-study` 런타임 잔존 — 홈은 순수 목적지여야 한다. "
             "`study migrate`로 유저 스코프 이동(#114)"
         )
-    block = okf_home.study_block(okf_home.load_config(project))
+    block = study_scope.study_block(okf_home.load_config(project))
     if block is not None and block.get("scope") == "home":
         if "capture" not in block:
             lines.append('  메모: scope:"home"인데 capture 부재 — 위임이 비활성(무의미 조합)')
@@ -110,15 +111,15 @@ def _entrance_lines(project: str) -> list[str]:
     disabled = []
     if os.environ.get("CLAUDE_CODE_DISABLE_AUTO_MEMORY") == "1":
         disabled.append("CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
-    for path in okf_home._settings_paths(project):
-        data = okf_home._read_json(path)
+    for path in study_scope.settings_paths(project):
+        data = okf_home.read_json(path)
         if data is not None and data.get("autoMemoryEnabled") is False:
             disabled.append(f"autoMemoryEnabled:false @{path}")
     if disabled:
         lines.append(f"  자동 메모리: 비활성({' · '.join(disabled)}) — 캡처 트리거 자체가 없음")
     else:
         lines.append("  자동 메모리: 활성(비활성 신호 없음)")
-    explicit = okf_home.memory_dir_candidates(project)
+    explicit = study_scope.memory_dir_candidates(project)
     config = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
     shown = explicit or "(autoMemoryDirectory 없음)"
     lines.append(f"  L0 후보: {shown} + 기본형 {config}/projects/*/memory/")
@@ -160,7 +161,7 @@ def _store_notes(project: str) -> list[str]:
             "OKF_PYTHON을 SQLite 포함 파이썬으로 지정하라."
         ]
     lines = ["  sqlite3: 사용 가능"]
-    if study_legacy.has_legacy(str(okf_home.user_scope_runtime())):
+    if study_legacy.has_legacy(str(study_scope.user_scope_runtime())):
         lines.append(
             "  ⚠ 유저 스코프에 레거시 markdown 스테이징 잔존 — `study migrate`로 study.db 이관"
         )
@@ -172,19 +173,19 @@ def _store_notes(project: str) -> list[str]:
 
 def _inbox_lines(project: str) -> list[str]:
     lines = []
-    scope = okf_home.resolve_capture(project)
+    scope = study_scope.resolve_capture(project)
     if scope["runtime_root"] and scope["scope"] == "project":
         lines.append(f"  project 대기: {_pending_summary(scope['runtime_root'])}")
     home, _reason = okf_home.home_state()
     if home is not None:
-        shared = str(okf_home.user_scope_runtime())
+        shared = str(study_scope.user_scope_runtime())
         lines.append(f"  home(유저 스코프) 대기: {_pending_summary(shared)}")
     return lines or ["  (활성 inbox 없음)"]
 
 
 def _journal_lines(project: str) -> list[str]:
     # 최근 이벤트 저널(순서·시각) — 비-git 스테이징의 로그(#114 U5)
-    runtime = okf_home.resolve_capture(project)["runtime_root"]
+    runtime = study_scope.resolve_capture(project)["runtime_root"]
     if runtime is None:
         return ["  (활성 런타임 없음)"]
     events = study_inbox.read_journal(runtime, limit=5)
@@ -200,7 +201,7 @@ def _recovery_lines(project: str) -> list[str]:
             "  홈 포인터가 무효다 — `/okf-init --home <경로>`로 수리한 뒤 "
             "`study scan`으로 미큐잉을 확인하라."
         ]
-    scope = okf_home.resolve_capture(project)
+    scope = study_scope.resolve_capture(project)
     runtime = scope["runtime_root"]
     if runtime is None:
         return []
