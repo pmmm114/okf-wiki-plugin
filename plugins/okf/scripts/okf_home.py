@@ -94,42 +94,77 @@ def study_block(config: dict | None) -> dict | None:
     return block if isinstance(block, dict) else None
 
 
+# 런타임(inbox/ledger/trust) 디렉토리 이름 — in-repo 파이프라인용. 유저 스코프는
+# 포인터(~/.claude/okf/home-project)와 co-located된 ~/.claude/okf/study.
+_RUNTIME_DIR_NAME = ".okf-study"
+
+
+def user_scope_runtime() -> Path:
+    """폴백·홈 캡처의 유저 스코프 런타임 루트(~/.claude/okf/study).
+
+    홈은 순수 목적지이므로 런타임(inbox/ledger/trust)을 담지 않는다(#114) — 자기
+    파이프라인이 없는 곳(비-git·okf 없는 repo)과 홈 폴백의 스테이징은 포인터와
+    같은 유저 스코프 디렉토리에 모인다.
+    """
+    return Path(os.path.expanduser("~")) / ".claude" / "okf" / "study"
+
+
+def _in_repo_runtime(project: str | Path) -> str:
+    return str(Path(project) / _RUNTIME_DIR_NAME)
+
+
+def _same_path(a: str | Path, b: str | Path) -> bool:
+    try:
+        return Path(a).resolve() == Path(b).resolve()
+    except OSError:
+        return False
+
+
+def _cap(target: str | None, runtime_root: str | None, capture: str, scope: str, warning=None):
+    return {
+        "target": target,
+        "runtime_root": runtime_root,
+        "capture": capture,
+        "scope": scope,
+        "warning": warning,
+    }
+
+
 def resolve_capture(project: str | Path) -> dict:
-    """캡처(쓰기) 스코프를 해소한다 (#91 §2 캡처 4단 규칙).
+    """캡처(쓰기) 스코프를 해소한다 (#91 §2 캡처 4단 · #114 런타임 루트 분리).
 
     반환 dict:
-    - target: 적재 대상 프로젝트 경로(str) 또는 None(무동작)
+    - target: **승격 대상**(‘.okf/`가 있는 곳) 경로(str) 또는 None(무동작)
+    - runtime_root: **런타임**(inbox/ledger/trust)이 사는 디렉토리(str) 또는 None
+      — 자기 파이프라인 repo면 ``<repo>/.okf-study``, 홈/폴백이면 유저 스코프
     - capture: 유효 캡처 레벨("off"|"review"|"auto")
     - scope: "project" | "home" | "none"
     - warning: 무효 포인터 경고 문구(str) 또는 None — 방출은 SessionStart 계열만
     """
     block = study_block(load_config(project))
+    home, reason = home_state()
+    user_rt = str(user_scope_runtime())
     if block is not None:
         capture = block.get("capture", "off")
         if block.get("scope") == "home":
             # 규칙 1 — 위임 선언: 목적지만 홈, 레벨은 블록 값(부재=off)
-            home, reason = home_state()
             if home is None:
-                # 포인터 부재=무음, 무효=경고(문구만 생성)
-                return {
-                    "target": None,
-                    "capture": "off",
-                    "scope": "none",
-                    "warning": _warning(reason),
-                }
-            return {"target": home, "capture": capture, "scope": "home", "warning": None}
-        # 규칙 2 — 명시가 이긴다(capture=off 포함)
-        return {"target": str(project), "capture": capture, "scope": "project", "warning": None}
+                return _cap(None, None, "off", "none", _warning(reason))
+            return _cap(home, user_rt, capture, "home")
+        # 규칙 2 — 명시가 이긴다(capture=off 포함). 단 프로젝트가 곧 홈이면 런타임은
+        # 유저 스코프로 — 홈은 자기 study 블록이 있어도 런타임을 담지 않는다(#114 U1).
+        if home is not None and _same_path(project, home):
+            return _cap(home, user_rt, capture, "home")
+        return _cap(str(project), _in_repo_runtime(project), capture, "project")
     # 규칙 3 — 블록 없음 → 홈 폴백
-    home, reason = home_state()
     if home is None:
-        return {"target": None, "capture": "off", "scope": "none", "warning": _warning(reason)}
+        return _cap(None, None, "off", "none", _warning(reason))
     home_block = study_block(load_config(home))
     home_capture = (home_block or {}).get("capture", "off")
     if home_capture in ("review", "auto"):
-        return {"target": home, "capture": home_capture, "scope": "home", "warning": None}
+        return _cap(home, user_rt, home_capture, "home")
     # 반쪽 상태(주입 전용 홈) 또는 capture=off — 정상, 무경고 (#91 #13)
-    return {"target": None, "capture": "off", "scope": "none", "warning": None}
+    return _cap(None, None, "off", "none", None)
 
 
 def resolve_inject(project: str | Path) -> dict:

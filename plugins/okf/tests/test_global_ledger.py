@@ -7,6 +7,7 @@ promote/discard가 홈 원장에도 append되고, is_resolved가 활성∪홈을
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import okf_home
 import okf_inbox
@@ -30,19 +31,25 @@ def _valid_home(tmp_path, capture="review"):
     return home
 
 
-def _ledger_text(project):
-    path = project / okf_inbox.STUDY_DIR / okf_inbox.LEDGER_NAME
+def _ledger_text(runtime):
+    # runtime은 런타임 루트 — 원장은 <runtime>/ledger 직접(#114, .okf-study 세그먼트 없음)
+    path = Path(runtime) / okf_inbox.LEDGER_NAME
     return path.read_text(encoding="utf-8") if path.is_file() else ""
 
 
-def test_record_writes_through_to_home(monkeypatch, tmp_path):
+def _shared():
+    return okf_home.user_scope_runtime()  # 공유(유저 스코프) 원장 루트
+
+
+def test_record_writes_through_to_shared(monkeypatch, tmp_path):
     home = _valid_home(tmp_path)
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    project = tmp_path / "repo-a"
+    project = tmp_path / "repo-a"  # 자기 파이프라인 repo의 런타임(테스트에선 이 dir 자체)
     project.mkdir()
     okf_inbox.record(project, "abc123def456", "promoted", ref=".okf/x.md")
-    assert "abc123def456 promoted .okf/x.md" in _ledger_text(project)  # 원 스코프 = 정본
-    assert "abc123def456 promoted .okf/x.md" in _ledger_text(home)  # write-through
+    entry = "abc123def456 promoted .okf/x.md"
+    assert entry in _ledger_text(project)  # 원 스코프 = 정본
+    assert entry in _ledger_text(_shared())  # write-through(유저 스코프)
 
 
 def test_is_resolved_consults_home_ledger(monkeypatch, tmp_path):
@@ -72,14 +79,15 @@ def test_time_axis_requeue_blocked_end_to_end(monkeypatch, tmp_path):
         }
     }
     assert study_hook.run(payload, scratch) is None  # 재큐 없음
-    assert okf_inbox.list_candidates(home) == []
+    assert okf_inbox.list_candidates(_shared()) == []  # 유저 스코프 인박스에도 재적재 없음
 
 
-def test_record_on_home_itself_no_duplicate(monkeypatch, tmp_path):
+def test_record_on_shared_itself_no_duplicate(monkeypatch, tmp_path):
     home = _valid_home(tmp_path)
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    okf_inbox.record(home, "aaaa11112222", "promoted")
-    assert _ledger_text(home).count("aaaa11112222") == 1  # 자기 자신 이중 기록 없음
+    # 활성 런타임이 곧 공유 원장이면 write-through가 자기 자신 → 이중 기록 없음
+    okf_inbox.record(_shared(), "aaaa11112222", "promoted")
+    assert _ledger_text(_shared()).count("aaaa11112222") == 1
 
 
 def test_no_pointer_keeps_local_only(tmp_path):

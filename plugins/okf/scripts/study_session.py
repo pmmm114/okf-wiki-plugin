@@ -21,9 +21,9 @@ def run(project: str | Path) -> str | None:
     scope = okf_home.resolve_capture(project)
     if scope["warning"]:
         return scope["warning"]  # 옵트인 후 고장 = 가시화(세션당 1회 수준)
-    if scope["capture"] != "auto" or scope["target"] is None:
+    if scope["capture"] != "auto" or scope["runtime_root"] is None:
         return None
-    pending = len(okf_inbox.list_candidates(scope["target"]))
+    pending = len(okf_inbox.list_candidates(scope["runtime_root"]))
     if pending == 0:
         return None
     return (

@@ -193,12 +193,30 @@ def test_self_delegation_is_harmless(monkeypatch, tmp_path):
     assert (scope["target"], scope["scope"]) == (str(home), "home")
 
 
-def test_home_equals_project_rule2_precedes(monkeypatch, tmp_path):
-    # #10 — 홈=현재 프로젝트여도 규칙 2가 선취(동작 동일)
+def test_runtime_root_project_scope_is_in_repo(tmp_path):
+    # #114 U1 무회귀 — 자기 study 블록이 있는 제3 프로젝트는 런타임이 in-repo 유지
+    project = _project(tmp_path, {"study": {"capture": "review"}})
+    scope = okf_home.resolve_capture(project)
+    assert (scope["scope"], scope["runtime_root"]) == ("project", str(project / ".okf-study"))
+
+
+def test_runtime_root_fallback_is_user_scope(monkeypatch, tmp_path):
+    # #114 U1 — 폴백(자기 파이프라인 없는 곳)의 런타임은 유저 스코프(홈 repo에 안 씀)
+    home = _home(tmp_path, {"study": {"capture": "review"}})
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    scope = okf_home.resolve_capture(_project(tmp_path))
+    assert scope["scope"] == "home"
+    assert scope["runtime_root"] == str(okf_home.user_scope_runtime())
+
+
+def test_home_equals_project_routes_runtime_to_user_scope(monkeypatch, tmp_path):
+    # #114 U1 — 홈=현재 프로젝트여도 런타임은 유저 스코프(홈에 in-repo 런타임 미생성).
+    # 승격 대상은 홈, 런타임은 ~/.claude/okf/study — 홈은 순수 목적지로 유지된다.
     home = _home(tmp_path, {"study": {"capture": "review"}})
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
     scope = okf_home.resolve_capture(home)
-    assert (scope["target"], scope["scope"]) == (str(home), "project")
+    assert scope["target"] == str(home) and scope["scope"] == "home"
+    assert scope["runtime_root"] == str(okf_home.user_scope_runtime())
 
 
 # --- resolve_inject (#91 §2 주입 3단) ---------------------------------------

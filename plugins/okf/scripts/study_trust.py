@@ -31,8 +31,13 @@ TRUST_NAME = "trust"
 CONFIG_NAME = ".okf-wiki.json"
 
 
-def _trust_path(project: str | Path) -> Path:
-    return Path(project) / STUDY_DIR / TRUST_NAME
+def _in_repo_runtime(project: str | Path) -> Path:
+    return Path(project) / STUDY_DIR
+
+
+def _trust_path(runtime: str | Path) -> Path:
+    """trust 파일 경로 — 런타임 루트 직접(홈/폴백=유저 스코프). 해시 루트(repo)와 분리(#114)."""
+    return Path(runtime) / TRUST_NAME
 
 
 def compute_hash(project: str | Path, handlers: list[dict], capture: str) -> str:
@@ -54,9 +59,16 @@ def compute_hash(project: str | Path, handlers: list[dict], capture: str) -> str
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
-def is_trusted(project: str | Path, handlers: list[dict], capture: str) -> bool:
-    """현재 핸들러 셋이 로컬 승인 기록과 일치하는지 여부(fail-closed)."""
-    path = _trust_path(project)
+def is_trusted(
+    project: str | Path, handlers: list[dict], capture: str, runtime: str | Path | None = None
+) -> bool:
+    """현재 핸들러 셋이 로컬 승인 기록과 일치하는지 여부(fail-closed).
+
+    해시 루트는 ``project``(핸들러 git-추적 repo, R4), trust 파일은 ``runtime``
+    (미지정 시 in-repo ``.okf-study`` — 홈/폴백은 유저 스코프를 넘긴다, #114).
+    """
+    rt = runtime if runtime is not None else _in_repo_runtime(project)
+    path = _trust_path(rt)
     if not path.is_file():
         return False
     try:
@@ -66,20 +78,23 @@ def is_trusted(project: str | Path, handlers: list[dict], capture: str) -> bool:
     return path.read_text(encoding="utf-8").strip() == current
 
 
-def approve(project: str | Path, handlers: list[dict], capture: str) -> str:
-    """현재 핸들러 셋을 로컬 승인 기록하고 해시를 반환한다."""
+def approve(
+    project: str | Path, handlers: list[dict], capture: str, runtime: str | Path | None = None
+) -> str:
+    """현재 핸들러 셋을 로컬 승인 기록하고 해시를 반환한다(해시=repo, 파일=runtime)."""
     digest = compute_hash(project, handlers, capture)
-    path = _trust_path(project)
+    rt = runtime if runtime is not None else _in_repo_runtime(project)
+    path = _trust_path(rt)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(digest + "\n", encoding="utf-8")
     return digest
 
 
 def make_trust_check(
-    project: str | Path, handlers: list[dict], capture: str
+    project: str | Path, handlers: list[dict], capture: str, runtime: str | Path | None = None
 ) -> Callable[[str, Path], bool]:
     """디스패처용 ``trust_check(name, path)``를 만든다. 셋 전체 승인 시에만 True."""
-    trusted = is_trusted(project, handlers, capture)
+    trusted = is_trusted(project, handlers, capture, runtime)
     return lambda _name, _path: trusted
 
 
@@ -98,22 +113,28 @@ def main(argv: list[str] | None = None) -> int:
         parser.add_argument("project", nargs="?", default=".", help="소비 repo 루트")
     args = ap.parse_args(argv)
 
-    capture, handlers = _load_study(args.project)
+    # 스코프 해소 — 해시·핸들러 루트는 승격 대상 repo, trust 파일은 런타임 루트(#114).
+    import okf_home
+
+    scope = okf_home.resolve_capture(args.project)
+    repo = scope["target"] or str(args.project)
+    runtime = scope["runtime_root"] or str(_in_repo_runtime(args.project))
+    capture, handlers = _load_study(repo)
     if not handlers:
         print("핸들러 없음 — trust 불필요")
         return 0
 
     if args.cmd == "status":
-        print("trusted" if is_trusted(args.project, handlers, capture) else "untrusted")
+        print("trusted" if is_trusted(repo, handlers, capture, runtime) else "untrusted")
         for handler in handlers:  # 승인 전 확인용으로 해석된 command를 보인다
             name = handler.get("name", "?")
             try:
-                print(f"  {name}: {resolve_command(args.project, handler.get('command', ''))}")
+                print(f"  {name}: {resolve_command(repo, handler.get('command', ''))}")
             except CommandError as exc:
                 print(f"  {name}: 거부 — {exc}")
         return 0
 
-    digest = approve(args.project, handlers, capture)
+    digest = approve(repo, handlers, capture, runtime)
     print(f"승인 기록(capture={capture}): {digest[:12]}…")
     return 0
 

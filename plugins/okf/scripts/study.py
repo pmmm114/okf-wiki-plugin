@@ -59,9 +59,26 @@ def _snippet_lines(text: str) -> list[str]:
     return lines
 
 
-def scan_memory(project: str | Path, enqueue: bool = False) -> dict:
-    """미큐잉 후보를 결정론적으로 탐지(+선택 재적재)한다. 승격은 하지 않는다."""
-    known = {c["id"] for c in okf_inbox.list_candidates(project)}
+def _scope(project: str | Path) -> tuple[str | None, str]:
+    """(promote_target, runtime_root) 해소 — 인박스는 runtime_root, 설정·핸들러는
+    promote_target(#114). 스코프 미해소(설정·홈 없음)면 런타임은 in-repo로 폴백해
+    바 프로젝트의 인박스 조회를 유지한다(무회귀)."""
+    scope = okf_home.resolve_capture(project)
+    runtime = scope["runtime_root"] or str(Path(project) / ".okf-study")
+    return scope["target"], runtime
+
+
+def scan_memory(
+    project: str | Path, runtime: str | Path | None = None, enqueue: bool = False
+) -> dict:
+    """미큐잉 후보를 결정론적으로 탐지(+선택 재적재)한다. 승격은 하지 않는다.
+
+    메모리 디렉토리는 현재 위치(``project``)의 L0 설정·글롭에서, 인박스·원장은
+    ``runtime``(미지정 시 해소)에서 본다 — 홈/폴백이면 유저 스코프(#114).
+    """
+    if runtime is None:
+        runtime = _scope(project)[1]
+    known = {c["id"] for c in okf_inbox.list_candidates(runtime)} if runtime else set()
     unqueued: list[dict] = []
     seen: set[str] = set()
     files = 0
@@ -78,14 +95,14 @@ def scan_memory(project: str | Path, enqueue: bool = False) -> dict:
                 ident = okf_inbox.content_hash(snippet)[:12]
                 if ident in seen or ident in known:
                     continue
-                if okf_inbox.is_resolved(project, ident):
+                if runtime and okf_inbox.is_resolved(runtime, ident):
                     continue  # promoted/discarded — 영구 제외
                 seen.add(ident)
                 unqueued.append({"id": ident, "snippet": snippet, "source": str(path)})
     enqueued: list[str] = []
-    if enqueue:
+    if enqueue and runtime:
         for cand in unqueued:
-            okf_inbox.append(project, cand["snippet"], cand["source"])
+            okf_inbox.append(runtime, cand["snippet"], cand["source"])
             enqueued.append(cand["id"])
     return {"scanned_files": files, "unqueued": unqueued, "enqueued": enqueued}
 
@@ -98,13 +115,18 @@ def _load_study(project: str | Path) -> tuple[str, list[dict]]:
 
 
 def cmd_list(args) -> int:
-    print(json.dumps(okf_inbox.list_candidates(args.project), ensure_ascii=False, indent=2))
+    _promote, runtime = _scope(args.project)
+    cands = okf_inbox.list_candidates(runtime) if runtime else []
+    print(json.dumps(cands, ensure_ascii=False, indent=2))
     return 0
 
 
 def cmd_resolve(args) -> int:
-    okf_inbox.record(args.project, args.id, args.status, args.ref)
-    dropped = okf_inbox.drop(args.project, [args.id])
+    _promote, runtime = _scope(args.project)
+    dropped: list[str] = []
+    if runtime:
+        okf_inbox.record(runtime, args.id, args.status, args.ref)
+        dropped = okf_inbox.drop(runtime, [args.id])
     print(
         json.dumps({"id": args.id, "status": args.status, "dropped": dropped}, ensure_ascii=False)
     )
@@ -112,33 +134,42 @@ def cmd_resolve(args) -> int:
 
 
 def cmd_clear(args) -> int:
-    for cand in okf_inbox.list_candidates(args.project):
-        okf_inbox.record(args.project, cand["id"], "discarded")
-    print(json.dumps({"discarded": okf_inbox.clear(args.project)}, ensure_ascii=False))
+    _promote, runtime = _scope(args.project)
+    discarded: list[str] = []
+    if runtime:
+        for cand in okf_inbox.list_candidates(runtime):
+            okf_inbox.record(runtime, cand["id"], "discarded")
+        discarded = okf_inbox.clear(runtime)
+    print(json.dumps({"discarded": discarded}, ensure_ascii=False))
     return 0
 
 
 def cmd_scan(args) -> int:
-    print(json.dumps(scan_memory(args.project, enqueue=args.enqueue), ensure_ascii=False))
+    _promote, runtime = _scope(args.project)
+    print(json.dumps(scan_memory(args.project, runtime, enqueue=args.enqueue), ensure_ascii=False))
     return 0
 
 
 def cmd_dispatch(args) -> int:
-    capture, handlers = _load_study(args.project)
+    # 설정·핸들러·해시 루트는 승격 대상 repo, trust 파일은 런타임 루트(#114).
+    promote, runtime = _scope(args.project)
+    repo = promote or str(args.project)
+    rt = runtime or str(Path(args.project) / ".okf-study")
+    capture, handlers = _load_study(repo)
     if not handlers:
         print(json.dumps({"ran": [], "failed": [], "skipped": [], "note": "핸들러 없음"}))
         return 0
     item = {
         "source": args.source,
-        "project": str(args.project),
+        "project": repo,
         "concept": {
             "path": args.concept_path,
             "type": args.concept_type,
             "topic": args.concept_topic,
         },
     }
-    check = study_trust.make_trust_check(args.project, handlers, capture)
-    result = study_dispatch.dispatch(args.project, item, handlers, check)
+    check = study_trust.make_trust_check(repo, handlers, capture, rt)
+    result = study_dispatch.dispatch(repo, item, handlers, check)
     if any(s.get("reason") == "trust 미승인" for s in result["skipped"]):
         result["note"] = (
             "핸들러 로컬 미승인 — `/study --trust`(study_trust approve)로 승인 후 재실행"
