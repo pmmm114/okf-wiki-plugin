@@ -12,6 +12,7 @@ import okf_home
 import okf_inbox
 import pytest
 import study
+import study_legacy
 
 
 @pytest.fixture(autouse=True)
@@ -101,3 +102,78 @@ def test_gate_home_fallback_runtime_never_in_home(monkeypatch, tmp_path):
         runtime = okf_home.resolve_capture(loc)["runtime_root"]
         assert runtime == user_scope
         assert not runtime.startswith(str(home))  # 홈 repo 안이 아니다
+
+
+# --- 레거시 markdown 2원천 이관 (U5 #134) -----------------------------------
+
+
+def _write_legacy_markdown(directory, cands, resolutions):
+    """옛 3종 포맷을 쓴다. cands: [(snippet, source, date)], resolutions: [(id, status, ref)]."""
+    directory.mkdir(parents=True, exist_ok=True)
+    lines = ["# Study Inbox", ""]
+    for snippet, source, date in cands:
+        ident = okf_inbox.content_hash(snippet)[:12]
+        lines.append(f"## {date}")
+        lines.append(f"* **memory**: {snippet} — {source} <!-- id:{ident} -->")
+    (directory / study_legacy.INBOX_NAME).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if resolutions:
+        led = "".join(f"{i} {s}" + (f" {r}" if r else "") + "\n" for i, s, r in resolutions)
+        (directory / study_legacy.LEDGER_NAME).write_text(led, encoding="utf-8")
+
+
+def test_migrate_imports_home_legacy_markdown(monkeypatch, tmp_path, capsys):
+    home = _home(tmp_path)
+    legacy = home / ".okf-study"
+    _write_legacy_markdown(
+        legacy,
+        [("legacy fact", "MEMORY.md", "2026-07-01")],
+        [("aaaa11112222", "promoted", ".okf/x.md")],
+    )
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+
+    assert study.main(["migrate"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["migrated"] is True and "home" in out["moved"]["sources"]
+    assert out["moved"]["candidates"] == 1 and out["moved"]["ledger"] == 1
+
+    us = okf_home.user_scope_runtime()
+    assert len(okf_inbox.list_candidates(us)) == 1
+    assert okf_inbox.is_resolved(us, "aaaa11112222")
+    assert not legacy.exists()  # 홈은 순수 목적지로
+
+
+def test_migrate_imports_userscope_legacy_markdown(tmp_path, capsys):
+    us = okf_home.user_scope_runtime()
+    _write_legacy_markdown(us, [("userscope fact", "MEMORY.md", "2026-07-02")], [])
+
+    assert study.main(["migrate"]) == 0  # 홈 포인터 없이도 (b) 원천 처리
+    out = json.loads(capsys.readouterr().out)
+    assert out["migrated"] is True and "user-scope-markdown" in out["moved"]["sources"]
+    assert len(okf_inbox.list_candidates(us)) == 1
+    assert not study_legacy.has_legacy(us)  # 옛 markdown 소모됨
+
+
+def test_migrate_both_sources_together(monkeypatch, tmp_path, capsys):
+    us = okf_home.user_scope_runtime()
+    _write_legacy_markdown(us, [("from userscope", "M", "2026-07-02")], [])
+    home = _home(tmp_path)
+    _write_legacy_markdown(home / ".okf-study", [("from home", "M", "2026-07-01")], [])
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+
+    assert study.main(["migrate"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert set(out["moved"]["sources"]) == {"user-scope-markdown", "home"}
+    assert len(okf_inbox.list_candidates(us)) == 2  # 양쪽 이관
+
+
+def test_migrate_legacy_markdown_ledger_continuity(monkeypatch, tmp_path):
+    # 레거시 promoted 줄-id → 이관 후 그 줄만의 블록은 재부상하지 않는다(A2′)
+    home = _home(tmp_path)
+    snippet = "already promoted line"
+    ident = okf_inbox.content_hash(snippet)[:12]
+    _write_legacy_markdown(home / ".okf-study", [], [(ident, "promoted", ".okf/x.md")])
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    study.main(["migrate"])
+
+    us = str(okf_home.user_scope_runtime())
+    assert okf_inbox.block_resolved(us, ident, [ident]) is True  # 자식=옛 id, resolved

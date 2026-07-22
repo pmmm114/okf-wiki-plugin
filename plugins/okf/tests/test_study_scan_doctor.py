@@ -196,3 +196,23 @@ def test_doctor_shows_recurrence(monkeypatch, tmp_path):
     okf_inbox.append(rt, "recurring concept", "MEMORY.md")
     okf_inbox.append(rt, "recurring concept", "MEMORY.md")  # 재캡처 → recurrence 2
     assert "재등장" in okf_doctor.run(str(_project(tmp_path)))
+
+
+def test_doctor_flags_userscope_legacy_markdown(monkeypatch, tmp_path):
+    # U5 #134 — 유저 스코프 레거시 markdown 잔존을 doctor가 감지·안내
+    home = _valid_home(tmp_path, {"capture": "review"})
+    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    us = okf_home.user_scope_runtime()
+    us.mkdir(parents=True, exist_ok=True)
+    (us / "inbox.md").write_text("# Study Inbox\n", encoding="utf-8")
+    out = okf_doctor.run(str(_project(tmp_path)))
+    assert "레거시 markdown" in out and "study migrate" in out
+
+
+def test_doctor_flags_missing_sqlite(monkeypatch, tmp_path):
+    # U5 #134 — _sqlite3 부재 파이썬을 doctor가 감지하고 OKF_PYTHON을 안내
+    import study_store
+
+    monkeypatch.setattr(study_store, "sqlite3", None)
+    out = okf_doctor.run(str(_project(tmp_path)))
+    assert "sqlite3" in out and "OKF_PYTHON" in out
