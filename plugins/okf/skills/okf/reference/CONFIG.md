@@ -51,9 +51,11 @@
 - `review`: 저장 시 후보를 `.okf-study/inbox.md`에 적재만 — `/study`로 드레인.
 - `auto`: review + 살아있는 세션이 알아서 드레인·승격(모델 개입·trust 필요).
 
-**설정은 `.okf-wiki.json`에, 상태는 `.okf-study/`에** — 섞지 않는다. `.okf-study/`는
-자체 `.gitignore`(`*` + `!.gitignore`)로 커밋에서 제외되며 `inbox.md`(후보 큐)·
-`ledger`(승격/폐기 원장)·`trust`(핸들러 로컬 승인)를 담는다.
+**설정은 `.okf-wiki.json`에, 상태는 런타임 루트에** — 섞지 않는다. 런타임 루트는
+`inbox.md`(후보 큐)·`ledger`(승격/폐기 원장)·`journal.jsonl`(이벤트 이력)·`trust`
+(핸들러 로컬 승인)를 담고, 위치는 **스코프가 정한다**(#114): 자기 study 블록이
+있는 프로젝트는 `<repo>/.okf-study/`(자체 `.gitignore`로 커밋 제외), 홈/폴백은
+유저 스코프 `~/.claude/okf/study/`. 홈은 순수 목적지라 런타임을 담지 않는다.
 
 도입 절차(설치→`/okf-init`→핸들러 계약→trust 승인→사용)와 참조 핸들러 템플릿은
 repo 루트 `docs/adopting-study.md` 참조.
@@ -67,8 +69,10 @@ repo 루트 `docs/adopting-study.md` 참조.
 ~/.claude/okf/home-project      # 한 줄: 홈 repo 절대경로 또는 ~/ 경로
 ```
 
-- **홈 repo**는 실제 git repo로, 자기 `.okf-wiki.json`·번들·커밋 핸들러·`.okf-study/`를
-  가진다 — 기존 파이프라인의 "프로젝트"로 그대로 동작한다(보안 모델 무변경).
+- **홈 repo**는 실제 git repo로, 자기 `.okf-wiki.json`·번들(`.okf/`)·커밋 핸들러를
+  가진 **순수 지식 목적지**다(#114). 런타임(inbox/ledger/trust)은 홈이 아니라 유저
+  스코프 `~/.claude/okf/study`에 쌓인다 — 홈엔 `.okf-study`를 만들지 않는다. 보안
+  모델(커밋 핸들러 + trust)은 무변경이되 trust 파일 저장만 유저 스코프로 옮긴다.
 - **생성 = 옵트인**: `/okf-init --home <path>`가 검증 후 기록. 플러그인이 임의 생성하지
   않는다. env `OKF_HOME_PROJECT`가 파일보다 우선(테스트·CI용).
 - **값 규약**: 절대경로 또는 `~/` 시작(expanduser). 전후 공백·개행 무시.
