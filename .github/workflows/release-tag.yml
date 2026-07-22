@@ -41,6 +41,17 @@ jobs:
           git tag -a "$TAG" -m "okf-core $TAG — repo 직배달(D2) 릴리스 태그" "$GITHUB_SHA"
           git push origin "refs/tags/$TAG"
           echo "생성 완료: $TAG -> $GITHUB_SHA"
+      - name: GitHub Release 발행 (create)
+        # 태그 직후 자동 발행 — 본문은 scripts/release_notes.py가 직전 태그..$TAG 로그를
+        # 타입별(추가/수정/문서/기타)로 묶어 낸다(#142). 사람용 진입점(소비처 참조 지점).
+        if: inputs.mode == 'create'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/release_notes.py --to "$TAG" > "$RUNNER_TEMP/notes.md"
+          [ -s "$RUNNER_TEMP/notes.md" ] || echo "(범위 내 노트 대상 커밋 없음 — 빈 본문으로 발행)"
+          gh release create "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
+          echo "Release 발행 완료: $TAG"
       - name: 룰셋 차단 실증 (verify-protection)
         if: inputs.mode == 'verify-protection'
         run: |
