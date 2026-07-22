@@ -143,15 +143,22 @@ def _entrance_lines(project: str) -> list[str]:
     return lines
 
 
+def _pending_summary(runtime: str) -> str:
+    """대기 수 + 재등장(recurrence>1) 후보 수 요약(#132)."""
+    cands = okf_inbox.list_candidates(runtime)
+    recurring = sum(1 for c in cands if c.get("recurrence", 1) > 1)
+    return f"{len(cands)}" + (f" (재등장 {recurring})" if recurring else "")
+
+
 def _inbox_lines(project: str) -> list[str]:
     lines = []
     scope = okf_home.resolve_capture(project)
     if scope["runtime_root"] and scope["scope"] == "project":
-        lines.append(f"  project 대기: {len(okf_inbox.list_candidates(scope['runtime_root']))}")
+        lines.append(f"  project 대기: {_pending_summary(scope['runtime_root'])}")
     home, _reason = okf_home.home_state()
     if home is not None:
         shared = str(okf_home.user_scope_runtime())
-        lines.append(f"  home(유저 스코프) 대기: {len(okf_inbox.list_candidates(shared))}")
+        lines.append(f"  home(유저 스코프) 대기: {_pending_summary(shared)}")
     return lines or ["  (활성 inbox 없음)"]
 
 

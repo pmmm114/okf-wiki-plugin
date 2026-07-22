@@ -33,7 +33,11 @@ CREATE TABLE IF NOT EXISTS candidate (
     id            TEXT NOT NULL UNIQUE,
     snippet       TEXT NOT NULL,
     source        TEXT NOT NULL DEFAULT '',
-    captured_date TEXT NOT NULL
+    captured_date TEXT NOT NULL,
+    captured_at   TEXT,
+    ingested_at   TEXT,
+    recurrence    INTEGER NOT NULL DEFAULT 1,
+    supersedes    TEXT
 );
 CREATE TABLE IF NOT EXISTS candidate_line (
     candidate_id TEXT NOT NULL,
@@ -42,9 +46,10 @@ CREATE TABLE IF NOT EXISTS candidate_line (
     PRIMARY KEY (candidate_id, seq)
 );
 CREATE TABLE IF NOT EXISTS resolution (
-    id     TEXT PRIMARY KEY,
-    status TEXT NOT NULL,
-    ref    TEXT
+    id             TEXT PRIMARY KEY,
+    status         TEXT NOT NULL,
+    ref            TEXT,
+    invalidated_at TEXT
 );
 CREATE TABLE IF NOT EXISTS event (
     seq    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +59,18 @@ CREATE TABLE IF NOT EXISTS event (
     extra  TEXT
 );
 """
+
+# 기존 db(구 유닛 스키마) 업그레이드용 — CREATE TABLE IF NOT EXISTS는 컬럼을 더하지
+# 않으므로 누락 컬럼을 ALTER ADD로 채운다(#132 bitemporal·recurrence·supersedes).
+_ADDED_COLUMNS = {
+    "candidate": {
+        "captured_at": "TEXT",
+        "ingested_at": "TEXT",
+        "recurrence": "INTEGER NOT NULL DEFAULT 1",
+        "supersedes": "TEXT",
+    },
+    "resolution": {"invalidated_at": "TEXT"},
+}
 
 _ORDER = "ORDER BY captured_date DESC, seq ASC"  # 최신 날짜 우선, 동일 날짜는 적재순
 
@@ -90,6 +107,11 @@ def _ensure_ready(path: Path) -> None:
         try:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(_SCHEMA)  # CREATE TABLE IF NOT EXISTS — 멱등
+            for table, columns in _ADDED_COLUMNS.items():  # 구 db 컬럼 보강(#132)
+                have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+                for name, decl in columns.items():
+                    if name not in have:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
             conn.commit()
         finally:
             conn.close()
@@ -127,22 +149,55 @@ def insert_candidate(
     source: str,
     captured_date: str,
     line_hashes: list[str] | None = None,
+    captured_at: str | None = None,
+    ingested_at: str | None = None,
 ) -> bool:
-    """후보를 적재하고 실제로 새로 들어갔는지 반환한다(동일 id는 무시).
+    """후보를 적재하고 **새로 들어갔는지**(True) 재등장인지(False) 반환한다.
 
-    ``line_hashes``는 개념 블록의 자식 줄-해시(A2′, #131) — ledger 연속성 매칭용.
+    동일 id 재캡처는 **재등장 카운터를 올린다**(#132) — 승격 판단 신호. ``captured_at``
+    (valid-time, 첫 캡처)·``ingested_at``(transaction-time)은 후보에 부착되는 이원
+    타임스탬프다. ``line_hashes``는 자식 줄-해시(A2′, #131).
     """
     with _connect(runtime) as conn:
-        cur = conn.execute(
-            "INSERT OR IGNORE INTO candidate(id, snippet, source, captured_date) VALUES(?,?,?,?)",
-            (ident, snippet, source, captured_date),
+        existed = (
+            conn.execute("SELECT 1 FROM candidate WHERE id=?", (ident,)).fetchone() is not None
         )
-        if cur.rowcount > 0 and line_hashes:
+        conn.execute(
+            "INSERT INTO candidate(id, snippet, source, captured_date, captured_at, ingested_at) "
+            "VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET recurrence = recurrence + 1",
+            (ident, snippet, source, captured_date, captured_at, ingested_at),
+        )
+        if not existed and line_hashes:
             conn.executemany(
                 "INSERT OR IGNORE INTO candidate_line(candidate_id, line_hash, seq) VALUES(?,?,?)",
                 [(ident, lh, i) for i, lh in enumerate(line_hashes)],
             )
-        return cur.rowcount > 0
+        return not existed
+
+
+def candidate_meta(runtime: str | Path, ident: str) -> dict:
+    """후보의 시간축·승격 메타 — {captured_at, ingested_at, recurrence, supersedes}."""
+    if not _exists(runtime):
+        return {}
+    with _connect(runtime) as conn:
+        row = conn.execute(
+            "SELECT captured_at, ingested_at, recurrence, supersedes FROM candidate WHERE id=?",
+            (ident,),
+        ).fetchone()
+    if row is None:
+        return {}
+    return {
+        "captured_at": row[0],
+        "ingested_at": row[1],
+        "recurrence": row[2],
+        "supersedes": row[3],
+    }
+
+
+def set_supersedes(runtime: str | Path, ident: str, target: str | None) -> None:
+    """후보가 갱신하는 기존 개념 id를 기록한다(#132 supersedes 링크)."""
+    with _connect(runtime) as conn:
+        conn.execute("UPDATE candidate SET supersedes=? WHERE id=?", (target, ident))
 
 
 def candidate_lines(runtime: str | Path, ident: str) -> list[str]:
@@ -166,14 +221,21 @@ def has_candidate(runtime: str | Path, ident: str) -> bool:
 
 
 def list_candidates(runtime: str | Path) -> list[dict]:
-    """[{id, date, snippet, source}] 최신 우선."""
+    """[{id, date, snippet, source, recurrence}] 최신 우선.
+
+    ``recurrence``(재등장 수)는 승격 판단 신호로 인라인 노출한다(#132). 시각 메타
+    (captured_at/ingested_at/supersedes)는 결정성 위해 ``candidate_meta``로 분리.
+    """
     if not _exists(runtime):
         return []
     with _connect(runtime) as conn:
         rows = conn.execute(
-            f"SELECT id, captured_date, snippet, source FROM candidate {_ORDER}"
+            f"SELECT id, captured_date, snippet, source, recurrence FROM candidate {_ORDER}"
         ).fetchall()
-    return [{"id": r[0], "date": r[1], "snippet": r[2], "source": r[3]} for r in rows]
+    return [
+        {"id": r[0], "date": r[1], "snippet": r[2], "source": r[3], "recurrence": r[4]}
+        for r in rows
+    ]
 
 
 def delete_candidates(runtime: str | Path, ids: list[str] | set[str]) -> list[str]:
@@ -231,6 +293,24 @@ def list_resolutions(runtime: str | Path) -> list[tuple[str, str, str | None]]:
             (r[0], r[1], r[2])
             for r in conn.execute("SELECT id, status, ref FROM resolution ORDER BY id").fetchall()
         ]
+
+
+def invalidate_resolution(runtime: str | Path, ident: str, ts: str) -> None:
+    """원장 항목을 **무효화하되 삭제하지 않는다**(invalidate-don't-delete, #132).
+
+    개념이 갱신·초과되면 옛 판정을 지우지 않고 무효화 시각만 새겨 이력을 보존한다.
+    dedup 판정(``has_resolution``)에는 그대로 남아 재부상은 계속 막는다.
+    """
+    with _connect(runtime) as conn:
+        conn.execute("UPDATE resolution SET invalidated_at=? WHERE id=?", (ts, ident))
+
+
+def resolution_invalidated_at(runtime: str | Path, ident: str) -> str | None:
+    if not _exists(runtime):
+        return None
+    with _connect(runtime) as conn:
+        row = conn.execute("SELECT invalidated_at FROM resolution WHERE id=?", (ident,)).fetchone()
+    return row[0] if row else None
 
 
 # --- event (journal) ------------------------------------------------------
