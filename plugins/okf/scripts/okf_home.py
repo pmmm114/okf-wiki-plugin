@@ -154,7 +154,7 @@ def resolve_capture(project: str | Path) -> dict:
         # 규칙 2 — 명시가 이긴다(capture=off 포함). 단 프로젝트가 곧 홈이면 런타임은
         # 유저 스코프로 — 홈은 자기 study 블록이 있어도 런타임을 담지 않는다(#114 U1).
         if home is not None and _same_path(project, home):
-            return _cap(home, user_rt, capture, "home")
+            return _cap(home, _in_repo_runtime(project), capture, "project")
         return _cap(str(project), _in_repo_runtime(project), capture, "project")
     # 규칙 3 — 블록 없음 → 홈 폴백
     if home is None:
