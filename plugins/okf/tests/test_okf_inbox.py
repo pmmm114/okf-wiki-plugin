@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import okf_inbox
 import pytest
+import study_store
 
 
 def test_append_and_list_roundtrip(tmp_path):
@@ -91,9 +92,9 @@ def test_ledger_record_and_query(tmp_path):
 
 def test_ledger_dedup_and_bad_status(tmp_path):
     okf_inbox.record(tmp_path, "id1", "discarded")
-    okf_inbox.record(tmp_path, "id1", "discarded")  # 재기록 무시
-    ledger = (tmp_path / "ledger").read_text(encoding="utf-8")
-    assert ledger.count("id1") == 1
+    okf_inbox.record(tmp_path, "id1", "discarded")  # 재기록 무시 (resolution PK)
+    resolved = [r for r in study_store.list_resolutions(tmp_path) if r[0] == "id1"]
+    assert len(resolved) == 1
     with pytest.raises(ValueError):
         okf_inbox.record(tmp_path, "id2", "weird")
 

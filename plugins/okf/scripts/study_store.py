@@ -1,0 +1,228 @@
+"""study 스테이징 SQLite 스토어 (U1, #130).
+
+markdown inbox·평문 ledger·jsonl journal **3종을 대체**하는 런타임 staging store.
+staging은 지식 SoT가 아니라 소모성 런타임 상태다(지식 정본은 git 번들 + ``log.md``)
+— ``study.db``는 오늘의 세 파일과 같은 층위이며 gitignore로 커밋 제외된다.
+
+이 모듈은 **순수 영속 계층**이다. 타임스탬프·내용해시처럼 결정성이 필요한 값은
+호출부(``okf_inbox``)가 만들어 넘긴다 → monkeypatch 계약(SQL ``CURRENT_TIMESTAMP``
+금지)을 보존한다. ``_sqlite3`` C확장 부재 파이썬은 ``available()``가 False가 되고
+상위에서 fail-closed(무동작)로 흡수한다(#108 교훈: 환경 무가정).
+
+읽기 함수는 DB 파일이 없으면 **파일을 만들지 않고** 빈 결과를 돌려준다(부재=빈 상태).
+쓰기 함수만 필요 시 디렉토리·DB를 생성한다.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import threading
+from pathlib import Path
+
+try:  # _sqlite3 C확장은 파이썬이 SQLite 포함 빌드여야 import된다
+    import sqlite3
+except ImportError:  # pragma: no cover - SQLite 미포함 파이썬
+    sqlite3 = None  # type: ignore[assignment]
+
+DB_NAME = "study.db"
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS candidate (
+    seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id            TEXT NOT NULL UNIQUE,
+    snippet       TEXT NOT NULL,
+    source        TEXT NOT NULL DEFAULT '',
+    captured_date TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS resolution (
+    id     TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    ref    TEXT
+);
+CREATE TABLE IF NOT EXISTS event (
+    seq    INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts     TEXT NOT NULL,
+    action TEXT NOT NULL,
+    ident  TEXT NOT NULL,
+    extra  TEXT
+);
+"""
+
+_ORDER = "ORDER BY captured_date DESC, seq ASC"  # 최신 날짜 우선, 동일 날짜는 적재순
+
+# 스키마 초기화를 경로당 1회로 직렬화한다(프로세스 내). 매 연산 연결에서 DDL을 돌리면
+# 16-스레드 동시 쓰기가 락 경합으로 후보를 유실했다 — 초기화만 잠그고 실제 쓰기는 WAL
+# + busy_timeout으로 병행한다. 다중 프로세스 경합은 busy_timeout이 흡수한다.
+_init_lock = threading.Lock()
+_initialized: set[str] = set()
+
+
+def available() -> bool:
+    """이 파이썬이 sqlite3(``_sqlite3`` C확장)를 갖췄는지."""
+    return sqlite3 is not None
+
+
+def _db_path(runtime: str | Path) -> Path:
+    return Path(runtime) / DB_NAME
+
+
+def _exists(runtime: str | Path) -> bool:
+    return _db_path(runtime).is_file()
+
+
+def _ensure_ready(path: Path) -> None:
+    """DB가 없으면(또는 이 프로세스가 처음 보면) WAL + 스키마를 1회 초기화한다."""
+    key = str(path)
+    if key in _initialized and path.is_file():
+        return
+    with _init_lock:  # DDL을 직렬화 — 동시 CREATE로 인한 쓰기 락 경합 방지
+        if key in _initialized and path.is_file():
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(path), timeout=5.0)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.executescript(_SCHEMA)  # CREATE TABLE IF NOT EXISTS — 멱등
+            conn.commit()
+        finally:
+            conn.close()
+        _initialized.add(key)
+
+
+@contextlib.contextmanager
+def _connect(runtime: str | Path):
+    """짧은 수명 커넥션(스레드마다 자기 것 → ``check_same_thread`` 안전).
+
+    스키마는 ``_ensure_ready``가 경로당 1회 만든다. 실제 쓰기는 WAL + ``busy_timeout``
+    으로 병행하며 정상 종료 시 커밋, 예외 시 롤백 후 항상 close.
+    """
+    path = _db_path(runtime)
+    _ensure_ready(path)
+    conn = sqlite3.connect(str(path), timeout=5.0)
+    try:
+        conn.execute("PRAGMA busy_timeout=5000")
+        yield conn
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+# --- candidate (inbox) ----------------------------------------------------
+
+
+def insert_candidate(
+    runtime: str | Path, ident: str, snippet: str, source: str, captured_date: str
+) -> bool:
+    """후보를 적재하고 실제로 새로 들어갔는지 반환한다(동일 id는 무시)."""
+    with _connect(runtime) as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO candidate(id, snippet, source, captured_date) VALUES(?,?,?,?)",
+            (ident, snippet, source, captured_date),
+        )
+        return cur.rowcount > 0
+
+
+def has_candidate(runtime: str | Path, ident: str) -> bool:
+    if not _exists(runtime):
+        return False
+    with _connect(runtime) as conn:
+        return conn.execute("SELECT 1 FROM candidate WHERE id=?", (ident,)).fetchone() is not None
+
+
+def list_candidates(runtime: str | Path) -> list[dict]:
+    """[{id, date, snippet, source}] 최신 우선."""
+    if not _exists(runtime):
+        return []
+    with _connect(runtime) as conn:
+        rows = conn.execute(
+            f"SELECT id, captured_date, snippet, source FROM candidate {_ORDER}"
+        ).fetchall()
+    return [{"id": r[0], "date": r[1], "snippet": r[2], "source": r[3]} for r in rows]
+
+
+def delete_candidates(runtime: str | Path, ids: list[str] | set[str]) -> list[str]:
+    ids = list(dict.fromkeys(ids))
+    if not ids or not _exists(runtime):
+        return []
+    marks = ",".join("?" * len(ids))
+    with _connect(runtime) as conn:
+        removed = [
+            r[0]
+            for r in conn.execute(
+                f"SELECT id FROM candidate WHERE id IN ({marks}) {_ORDER}", ids
+            ).fetchall()
+        ]
+        conn.execute(f"DELETE FROM candidate WHERE id IN ({marks})", ids)
+    return removed
+
+
+def clear_candidates(runtime: str | Path) -> list[str]:
+    if not _exists(runtime):
+        return []
+    with _connect(runtime) as conn:
+        ids = [r[0] for r in conn.execute(f"SELECT id FROM candidate {_ORDER}").fetchall()]
+        conn.execute("DELETE FROM candidate")
+    return ids
+
+
+# --- resolution (ledger) --------------------------------------------------
+
+
+def has_resolution(runtime: str | Path, ident: str) -> bool:
+    if not _exists(runtime):
+        return False
+    with _connect(runtime) as conn:
+        return conn.execute("SELECT 1 FROM resolution WHERE id=?", (ident,)).fetchone() is not None
+
+
+def insert_resolution(runtime: str | Path, ident: str, status: str, ref: str | None) -> bool:
+    with _connect(runtime) as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO resolution(id, status, ref) VALUES(?,?,?)",
+            (ident, status, ref),
+        )
+        return cur.rowcount > 0
+
+
+def list_resolutions(runtime: str | Path) -> list[tuple[str, str, str | None]]:
+    """(id, status, ref) 목록 — 마이그레이션 이관용."""
+    if not _exists(runtime):
+        return []
+    with _connect(runtime) as conn:
+        return [
+            (r[0], r[1], r[2])
+            for r in conn.execute("SELECT id, status, ref FROM resolution ORDER BY id").fetchall()
+        ]
+
+
+# --- event (journal) ------------------------------------------------------
+
+
+def append_event(runtime: str | Path, ts: str, action: str, ident: str, extra: dict | None) -> None:
+    payload = json.dumps(extra, ensure_ascii=False) if extra else None
+    with _connect(runtime) as conn:
+        conn.execute(
+            "INSERT INTO event(ts, action, ident, extra) VALUES(?,?,?,?)",
+            (ts, action, ident, payload),
+        )
+
+
+def read_events(runtime: str | Path, limit: int | None = None) -> list[dict]:
+    """[{ts, action, id, ...extra}] 시간순(오래된→최신). limit면 최신 N개."""
+    if not _exists(runtime):
+        return []
+    with _connect(runtime) as conn:
+        rows = conn.execute(
+            "SELECT ts, action, ident, extra FROM event ORDER BY seq ASC"
+        ).fetchall()
+    events = []
+    for ts, action, ident, extra in rows:
+        entry = {"ts": ts, "action": action, "id": ident}
+        if extra:
+            entry.update(json.loads(extra))
+        events.append(entry)
+    return events[-limit:] if limit else events

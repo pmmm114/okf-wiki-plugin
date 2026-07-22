@@ -7,12 +7,12 @@ promote/discard가 홈 원장에도 append되고, is_resolved가 활성∪홈을
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import okf_home
 import okf_inbox
 import pytest
 import study_hook
+import study_store
 
 
 @pytest.fixture(autouse=True)
@@ -32,9 +32,13 @@ def _valid_home(tmp_path, capture="review"):
 
 
 def _ledger_text(runtime):
-    # runtime은 런타임 루트 — 원장은 <runtime>/ledger 직접(#114, .okf-study 세그먼트 없음)
-    path = Path(runtime) / okf_inbox.LEDGER_NAME
-    return path.read_text(encoding="utf-8") if path.is_file() else ""
+    # 원장은 이제 study.db(resolution 테이블) — 옛 "id status ref" 텍스트로 재구성해
+    # 기존 단언 스타일(entry in text)을 유지한다(U1 #130).
+    lines = [
+        f"{ident} {status}" + (f" {ref}" if ref else "")
+        for ident, status, ref in study_store.list_resolutions(runtime)
+    ]
+    return "\n".join(lines)
 
 
 def _shared():
