@@ -42,10 +42,15 @@ def _project(tmp_path):
 # --- scan -------------------------------------------------------------------
 
 
+def _rt(project):
+    # scan은 스코프 미해소 시 in-repo 런타임으로 폴백한다(#114) — 원장·인박스가 사는 곳
+    return project / ".okf-study"
+
+
 def test_scan_detects_unqueued(tmp_path):
     _memory_file(tmp_path, ["alpha fact", "beta fact"])
     project = _project(tmp_path)
-    okf_inbox.record(project, okf_inbox.content_hash("alpha fact")[:12], "promoted")
+    okf_inbox.record(_rt(project), okf_inbox.content_hash("alpha fact")[:12], "promoted")
     result = study_cli.scan_memory(project)
     assert [c["snippet"] for c in result["unqueued"]] == ["beta fact"]  # 원장 차집합
 
@@ -54,19 +59,19 @@ def test_scan_enqueue_idempotent(tmp_path):
     _memory_file(tmp_path, ["gamma fact"])
     project = _project(tmp_path)
     first = study_cli.scan_memory(project, enqueue=True)
-    assert first["enqueued"] and len(okf_inbox.list_candidates(project)) == 1
+    assert first["enqueued"] and len(okf_inbox.list_candidates(_rt(project))) == 1
     second = study_cli.scan_memory(project, enqueue=True)
     assert second["unqueued"] == []  # inbox 차집합 — 재실행 무변화
-    assert len(okf_inbox.list_candidates(project)) == 1
+    assert len(okf_inbox.list_candidates(_rt(project))) == 1
 
 
 def test_scan_discarded_never_returns(tmp_path):
     _memory_file(tmp_path, ["delta fact"])
     project = _project(tmp_path)
     ident = okf_inbox.content_hash("delta fact")[:12]
-    okf_inbox.record(project, ident, "discarded")
+    okf_inbox.record(_rt(project), ident, "discarded")
     result = study_cli.scan_memory(project, enqueue=True)
-    assert result["unqueued"] == [] and okf_inbox.list_candidates(project) == []
+    assert result["unqueued"] == [] and okf_inbox.list_candidates(_rt(project)) == []
 
 
 def test_scan_hash_aligns_with_hook_capture(tmp_path):

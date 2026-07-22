@@ -5,9 +5,24 @@ from __future__ import annotations
 import json
 import subprocess
 
+import okf_home
 import okf_inbox
+import pytest
 import study
 import study_session
+
+
+@pytest.fixture(autouse=True)
+def _isolate_env(monkeypatch, tmp_path):
+    # 홈 포인터·설정이 새어들지 않게 격리 → 바 프로젝트는 in-repo 런타임으로 해소
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
+    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+
+
+def _rt(project):
+    """CLI가 쓰는 런타임 루트 — 바 프로젝트(설정·홈 없음)는 in-repo <repo>/.okf-study(#114)."""
+    return project / ".okf-study"
 
 
 def _out(capsys):
@@ -21,7 +36,7 @@ def _cfg(project, capture, handlers):
 
 
 def test_list_outputs_candidates(tmp_path, capsys):
-    okf_inbox.append(tmp_path, "a", "s", date="2026-07-19")
+    okf_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
     study.main(["list", str(tmp_path)])
     out = _out(capsys)
     assert len(out) == 1
@@ -29,23 +44,23 @@ def test_list_outputs_candidates(tmp_path, capsys):
 
 
 def test_resolve_records_and_drops(tmp_path, capsys):
-    ident = okf_inbox.append(tmp_path, "a", "s", date="2026-07-19")
+    ident = okf_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
     study.main(
         ["resolve", str(tmp_path), "--id", ident, "--status", "promoted", "--ref", ".okf/x.md"]
     )
     assert _out(capsys)["dropped"] == [ident]
-    assert okf_inbox.is_resolved(tmp_path, ident)
-    assert okf_inbox.list_candidates(tmp_path) == []
+    assert okf_inbox.is_resolved(_rt(tmp_path), ident)
+    assert okf_inbox.list_candidates(_rt(tmp_path)) == []
 
 
 def test_clear_discards_all(tmp_path, capsys):
-    i1 = okf_inbox.append(tmp_path, "a", "s", date="2026-07-19")
-    i2 = okf_inbox.append(tmp_path, "b", "s", date="2026-07-19")
+    i1 = okf_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
+    i2 = okf_inbox.append(_rt(tmp_path), "b", "s", date="2026-07-19")
     study.main(["clear", str(tmp_path)])
     assert set(_out(capsys)["discarded"]) == {i1, i2}
-    assert okf_inbox.is_resolved(tmp_path, i1)
-    assert okf_inbox.is_resolved(tmp_path, i2)
-    assert okf_inbox.list_candidates(tmp_path) == []
+    assert okf_inbox.is_resolved(_rt(tmp_path), i1)
+    assert okf_inbox.is_resolved(_rt(tmp_path), i2)
+    assert okf_inbox.list_candidates(_rt(tmp_path)) == []
 
 
 def test_dispatch_no_handlers(tmp_path, capsys):
@@ -77,14 +92,14 @@ def test_dispatch_untrusted_reports_note(tmp_path, capsys):
 
 def test_session_nudges_when_auto_and_pending(tmp_path):
     _cfg(tmp_path, "auto", [])
-    okf_inbox.append(tmp_path, "a", "s", date="2026-07-19")
+    okf_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
     message = study_session.run(tmp_path)
     assert message and "1개" in message
 
 
 def test_session_silent_when_review(tmp_path):
     _cfg(tmp_path, "review", [])
-    okf_inbox.append(tmp_path, "a", "s", date="2026-07-19")
+    okf_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
     assert study_session.run(tmp_path) is None
 
 

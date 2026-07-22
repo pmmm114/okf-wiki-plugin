@@ -52,9 +52,9 @@ def run(payload: dict, project: str | Path) -> str | None:
         return None
     scope = okf_home.resolve_capture(project)
     # 무효 포인터(warning 있음)도 여기선 무음 — PostToolUse는 경고 방출 지점이 아니다
-    if scope["capture"] not in ("review", "auto") or scope["target"] is None:
+    if scope["capture"] not in ("review", "auto") or scope["runtime_root"] is None:
         return None
-    target = scope["target"]
+    runtime = scope["runtime_root"]  # inbox/ledger는 런타임 루트(홈/폴백=유저 스코프)
 
     content = _dig(payload, "tool_input", "content")
     if content is None:
@@ -67,11 +67,11 @@ def run(payload: dict, project: str | Path) -> str | None:
         return None
 
     ident = okf_inbox.content_hash(snippet)[:12]
-    if okf_inbox.is_resolved(target, ident):
+    if okf_inbox.is_resolved(runtime, ident):
         return None  # 이미 promoted/discarded된 메모리 → 재적재 안 함
 
-    okf_inbox.append(target, snippet, file_path)
-    pending = len(okf_inbox.list_candidates(target))
+    okf_inbox.append(runtime, snippet, file_path)
+    pending = len(okf_inbox.list_candidates(runtime))
     return f"메모리 후보를 study 인박스에 적재({pending}개 대기). /study로 검토·승격하라."
 
 

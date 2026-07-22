@@ -70,16 +70,17 @@ def test_drop_removes_selected(tmp_path):
 
 
 def test_clear_empties_and_removes_file(tmp_path):
+    # tmp_path는 런타임 루트 — inbox는 <runtime>/inbox.md 직접(#114, .okf-study 세그먼트 없음)
     okf_inbox.append(tmp_path, "a", "s", date="2026-07-19")
     assert len(okf_inbox.clear(tmp_path)) == 1
     assert okf_inbox.list_candidates(tmp_path) == []
-    assert not (tmp_path / ".okf-study" / "inbox.md").exists()
+    assert not (tmp_path / "inbox.md").exists()
 
 
 def test_drop_last_removes_file(tmp_path):
     a = okf_inbox.append(tmp_path, "a", "s", date="2026-07-19")
     okf_inbox.drop(tmp_path, [a])
-    assert not (tmp_path / ".okf-study" / "inbox.md").exists()
+    assert not (tmp_path / "inbox.md").exists()
 
 
 def test_ledger_record_and_query(tmp_path):
@@ -91,7 +92,7 @@ def test_ledger_record_and_query(tmp_path):
 def test_ledger_dedup_and_bad_status(tmp_path):
     okf_inbox.record(tmp_path, "id1", "discarded")
     okf_inbox.record(tmp_path, "id1", "discarded")  # 재기록 무시
-    ledger = (tmp_path / ".okf-study" / "ledger").read_text(encoding="utf-8")
+    ledger = (tmp_path / "ledger").read_text(encoding="utf-8")
     assert ledger.count("id1") == 1
     with pytest.raises(ValueError):
         okf_inbox.record(tmp_path, "id2", "weird")

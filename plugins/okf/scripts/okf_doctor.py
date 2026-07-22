@@ -35,7 +35,9 @@ def _capture_trace(project: str) -> list[str]:
         why = "study 블록 없음 + 홈 포인터 없음(옵트인 안 함)"
     lines = [f"  스코프: {scope['scope']} (capture={scope['capture']}) ← {why}"]
     if scope["target"]:
-        lines.append(f"  대상: {scope['target']}")
+        lines.append(f"  승격 대상: {scope['target']}")
+    if scope["runtime_root"]:
+        lines.append(f"  적재(런타임): {scope['runtime_root']}")
     return lines
 
 
@@ -127,11 +129,13 @@ def _entrance_lines(project: str) -> list[str]:
 
 def _inbox_lines(project: str) -> list[str]:
     lines = []
-    if okf_home.study_block(okf_home.load_config(project)) is not None:
-        lines.append(f"  project 대기: {len(okf_inbox.list_candidates(project))}")
+    scope = okf_home.resolve_capture(project)
+    if scope["runtime_root"] and scope["scope"] == "project":
+        lines.append(f"  project 대기: {len(okf_inbox.list_candidates(scope['runtime_root']))}")
     home, _reason = okf_home.home_state()
     if home is not None:
-        lines.append(f"  home 대기: {len(okf_inbox.list_candidates(home))}")
+        shared = str(okf_home.user_scope_runtime())
+        lines.append(f"  home(유저 스코프) 대기: {len(okf_inbox.list_candidates(shared))}")
     return lines or ["  (활성 inbox 없음)"]
 
 
@@ -142,15 +146,16 @@ def _recovery_lines(project: str) -> list[str]:
             "  홈 포인터가 무효다 — `/okf-init --home <경로>`로 수리한 뒤 "
             "`study scan`으로 미큐잉을 확인하라."
         ]
-    target = okf_home.resolve_capture(project)["target"]
-    if target is None:
+    scope = okf_home.resolve_capture(project)
+    runtime = scope["runtime_root"]
+    if runtime is None:
         return []
-    result = study_cli.scan_memory(target, enqueue=False)
+    result = study_cli.scan_memory(project, runtime, enqueue=False)
     count = len(result["unqueued"])
     if count == 0:
         return []
     plugin = Path(__file__).resolve().parent.parent
-    cmd = f'"{plugin}/bin/okf-py" "{plugin}/scripts/study.py" scan {target} --enqueue'
+    cmd = f'"{plugin}/bin/okf-py" "{plugin}/scripts/study.py" scan {project} --enqueue'
     return [f"  미큐잉 후보 {count}개 — `{cmd}`로 재적재 후 /study로 선별 승격하라."]
 
 

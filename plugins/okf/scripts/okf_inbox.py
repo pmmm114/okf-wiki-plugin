@@ -26,7 +26,6 @@ try:  # best-effort 락(#91 #6) — 미지원 플랫폼은 현행(무락) 유지
 except ImportError:  # pragma: no cover - POSIX 외 플랫폼
     fcntl = None  # type: ignore[assignment]
 
-STUDY_DIR = ".okf-study"
 INBOX_NAME = "inbox.md"
 LEDGER_NAME = "ledger"
 INBOX_TITLE = "# Study Inbox"
@@ -45,12 +44,15 @@ def _sanitize(text: str) -> str:
     return " ".join(str(text).split())
 
 
-def _inbox_path(project: str | Path) -> Path:
-    return Path(project) / STUDY_DIR / INBOX_NAME
+# 공개 함수의 첫 인자는 **런타임 루트**(inbox/ledger가 직접 사는 디렉토리)다 —
+# 자기 파이프라인 repo면 ``<repo>/.okf-study``, 홈/폴백이면 유저 스코프
+# (``okf_home.resolve_capture``의 ``runtime_root``). 승격 대상 repo와 분리된다(#114).
+def _inbox_path(runtime: str | Path) -> Path:
+    return Path(runtime) / INBOX_NAME
 
 
-def _ledger_path(project: str | Path) -> Path:
-    return Path(project) / STUDY_DIR / LEDGER_NAME
+def _ledger_path(runtime: str | Path) -> Path:
+    return Path(runtime) / LEDGER_NAME
 
 
 def _today() -> str:
@@ -102,7 +104,7 @@ def _has_id(groups: list[dict], ident: str) -> bool:
 
 
 @contextlib.contextmanager
-def _locked(project: str | Path):
+def _locked(runtime: str | Path):
     """inbox read-modify-write 구간의 best-effort 배타 락.
 
     홈 폴백으로 여러 세션이 같은 inbox에 동시 append할 수 있어(#91 #6) 파일 락으로
@@ -112,7 +114,7 @@ def _locked(project: str | Path):
     if fcntl is None:
         yield
         return
-    lock_path = Path(project) / STUDY_DIR / ".inbox.lock"
+    lock_path = Path(runtime) / ".inbox.lock"
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         handle = open(lock_path, "w")
@@ -194,8 +196,13 @@ def clear(project: str | Path) -> list[str]:
 # append-only·내용해시 키라 안전하고, 홈 미옵트인 시 현행 단일 원장으로 자연 저하.
 
 
-def _global_ledger_root(project: str | Path) -> str | None:
-    """write-through 대상 홈 경로 — 없거나 자기 자신이면 None."""
+def _global_ledger_root(runtime: str | Path) -> str | None:
+    """교차 스코프 dedup용 **공유(유저 스코프) 원장 루트**를 반환한다(#114).
+
+    홈 미옵트인이면 None(현행 단일 원장으로 자연 저하). 활성 런타임이 곧 공유
+    원장(홈/폴백 캡처)이면 write-through가 자기 자신이라 None. 자기 파이프라인
+    repo의 in-repo 런타임에서만 유저 스코프 공유 원장을 반환한다.
+    """
     try:
         import okf_home
     except ImportError:  # pragma: no cover - 단독 배포 등 비정상 배치 관용
@@ -203,12 +210,13 @@ def _global_ledger_root(project: str | Path) -> str | None:
     home, _reason = okf_home.home_state()
     if home is None:
         return None
+    shared = str(okf_home.user_scope_runtime())
     try:
-        if Path(home).resolve() == Path(project).resolve():
+        if Path(runtime).resolve() == Path(shared).resolve():
             return None
     except OSError:
         return None
-    return home
+    return shared
 
 
 def _ledger_has(path: Path, ident: str) -> bool:
@@ -229,24 +237,24 @@ def _ledger_append(project: str | Path, ident: str, status: str, ref: str | None
         handle.write(line + "\n")
 
 
-def is_resolved(project: str | Path, ident: str) -> bool:
-    """id가 promoted/discarded로 기록됐는지 — 활성 원장 ∪ 홈 원장 조회."""
-    if _ledger_has(_ledger_path(project), ident):
+def is_resolved(runtime: str | Path, ident: str) -> bool:
+    """id가 promoted/discarded로 기록됐는지 — 활성 원장 ∪ 공유(유저 스코프) 원장."""
+    if _ledger_has(_ledger_path(runtime), ident):
         return True
-    home = _global_ledger_root(project)
-    return home is not None and _ledger_has(_ledger_path(home), ident)
+    shared = _global_ledger_root(runtime)
+    return shared is not None and _ledger_has(_ledger_path(shared), ident)
 
 
-def record(project: str | Path, ident: str, status: str, ref: str | None = None) -> None:
+def record(runtime: str | Path, ident: str, status: str, ref: str | None = None) -> None:
     """id를 promoted/discarded로 원장에 기록한다(이미 있으면 무시).
 
-    기록은 후보가 잡힌 스코프(project)의 원장이 정본이고, 유효 홈이 있으면 홈
-    원장에도 write-through한다. 교차 승격(#91 §4)은 이 함수로 원 스코프에
+    기록은 후보가 잡힌 스코프의 런타임 원장이 정본이고, 홈 옵트인 시 공유(유저
+    스코프) 원장에도 write-through한다. 교차 승격(#91 §4)은 이 함수로 원 스코프에
     기록하되 ``ref``에 홈 개념 경로를 담는 규약이다.
     """
     if status not in ("promoted", "discarded"):
         raise ValueError(f"알 수 없는 status: {status}")
-    _ledger_append(project, ident, status, ref)
-    home = _global_ledger_root(project)
-    if home is not None:
-        _ledger_append(home, ident, status, ref)
+    _ledger_append(runtime, ident, status, ref)
+    shared = _global_ledger_root(runtime)
+    if shared is not None:
+        _ledger_append(shared, ident, status, ref)
