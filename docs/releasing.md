@@ -41,6 +41,8 @@ pre-commit)의 직배달(D2) 릴리스다.
 
 - **숫자 SoT**: `okf-core/pyproject.toml`의 `version`. ⚠️ 루트 `pyproject.toml`
   셔틀에도 같은 버전이 **하드코딩**돼 있으니 릴리스 시 **둘 다** 올린다(체크리스트).
+  두 값의 동기 + main의 버전-중립(`0.0.0.dev0`)은 `scripts/test_version_sync.py`
+  (CI `core` 잡의 `pytest scripts`)가 강제한다 — 사전 minor 상향은 red로 막힌다.
 - **플러그인**은 version 필드 없음(SHA 추적, `plugin.json` 불변식) → 플러그인의
   "버전"은 소비처가 핀하는 태그 그 자체다.
 - **버전-중립 main(#164)**: 개발 중 main은 실버전을 얹지 않고 플레이스홀더
