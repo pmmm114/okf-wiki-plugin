@@ -2,6 +2,9 @@
 type: concept
 title: Vendor Policy
 description: 스펙·오라클 벤더 반입과 무수정 원칙.
+layer: wisdom
+derived_from:
+  - /spec-facts.md
 tags: [vendor, policy]
 ---
 

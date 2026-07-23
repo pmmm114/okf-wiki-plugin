@@ -2,6 +2,10 @@
 type: decision
 title: Conformance Decisions
 description: "§9 해석 결정: error는 3규칙만, 예약 파일 구조 위반은 error, 오라클과의 차이."
+layer: wisdom
+derived_from:
+  - /architecture.md
+  - /spec-facts.md
 tags: [conformance, decision]
 ---
 

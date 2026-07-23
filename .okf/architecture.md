@@ -2,6 +2,9 @@
 type: concept
 title: Architecture
 description: okf-core 파이프라인과 모듈 경계.
+layer: knowledge
+derived_from:
+  - /spec-facts.md
 tags: [engine, architecture]
 ---
 
@@ -21,4 +24,5 @@ tags: [engine, architecture]
 * cli — 서브커맨드 6종(validate·index·graph·context·log·init)을 각 모듈 main으로 위임
 
 판정 상수는 코드가 아니라 `rules/v0_1.json`에 있고, 엔진은 특정 소비자를
-모른다(무참조 grep 불변식).
+모른다(무참조 grep 불변식). 엔진이 구현하는 §9 사실의 원천은
+[Spec Facts](spec-facts.md)다.
