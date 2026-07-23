@@ -40,7 +40,7 @@ import study_store
 import study_trust
 
 
-def _memory_dirs(project: str | Path) -> list[Path]:
+def memory_dirs(project: str | Path) -> list[Path]:
     """스캔 대상 메모리 디렉토리 — L0 명시 후보 + 기본형 글롭(전 프로젝트)."""
     dirs = [Path(d) for d in study_scope.memory_dir_candidates(project)]
     config = Path(os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude"))
@@ -76,7 +76,7 @@ def scan_memory(
     unqueued: list[dict] = []
     seen: set[str] = set()
     files = 0
-    for directory in _memory_dirs(project):
+    for directory in memory_dirs(project):
         for path in sorted(directory.rglob("*.md")):
             if not path.is_file():
                 continue
