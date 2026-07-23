@@ -8,7 +8,7 @@ tags: [engine, architecture]
 # 파이프라인
 
 파스는 한 곳에서만 일어난다: `parser.parse`가 파일당 1회 실행되어 ParsedDoc을
-만들고, [Conformance Decisions](conformance-decisions.md)에 따른 §9 검사와
+만들고, [Conformance Decisions](/conformance-decisions.md)에 따른 §9 검사와
 정책 검사가 같은 ParsedDoc을 재사용한다(재파싱 금지 — 호출 카운터 테스트로
 고정). index·graph·context도 동일한 순회(`walk_bundle`)를 공유한다.
 
