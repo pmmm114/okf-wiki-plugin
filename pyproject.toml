@@ -3,7 +3,9 @@
 # 루트에서 빌드할 수 있게 wheel 패키지 경로만 재지정한다.
 [project]
 name = "okf-core"
-version = "0.6.0.dev0"
+# 버전-중립 플레이스홀더(#164) — 단일 원천 okf-core/pyproject.toml과 동기. 릴리스 PR에서만
+# 실번호로 올렸다가 릴리스 후 복귀한다(docs/releasing.md).
+version = "0.0.0.dev0"
 description = "OKF knowledge bundle engine (root install shim)"
 requires-python = ">=3.10"
 dependencies = ["pyyaml"]

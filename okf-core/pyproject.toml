@@ -1,6 +1,9 @@
 [project]
 name = "okf-core"
-version = "0.6.0.dev0"
+# 버전-중립 플레이스홀더(#164) — main은 다음 버전을 사전 확정하지 않는다. 실번호는
+# 릴리스 PR에서 랜딩분으로 도출(scripts/next_version.py)해 여기+루트 셔틀에 기입하고,
+# 릴리스 직후 이 플레이스홀더로 복귀한다. 이 값을 실번호로 되돌리지 말 것.
+version = "0.0.0.dev0"
 description = "OKF knowledge bundle engine: parser, conformance validator, index/graph/context tools"
 requires-python = ">=3.10"
 dependencies = ["pyyaml"]
