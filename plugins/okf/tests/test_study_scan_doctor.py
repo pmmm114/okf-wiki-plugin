@@ -10,10 +10,10 @@ import json
 
 import okf_doctor
 import okf_home
-import okf_inbox
 import pytest
 import study as study_cli
 import study_hook
+import study_inbox
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +50,7 @@ def _rt(project):
 def test_scan_detects_unqueued(tmp_path):
     _memory_file(tmp_path, ["alpha fact", "beta fact"])
     project = _project(tmp_path)
-    okf_inbox.record(_rt(project), okf_inbox.content_hash("alpha fact")[:12], "promoted")
+    study_inbox.record(_rt(project), study_inbox.content_hash("alpha fact")[:12], "promoted")
     result = study_cli.scan_memory(project)
     assert [c["snippet"] for c in result["unqueued"]] == ["beta fact"]  # 원장 차집합
 
@@ -59,19 +59,19 @@ def test_scan_enqueue_idempotent(tmp_path):
     _memory_file(tmp_path, ["gamma fact"])
     project = _project(tmp_path)
     first = study_cli.scan_memory(project, enqueue=True)
-    assert first["enqueued"] and len(okf_inbox.list_candidates(_rt(project))) == 1
+    assert first["enqueued"] and len(study_inbox.list_candidates(_rt(project))) == 1
     second = study_cli.scan_memory(project, enqueue=True)
     assert second["unqueued"] == []  # inbox 차집합 — 재실행 무변화
-    assert len(okf_inbox.list_candidates(_rt(project))) == 1
+    assert len(study_inbox.list_candidates(_rt(project))) == 1
 
 
 def test_scan_discarded_never_returns(tmp_path):
     _memory_file(tmp_path, ["delta fact"])
     project = _project(tmp_path)
-    ident = okf_inbox.content_hash("delta fact")[:12]
-    okf_inbox.record(_rt(project), ident, "discarded")
+    ident = study_inbox.content_hash("delta fact")[:12]
+    study_inbox.record(_rt(project), ident, "discarded")
     result = study_cli.scan_memory(project, enqueue=True)
-    assert result["unqueued"] == [] and okf_inbox.list_candidates(_rt(project)) == []
+    assert result["unqueued"] == [] and study_inbox.list_candidates(_rt(project)) == []
 
 
 def test_scan_hash_aligns_with_hook_capture(tmp_path):
@@ -175,7 +175,7 @@ def test_doctor_shows_recent_journal(monkeypatch, tmp_path):
     # #114 U5 — doctor가 이벤트 저널 최근 이력을 보인다
     home = _valid_home(tmp_path, {"capture": "review"})
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    okf_inbox.append(okf_home.user_scope_runtime(), "저널 한 줄", "MEMORY.md")
+    study_inbox.append(okf_home.user_scope_runtime(), "저널 한 줄", "MEMORY.md")
     out = okf_doctor.run(str(_project(tmp_path)))
     assert "최근 이력" in out and "capture" in out
 
@@ -194,8 +194,8 @@ def test_doctor_shows_recurrence(monkeypatch, tmp_path):
     home = _valid_home(tmp_path, {"capture": "review"})
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
     rt = okf_home.user_scope_runtime()
-    okf_inbox.append(rt, "recurring concept", "MEMORY.md")
-    okf_inbox.append(rt, "recurring concept", "MEMORY.md")  # 재캡처 → recurrence 2
+    study_inbox.append(rt, "recurring concept", "MEMORY.md")
+    study_inbox.append(rt, "recurring concept", "MEMORY.md")  # 재캡처 → recurrence 2
     assert "재등장" in okf_doctor.run(str(_project(tmp_path)))
 
 

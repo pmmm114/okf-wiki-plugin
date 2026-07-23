@@ -9,8 +9,8 @@ import sys
 from pathlib import Path
 
 import okf_home
-import okf_inbox
 import study_hook
+import study_inbox
 
 MEM = "/home/u/.claude/projects/proj/memory/MEMORY.md"
 SCRIPT = Path(study_hook.__file__)
@@ -33,7 +33,7 @@ def test_review_appends_last_line(tmp_path):
         "tool_input": {"file_path": MEM, "content": "# Memory\n\n* 테스트 명령은 uv run pytest\n"}
     }
     message = study_hook.run(payload, tmp_path)
-    cands = okf_inbox.list_candidates(_rt(tmp_path))
+    cands = study_inbox.list_candidates(_rt(tmp_path))
     assert len(cands) == 1
     assert cands[0]["snippet"] == "테스트 명령은 uv run pytest"
     assert cands[0]["source"] == MEM
@@ -44,7 +44,7 @@ def test_capture_off_is_noop(tmp_path):
     _cfg(tmp_path, "off")
     payload = {"tool_input": {"file_path": MEM, "content": "* x\n"}}
     assert study_hook.run(payload, tmp_path) is None
-    assert okf_inbox.list_candidates(_rt(tmp_path)) == []
+    assert study_inbox.list_candidates(_rt(tmp_path)) == []
 
 
 def test_study_block_absent_is_noop(tmp_path):
@@ -57,7 +57,7 @@ def test_non_memory_path_is_noop(tmp_path):
     _cfg(tmp_path, "review")
     payload = {"tool_input": {"file_path": str(tmp_path / ".okf" / "foo.md"), "content": "* x\n"}}
     assert study_hook.run(payload, tmp_path) is None
-    assert okf_inbox.list_candidates(_rt(tmp_path)) == []
+    assert study_inbox.list_candidates(_rt(tmp_path)) == []
 
 
 def test_heading_only_content_is_noop(tmp_path):
@@ -69,10 +69,10 @@ def test_heading_only_content_is_noop(tmp_path):
 def test_resolved_memory_not_reappended(tmp_path):
     _cfg(tmp_path, "review")
     snippet = "already handled"
-    okf_inbox.record(_rt(tmp_path), okf_inbox.content_hash(snippet)[:12], "discarded")
+    study_inbox.record(_rt(tmp_path), study_inbox.content_hash(snippet)[:12], "discarded")
     payload = {"tool_input": {"file_path": MEM, "content": f"* {snippet}\n"}}
     assert study_hook.run(payload, tmp_path) is None
-    assert okf_inbox.list_candidates(_rt(tmp_path)) == []
+    assert study_inbox.list_candidates(_rt(tmp_path)) == []
 
 
 def _run_hook(project, stdin: str):
@@ -124,8 +124,8 @@ def test_scope_home_delegates_inbox_to_home(monkeypatch, tmp_path):
     payload = {"tool_input": {"file_path": MEM, "content": "* delegated knowledge\n"}}
     message = study_hook.run(payload, project)
     assert message and "인박스" in message
-    assert len(okf_inbox.list_candidates(_rt(project))) == 1
-    assert okf_inbox.list_candidates(project) == []  # 프로젝트 쪽엔 흔적 없음(#1)
+    assert len(study_inbox.list_candidates(_rt(project))) == 1
+    assert study_inbox.list_candidates(project) == []  # 프로젝트 쪽엔 흔적 없음(#1)
 
 
 def test_configless_dir_falls_back_to_home(monkeypatch, tmp_path):
@@ -138,7 +138,7 @@ def test_configless_dir_falls_back_to_home(monkeypatch, tmp_path):
     payload = {"tool_input": {"file_path": MEM, "content": "* anywhere knowledge\n"}}
     message = study_hook.run(payload, scratch)
     assert message and "인박스" in message
-    assert len(okf_inbox.list_candidates(_rt(scratch))) == 1
+    assert len(study_inbox.list_candidates(_rt(scratch))) == 1
 
 
 def test_capture_never_writes_to_home_repo(monkeypatch, tmp_path):
@@ -150,7 +150,7 @@ def test_capture_never_writes_to_home_repo(monkeypatch, tmp_path):
     scratch.mkdir()
     payload = {"tool_input": {"file_path": MEM, "content": "* home-clean check\n"}}
     assert study_hook.run(payload, scratch)
-    assert len(okf_inbox.list_candidates(okf_home.user_scope_runtime())) == 1
+    assert len(study_inbox.list_candidates(okf_home.user_scope_runtime())) == 1
     assert not (home / ".okf-study").exists()  # 홈 repo 깨끗(런타임 미생성)
 
 
@@ -181,4 +181,4 @@ def test_auto_memory_directory_capture(monkeypatch, tmp_path):
     }
     message = study_hook.run(payload, tmp_path)
     assert message and "인박스" in message
-    assert okf_inbox.list_candidates(_rt(tmp_path))[0]["snippet"] == "moved memory"
+    assert study_inbox.list_candidates(_rt(tmp_path))[0]["snippet"] == "moved memory"

@@ -9,8 +9,8 @@ from __future__ import annotations
 import json
 
 import okf_home
-import okf_inbox
 import study
+import study_inbox
 import study_simhash
 
 
@@ -44,25 +44,25 @@ def test_reworded_closer_than_unrelated():
 
 
 def test_near_duplicates_surfaces_same_fingerprint(tmp_path):
-    a = okf_inbox.append(tmp_path, "alpha beta gamma", "M.md")
-    b = okf_inbox.append(tmp_path, "gamma beta alpha", "M.md")  # 재배열 → 지문 동일
-    okf_inbox.append(tmp_path, "completely different words here", "M.md")  # 무관
-    near = okf_inbox.near_duplicates(tmp_path, a, threshold=0)
+    a = study_inbox.append(tmp_path, "alpha beta gamma", "M.md")
+    b = study_inbox.append(tmp_path, "gamma beta alpha", "M.md")  # 재배열 → 지문 동일
+    study_inbox.append(tmp_path, "completely different words here", "M.md")  # 무관
+    near = study_inbox.near_duplicates(tmp_path, a, threshold=0)
     assert b in near  # 근사중복 자문에 표면화
     assert len(near) == 1  # 무관 후보는 제외
 
 
 def test_near_duplicates_is_advisory_only(tmp_path):
     # 자문은 dedup/원장에 영향 없음 — 정확 해시 앵커 불변
-    a = okf_inbox.append(tmp_path, "alpha beta gamma", "M.md")
-    okf_inbox.append(tmp_path, "gamma beta alpha", "M.md")
-    assert okf_inbox.is_resolved(tmp_path, a) is False
-    assert len(okf_inbox.list_candidates(tmp_path)) == 2  # 근사중복이라도 별개 후보
+    a = study_inbox.append(tmp_path, "alpha beta gamma", "M.md")
+    study_inbox.append(tmp_path, "gamma beta alpha", "M.md")
+    assert study_inbox.is_resolved(tmp_path, a) is False
+    assert len(study_inbox.list_candidates(tmp_path)) == 2  # 근사중복이라도 별개 후보
 
 
 def test_near_duplicates_empty_without_sqlite(monkeypatch, tmp_path):
-    monkeypatch.setattr(okf_inbox.study_store, "sqlite3", None)
-    assert okf_inbox.near_duplicates(tmp_path, "whatever") == []
+    monkeypatch.setattr(study_inbox.study_store, "sqlite3", None)
+    assert study_inbox.near_duplicates(tmp_path, "whatever") == []
 
 
 def test_study_near_cli(monkeypatch, tmp_path, capsys):
@@ -76,8 +76,8 @@ def test_study_near_cli(monkeypatch, tmp_path, capsys):
         json.dumps({"study": {"capture": "review"}}), encoding="utf-8"
     )
     rt = okf_home.resolve_capture(project)["runtime_root"]
-    a = okf_inbox.append(rt, "alpha beta gamma", "M.md")
-    okf_inbox.append(rt, "gamma beta alpha", "M.md")  # 재배열 → 지문 동일
+    a = study_inbox.append(rt, "alpha beta gamma", "M.md")
+    study_inbox.append(rt, "gamma beta alpha", "M.md")  # 재배열 → 지문 동일
 
     assert study.main(["near", str(project), "--threshold", "0"]) == 0
     out = json.loads(capsys.readouterr().out)

@@ -13,8 +13,8 @@ import sys
 from pathlib import Path
 
 import okf_home
-import okf_inbox
 import study as study_cli
+import study_inbox
 import study_legacy
 import study_store
 
@@ -147,7 +147,7 @@ def _entrance_lines(project: str) -> list[str]:
 
 def _pending_summary(runtime: str) -> str:
     """대기 수 + 재등장(recurrence>1) 후보 수 요약(#132)."""
-    cands = okf_inbox.list_candidates(runtime)
+    cands = study_inbox.list_candidates(runtime)
     recurring = sum(1 for c in cands if c.get("recurrence", 1) > 1)
     return f"{len(cands)}" + (f" (재등장 {recurring})" if recurring else "")
 
@@ -187,7 +187,7 @@ def _journal_lines(project: str) -> list[str]:
     runtime = okf_home.resolve_capture(project)["runtime_root"]
     if runtime is None:
         return ["  (활성 런타임 없음)"]
-    events = okf_inbox.read_journal(runtime, limit=5)
+    events = study_inbox.read_journal(runtime, limit=5)
     if not events:
         return ["  (이력 없음)"]
     return [f"  {e.get('ts', '?')} {e.get('action', '?')} {e.get('id', '?')}" for e in events]

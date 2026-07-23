@@ -16,7 +16,7 @@ STAGING = ["study_store.py", "study_simhash.py", "study_blocks.py", "study_legac
 FORBIDDEN = {"numpy", "scipy", "pandas", "requests", "datasketch", "simhash"}
 LOCAL = {
     "okf_home",
-    "okf_inbox",
+    "study_inbox",
     "study_store",
     "study_simhash",
     "study_blocks",

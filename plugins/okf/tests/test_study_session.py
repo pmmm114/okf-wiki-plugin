@@ -8,8 +8,8 @@ from __future__ import annotations
 import json
 
 import okf_home
-import okf_inbox
 import pytest
+import study_inbox
 import study_session
 
 
@@ -35,7 +35,7 @@ def test_project_auto_nudges(tmp_path):
     (tmp_path / ".okf-wiki.json").write_text(
         json.dumps({"study": {"capture": "auto"}}), encoding="utf-8"
     )
-    okf_inbox.append(_rt(tmp_path), "candidate", "src")  # 프로젝트 스코프 = <repo>/.okf-study
+    study_inbox.append(_rt(tmp_path), "candidate", "src")  # 프로젝트 스코프 = <repo>/.okf-study
     message = study_session.run(tmp_path)
     assert message and "승격 대기 후보 1개" in message
 
@@ -43,7 +43,7 @@ def test_project_auto_nudges(tmp_path):
 def test_home_auto_nudges_from_configless_dir(monkeypatch, tmp_path):
     home = _home(tmp_path, {"study": {"capture": "auto"}})
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    okf_inbox.append(okf_home.user_scope_runtime(), "candidate", "src")  # 홈 폴백 = 유저 스코프
+    study_inbox.append(okf_home.user_scope_runtime(), "candidate", "src")  # 홈 폴백 = 유저 스코프
     project = tmp_path / "scratch"
     project.mkdir()
     message = study_session.run(project)
@@ -53,7 +53,7 @@ def test_home_auto_nudges_from_configless_dir(monkeypatch, tmp_path):
 def test_home_review_no_nudge(monkeypatch, tmp_path):
     home = _home(tmp_path, {"study": {"capture": "review"}})
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    okf_inbox.append(okf_home.user_scope_runtime(), "candidate", "src")
+    study_inbox.append(okf_home.user_scope_runtime(), "candidate", "src")
     project = tmp_path / "scratch"
     project.mkdir()
     assert study_session.run(project) is None

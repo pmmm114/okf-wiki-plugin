@@ -1,13 +1,13 @@
-"""study_store SQLite 스토어 + okf_inbox fail-closed 가드 테스트 (U1 #130).
+"""study_store SQLite 스토어 + study_inbox fail-closed 가드 테스트 (U1 #130).
 
 markdown/평문/jsonl 3종을 대체한 study.db의 CRUD·읽기무생성·이벤트, 그리고
-``_sqlite3`` C확장 부재 파이썬에서 okf_inbox가 크래시 없이 무동작(fail-closed)함을
+``_sqlite3`` C확장 부재 파이썬에서 study_inbox가 크래시 없이 무동작(fail-closed)함을
 고정한다.
 """
 
 from __future__ import annotations
 
-import okf_inbox
+import study_inbox
 import study_store
 
 # --- 스토어 CRUD ------------------------------------------------------------
@@ -63,12 +63,12 @@ def test_sqlite_absent_is_fail_closed(monkeypatch, tmp_path):
     monkeypatch.setattr(study_store, "sqlite3", None)  # C확장 부재 시뮬레이션
     assert study_store.available() is False
 
-    ident = okf_inbox.append(tmp_path, "snippet", "src")  # 크래시 없이 id 반환
-    assert ident == okf_inbox.content_hash("snippet")[:12]
-    assert okf_inbox.list_candidates(tmp_path) == []
-    okf_inbox.record(tmp_path, ident, "promoted")  # 무동작
-    assert okf_inbox.is_resolved(tmp_path, ident) is False
-    assert okf_inbox.read_journal(tmp_path) == []
+    ident = study_inbox.append(tmp_path, "snippet", "src")  # 크래시 없이 id 반환
+    assert ident == study_inbox.content_hash("snippet")[:12]
+    assert study_inbox.list_candidates(tmp_path) == []
+    study_inbox.record(tmp_path, ident, "promoted")  # 무동작
+    assert study_inbox.is_resolved(tmp_path, ident) is False
+    assert study_inbox.read_journal(tmp_path) == []
     assert not (tmp_path / study_store.DB_NAME).exists()  # 아무 파일도 만들지 않는다
 
 
@@ -78,7 +78,7 @@ def test_bad_status_raises_even_when_sqlite_absent(monkeypatch, tmp_path):
     import pytest
 
     with pytest.raises(ValueError):
-        okf_inbox.record(tmp_path, "id", "weird")
+        study_inbox.record(tmp_path, "id", "weird")
 
 
 # --- 시간축·승격 메타 (U3 #132) --------------------------------------------
@@ -95,25 +95,25 @@ def test_recurrence_counts_recapture(tmp_path):
 
 
 def test_bitemporal_timestamps_attached(tmp_path):
-    okf_inbox.append(tmp_path, "concept", "M.md", captured_at="2026-07-22T09:00:00")
-    ident = okf_inbox.content_hash("concept")[:12]
-    meta = okf_inbox.candidate_meta(tmp_path, ident)
+    study_inbox.append(tmp_path, "concept", "M.md", captured_at="2026-07-22T09:00:00")
+    ident = study_inbox.content_hash("concept")[:12]
+    meta = study_inbox.candidate_meta(tmp_path, ident)
     assert meta["captured_at"] == "2026-07-22T09:00:00"  # 넘긴 valid-time
     assert meta["ingested_at"] is not None  # transaction-time은 현재 시각
 
 
 def test_supersedes_link_roundtrip(tmp_path):
-    okf_inbox.append(tmp_path, "new concept", "M.md")
-    ident = okf_inbox.content_hash("new concept")[:12]
-    assert okf_inbox.candidate_meta(tmp_path, ident)["supersedes"] is None
-    okf_inbox.set_supersedes(tmp_path, ident, "old-concept-id")
-    assert okf_inbox.candidate_meta(tmp_path, ident)["supersedes"] == "old-concept-id"
+    study_inbox.append(tmp_path, "new concept", "M.md")
+    ident = study_inbox.content_hash("new concept")[:12]
+    assert study_inbox.candidate_meta(tmp_path, ident)["supersedes"] is None
+    study_inbox.set_supersedes(tmp_path, ident, "old-concept-id")
+    assert study_inbox.candidate_meta(tmp_path, ident)["supersedes"] == "old-concept-id"
 
 
 def test_invalidate_does_not_delete(tmp_path):
-    okf_inbox.record(tmp_path, "id1", "promoted", ".okf/x.md")
-    okf_inbox.invalidate(tmp_path, "id1")
-    assert okf_inbox.is_resolved(tmp_path, "id1") is True  # dedup 판정엔 그대로(재부상 계속 차단)
+    study_inbox.record(tmp_path, "id1", "promoted", ".okf/x.md")
+    study_inbox.invalidate(tmp_path, "id1")
+    assert study_inbox.is_resolved(tmp_path, "id1") is True  # dedup 판정엔 그대로(재부상 계속 차단)
     assert study_store.resolution_invalidated_at(tmp_path, "id1") is not None  # 무효화 시각 보존
 
 

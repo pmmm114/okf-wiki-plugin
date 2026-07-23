@@ -6,9 +6,9 @@ import json
 import subprocess
 
 import okf_home
-import okf_inbox
 import pytest
 import study
+import study_inbox
 import study_session
 
 
@@ -36,7 +36,7 @@ def _cfg(project, capture, handlers):
 
 
 def test_list_outputs_candidates(tmp_path, capsys):
-    okf_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
+    study_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
     study.main(["list", str(tmp_path)])
     out = _out(capsys)
     assert len(out) == 1
@@ -44,23 +44,23 @@ def test_list_outputs_candidates(tmp_path, capsys):
 
 
 def test_resolve_records_and_drops(tmp_path, capsys):
-    ident = okf_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
+    ident = study_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
     study.main(
         ["resolve", str(tmp_path), "--id", ident, "--status", "promoted", "--ref", ".okf/x.md"]
     )
     assert _out(capsys)["dropped"] == [ident]
-    assert okf_inbox.is_resolved(_rt(tmp_path), ident)
-    assert okf_inbox.list_candidates(_rt(tmp_path)) == []
+    assert study_inbox.is_resolved(_rt(tmp_path), ident)
+    assert study_inbox.list_candidates(_rt(tmp_path)) == []
 
 
 def test_clear_discards_all(tmp_path, capsys):
-    i1 = okf_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
-    i2 = okf_inbox.append(_rt(tmp_path), "b", "s", date="2026-07-19")
+    i1 = study_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
+    i2 = study_inbox.append(_rt(tmp_path), "b", "s", date="2026-07-19")
     study.main(["clear", str(tmp_path)])
     assert set(_out(capsys)["discarded"]) == {i1, i2}
-    assert okf_inbox.is_resolved(_rt(tmp_path), i1)
-    assert okf_inbox.is_resolved(_rt(tmp_path), i2)
-    assert okf_inbox.list_candidates(_rt(tmp_path)) == []
+    assert study_inbox.is_resolved(_rt(tmp_path), i1)
+    assert study_inbox.is_resolved(_rt(tmp_path), i2)
+    assert study_inbox.list_candidates(_rt(tmp_path)) == []
 
 
 def test_dispatch_no_handlers(tmp_path, capsys):
@@ -92,14 +92,14 @@ def test_dispatch_untrusted_reports_note(tmp_path, capsys):
 
 def test_session_nudges_when_auto_and_pending(tmp_path):
     _cfg(tmp_path, "auto", [])
-    okf_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
+    study_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
     message = study_session.run(tmp_path)
     assert message and "1개" in message
 
 
 def test_session_silent_when_review(tmp_path):
     _cfg(tmp_path, "review", [])
-    okf_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
+    study_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
     assert study_session.run(tmp_path) is None
 
 
@@ -109,7 +109,7 @@ def test_session_silent_when_no_candidates(tmp_path):
 
 
 def test_log_outputs_journal(tmp_path, capsys):
-    ident = okf_inbox.append(_rt(tmp_path), "a", "s")
+    ident = study_inbox.append(_rt(tmp_path), "a", "s")
     study.main(["log", str(tmp_path)])
     out = _out(capsys)
     assert len(out) == 1
