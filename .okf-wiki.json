@@ -1,0 +1,6 @@
+{
+  "bundlePath": ".okf",
+  "context": { "maxChars": 8000 },
+  "inject": true,
+  "study": { "capture": "off" }
+}

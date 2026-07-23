@@ -392,6 +392,24 @@ uv run --project okf-core okf validate .okf --strict   # uv (권장)
 pip install ./okf-core && okf validate .okf --strict   # 또는 pip (repo 루트 설치도 동작)
 ```
 
+### 플러그인 자가 사용 (주입 도그푸딩)
+
+이 repo는 자기 플러그인을 스스로 소비한다. 루트 `.okf-wiki.json`이 **주입 전용**으로
+배선돼 있어(`inject: true` · `study.capture: "off"`), 플러그인을 로컬 설치하면 개발
+세션마다 이 repo의 `.okf/`(아키텍처·벤더 정책·컨포먼스 결정)가 `<okf-context>`로
+주입된다. 지금 편집 중인 작업 트리를 그대로 물리려면 로컬 마켓플레이스로 설치한다
+(마켓플레이스 소스가 상대경로 `./plugins/okf`라 로컬 체크아웃이 곧 플러그인이 된다):
+
+```
+/plugin marketplace add <이 repo의 로컬 경로>
+/plugin install okf@okf-wiki-plugin
+```
+
+`study.capture`는 **`off` 고정**이다 — `.okf/`는 CI 자기 번들 검증 게이트 대상이자
+주입 소스라 study 승격 대상이 아니다(두 역할이 겹치면 큐레이션 번들이 오염되고
+strict 실패가 CI를 막는다, [CLAUDE.md](CLAUDE.md) 불변식). 개발 지식을 캡처하려면
+`.okf/`가 아닌 별도 번들로 분리한다.
+
 ## 문서
 
 | 문서 | 내용 |
