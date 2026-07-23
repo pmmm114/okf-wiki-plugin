@@ -13,9 +13,13 @@ bundle_rel="$(jq -r '.bundlePath // ".okf"' "$config")"
 bundle="$project/$bundle_rel"
 [ -d "$bundle" ] || exit 0
 max_chars="$(jq -r '.context.maxChars // 8000' "$config")"
+group_by="$(jq -r '.context.groupBy // empty' "$config")"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ctx="$("$here/../bin/okf" context "$bundle" --max-chars "$max_chars")" || exit 0
+okf_args=(context "$bundle" --max-chars "$max_chars")
+# 인식층 등 임의 축으로 섹션 구분 — 비어있지 않을 때만 부가(파리티: py판과 동일)
+if [ -n "$group_by" ]; then okf_args+=(--group-by "$group_by"); fi
+ctx="$("$here/../bin/okf" "${okf_args[@]}")" || exit 0
 
 find "$bundle" -type f -name '*.md' | jq -R . | jq -s \
   --arg ctx "$ctx" \

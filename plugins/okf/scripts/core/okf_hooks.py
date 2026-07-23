@@ -219,7 +219,13 @@ def hook_session_start():
     if not isinstance(context_cfg, dict):
         context_cfg = {}  # 타입 불량은 기본값 관용(정책표 — 셸판 exit 5 통일)
     max_chars = _fallback(context_cfg.get("maxChars"), 8000)
-    ctx = _run_okf(["context", bundle, "--max-chars", _jq_out(max_chars)], suppress_stderr=False)
+    okf_args = ["context", bundle, "--max-chars", _jq_out(max_chars)]
+    # 인식층 등 임의 축으로 주입 컨텍스트를 섹션 구분(엔진 --group-by에 그대로 위임).
+    # 비어있지 않은 문자열일 때만 부가 — 미설정·빈 값은 현행 그대로(파리티 보존).
+    group_by = context_cfg.get("groupBy")
+    if isinstance(group_by, str) and group_by.strip():
+        okf_args += ["--group-by", _jq_out(group_by)]
+    ctx = _run_okf(okf_args, suppress_stderr=False)
     if ctx is None:
         return 0
     _emit("SessionStart", {"additionalContext": ctx, "watchPaths": _watch_paths(bundle)})
