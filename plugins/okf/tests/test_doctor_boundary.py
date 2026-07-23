@@ -18,10 +18,10 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 CORE_ONLY = ["okf_doctor.py", "okf_home.py"]
 
 
-def _run_core_only_doctor(tmp_path, *, with_home_pointer=False):
-    scripts = tmp_path / "core-only"
+def _run_doctor_with(tmp_path, files, *, with_home_pointer=False):
+    scripts = tmp_path / "partial-deploy"
     scripts.mkdir()
-    for name in CORE_ONLY:
+    for name in files:
         shutil.copy2(SCRIPTS / name, scripts / name)
     project = tmp_path / "proj"
     project.mkdir(exist_ok=True)
@@ -42,7 +42,7 @@ def _run_core_only_doctor(tmp_path, *, with_home_pointer=False):
 
 
 def test_doctor_survives_without_study_modules(tmp_path):
-    res = _run_core_only_doctor(tmp_path)
+    res = _run_doctor_with(tmp_path, CORE_ONLY)
     assert res.returncode == 0, res.stderr
     out = res.stdout.decode("utf-8")
     for core_section in ("[위치]", "[주입]", "[홈]"):
@@ -54,12 +54,23 @@ def test_doctor_survives_without_study_modules(tmp_path):
 
 def test_doctor_core_home_notes_without_study(tmp_path):
     # 유효 홈이면 generic 홈 메모(포인터·번들 부합)는 study 없이도 나온다
-    res = _run_core_only_doctor(tmp_path, with_home_pointer=True)
+    res = _run_doctor_with(tmp_path, CORE_ONLY, with_home_pointer=True)
     assert res.returncode == 0, res.stderr
     out = res.stdout.decode("utf-8")
     assert "(유효)" in out
     assert "부합" in out  # 번들 부재 경고까지 generic 소관
     assert "캡처 활성 제안" not in out  # study 관점 메모는 심 소관
+
+
+def test_doctor_partial_deployment_names_missing_module(tmp_path):
+    # 심(study_doctor.py)은 있으나 연쇄 모듈이 결손인 부분 배치 — 조용히 '미배치'로
+    # 위장하지 않고 stderr에 결손 모듈명을 남긴다(#166 리뷰: 진단 도구의 은폐 금지).
+    res = _run_doctor_with(tmp_path, [*CORE_ONLY, "study_doctor.py"])
+    assert res.returncode == 0, res.stderr
+    out = res.stdout.decode("utf-8")
+    assert "[위치]" in out and "[캡처]" not in out  # core-only 저하는 유지
+    err = res.stderr.decode("utf-8")
+    assert "모듈 결손(study" in err  # study_doctor의 첫 결손 연쇄 import 이름 노출
 
 
 def test_doctor_full_sections_with_study_present(tmp_path):

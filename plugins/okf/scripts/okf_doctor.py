@@ -20,8 +20,12 @@ import okf_home
 
 try:
     import study_doctor  # 있으면 실행, 없으면 생략 — #145 U4 선택 위임 심
-except ImportError:  # pragma: no cover - study 미배치 배포에서도 core 진단 생존
+except ImportError as _exc:  # pragma: no cover - study 미배치 배포에서도 core 진단 생존
     study_doctor = None
+    if _exc.name != "study_doctor":
+        # 부분 배치(심은 있으나 연쇄 모듈 결손) — 조용히 '미배치'로 위장하지 않고
+        # 결손 모듈명을 남긴다(진단 도구가 자기 절반의 결손을 은폐하면 안 된다).
+        print(f"okf_doctor: ⚠ study 진단 생략 — 모듈 결손({_exc.name})", file=sys.stderr)
 
 
 def _inject_trace(project: str) -> list[str]:
