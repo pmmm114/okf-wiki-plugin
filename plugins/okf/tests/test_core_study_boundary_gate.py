@@ -43,8 +43,12 @@ def _study_imports(path: Path) -> set[str]:
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
             names.update(alias.name.split(".")[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                names.add(node.module.split(".")[0])
+            elif node.level:
+                # `from . import study_x` — 상대 import는 alias가 곧 모듈명이다
+                names.update(alias.name.split(".")[0] for alias in node.names)
     return {name for name in names if _is_study(name)}
 
 
@@ -79,7 +83,7 @@ def test_core_scripts_do_not_dynamic_import_study():
                 name = func.attr
             if name not in ("__import__", "import_module"):
                 continue
-            for arg in node.args:
+            for arg in [*node.args, *(kw.value for kw in node.keywords)]:
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     if _is_study(arg.value):
                         violations.append(f"{path.name} → 동적 import {arg.value!r}")
