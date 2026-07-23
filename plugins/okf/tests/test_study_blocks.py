@@ -17,6 +17,7 @@ import study
 import study_blocks
 import study_hook
 import study_inbox
+import study_scope
 
 MEM = "/home/u/.claude/projects/proj/memory/MEMORY.md"
 
@@ -35,7 +36,7 @@ def _cfg(project, capture="review"):
 
 
 def _rt(project):
-    return okf_home.resolve_capture(project)["runtime_root"]
+    return study_scope.resolve_capture(project)["runtime_root"]
 
 
 # --- 블록 경계 규칙 ---------------------------------------------------------

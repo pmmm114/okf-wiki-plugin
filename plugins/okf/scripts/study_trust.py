@@ -114,9 +114,9 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     # 스코프 해소 — 해시·핸들러 루트는 승격 대상 repo, trust 파일은 런타임 루트(#114).
-    import okf_home
+    import study_scope
 
-    scope = okf_home.resolve_capture(args.project)
+    scope = study_scope.resolve_capture(args.project)
     repo = scope["target"] or str(args.project)
     runtime = scope["runtime_root"] or str(_in_repo_runtime(args.project))
     capture, handlers = _load_study(repo)

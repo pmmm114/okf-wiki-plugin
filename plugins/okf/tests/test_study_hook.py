@@ -11,6 +11,7 @@ from pathlib import Path
 import okf_home
 import study_hook
 import study_inbox
+import study_scope
 
 MEM = "/home/u/.claude/projects/proj/memory/MEMORY.md"
 SCRIPT = Path(study_hook.__file__)
@@ -18,7 +19,7 @@ SCRIPT = Path(study_hook.__file__)
 
 def _rt(project):
     """해소된 런타임 루트 — 인박스·원장이 실제로 사는 곳(#114)."""
-    return okf_home.resolve_capture(project)["runtime_root"]
+    return study_scope.resolve_capture(project)["runtime_root"]
 
 
 def _cfg(project, capture):
@@ -150,7 +151,7 @@ def test_capture_never_writes_to_home_repo(monkeypatch, tmp_path):
     scratch.mkdir()
     payload = {"tool_input": {"file_path": MEM, "content": "* home-clean check\n"}}
     assert study_hook.run(payload, scratch)
-    assert len(study_inbox.list_candidates(okf_home.user_scope_runtime())) == 1
+    assert len(study_inbox.list_candidates(study_scope.user_scope_runtime())) == 1
     assert not (home / ".okf-study").exists()  # 홈 repo 깨끗(런타임 미생성)
 
 

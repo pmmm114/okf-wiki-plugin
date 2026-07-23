@@ -10,6 +10,7 @@ import json
 import okf_home
 import pytest
 import study_inbox
+import study_scope
 import study_session
 
 
@@ -28,7 +29,7 @@ def _home(tmp_path, config: dict):
 
 
 def _rt(project):
-    return okf_home.resolve_capture(project)["runtime_root"]
+    return study_scope.resolve_capture(project)["runtime_root"]
 
 
 def test_project_auto_nudges(tmp_path):
@@ -43,7 +44,8 @@ def test_project_auto_nudges(tmp_path):
 def test_home_auto_nudges_from_configless_dir(monkeypatch, tmp_path):
     home = _home(tmp_path, {"study": {"capture": "auto"}})
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    study_inbox.append(okf_home.user_scope_runtime(), "candidate", "src")  # 홈 폴백 = 유저 스코프
+    # 홈 폴백 = 유저 스코프
+    study_inbox.append(study_scope.user_scope_runtime(), "candidate", "src")
     project = tmp_path / "scratch"
     project.mkdir()
     message = study_session.run(project)
@@ -53,7 +55,7 @@ def test_home_auto_nudges_from_configless_dir(monkeypatch, tmp_path):
 def test_home_review_no_nudge(monkeypatch, tmp_path):
     home = _home(tmp_path, {"study": {"capture": "review"}})
     monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    study_inbox.append(okf_home.user_scope_runtime(), "candidate", "src")
+    study_inbox.append(study_scope.user_scope_runtime(), "candidate", "src")
     project = tmp_path / "scratch"
     project.mkdir()
     assert study_session.run(project) is None

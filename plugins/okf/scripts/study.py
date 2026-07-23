@@ -34,6 +34,7 @@ import study_blocks
 import study_dispatch
 import study_inbox
 import study_legacy
+import study_scope
 import study_simhash
 import study_store
 import study_trust
@@ -41,7 +42,7 @@ import study_trust
 
 def _memory_dirs(project: str | Path) -> list[Path]:
     """스캔 대상 메모리 디렉토리 — L0 명시 후보 + 기본형 글롭(전 프로젝트)."""
-    dirs = [Path(d) for d in okf_home.memory_dir_candidates(project)]
+    dirs = [Path(d) for d in study_scope.memory_dir_candidates(project)]
     config = Path(os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude"))
     projects = config / "projects"
     if projects.is_dir():
@@ -56,7 +57,7 @@ def _scope(project: str | Path) -> tuple[str | None, str]:
     """(promote_target, runtime_root) 해소 — 인박스는 runtime_root, 설정·핸들러는
     promote_target(#114). 스코프 미해소(설정·홈 없음)면 런타임은 in-repo로 폴백해
     바 프로젝트의 인박스 조회를 유지한다(무회귀)."""
-    scope = okf_home.resolve_capture(project)
+    scope = study_scope.resolve_capture(project)
     runtime = scope["runtime_root"] or str(Path(project) / ".okf-study")
     return scope["target"], runtime
 
@@ -194,7 +195,7 @@ def cmd_migrate(args) -> int:
     # (a) pre-0.4 홈 <home>/.okf-study, (b) 0.4.x 유저 스코프 markdown. 둘 다 옛 3종 파일.
     import shutil
 
-    dst = str(okf_home.user_scope_runtime())
+    dst = str(study_scope.user_scope_runtime())
     home, reason = okf_home.home_state()
     moved = {"candidates": 0, "ledger": 0, "trust": False, "sources": []}
 
