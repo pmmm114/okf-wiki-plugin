@@ -36,7 +36,7 @@ def _in_repo_runtime(project: str | Path) -> Path:
 
 
 def _trust_path(runtime: str | Path) -> Path:
-    """trust 파일 경로 — 런타임 루트 직접(홈/폴백=유저 스코프). 해시 루트(repo)와 분리(#114)."""
+    """trust 파일 경로 — 런타임 루트 직접(vault/폴백=유저 스코프). 해시 루트(repo)와 분리(#114)."""
     return Path(runtime) / TRUST_NAME
 
 
@@ -65,7 +65,7 @@ def is_trusted(
     """현재 핸들러 셋이 로컬 승인 기록과 일치하는지 여부(fail-closed).
 
     해시 루트는 ``project``(핸들러 git-추적 repo, R4), trust 파일은 ``runtime``
-    (미지정 시 in-repo ``.okf-study`` — 홈/폴백은 유저 스코프를 넘긴다, #114).
+    (미지정 시 in-repo ``.okf-study`` — vault/폴백은 유저 스코프를 넘긴다, #114).
     """
     rt = runtime if runtime is not None else _in_repo_runtime(project)
     path = _trust_path(rt)

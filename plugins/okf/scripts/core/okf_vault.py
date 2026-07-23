@@ -1,4 +1,4 @@
-"""홈 프로젝트 폴백 공유 모듈 (#91 V2) — 포인터·홈 판정·설정 로드·주입 해소.
+"""Vault(지식 저장고) 폴백 공유 모듈 (#91 V2) — 포인터·vault 판정·설정 로드·주입 해소.
 
 주입 훅(okf_hooks)·doctor·상위 feature 층이 재사용하는 generic 단일 해석기다
 (훅별 배선은 각자, 해석은 여기 한 곳 — #91 §2 "블랭킷 변경 금지"와 "공유 모듈"
@@ -7,12 +7,16 @@
 모르고, feature 층이 이 파일을 단방향으로 import한다. stdlib 전용, 실패는 전부
 "없음/무동작" 동치로 관용한다.
 
-용어(#91 v3.5 · #153 URL 모드):
-- 포인터: ``~/.claude/okf/home-project``(env ``OKF_HOME_PROJECT`` 우선) 한 줄.
-  값은 **로컬 clone 절대경로** 또는 **repo URL**(#153) 둘 중 하나다.
-- 유효 홈: 실재 + git repo + ``.okf-wiki.json`` 존재. URL 모드에선 이 판정을
+용어(#91 v3.5 · #153 URL 모드 · #152 vault 재명명):
+- vault(지식 저장고): 주입이 지식을 **끌어오는 원천**이자 `/study` 승격이 **적재되는
+  목적지**. 구 용어 "home"을 대체한다(#152) — 표면은 vault로 정렬하고, 구 표면(env·
+  파일·scope 값·``--home``)은 deprecated 폴백으로만 수용한다(무음 증발 방지).
+- 포인터: ``~/.claude/okf/vault-project``(env ``OKF_VAULT_PROJECT`` 우선) 한 줄.
+  값은 **로컬 clone 절대경로** 또는 **repo URL**(#153) 둘 중 하나다. 구 파일
+  ``home-project``·구 env ``OKF_HOME_PROJECT``은 폴백으로만 읽는다(#152).
+- 유효 vault: 실재 + git repo + ``.okf-wiki.json`` 존재. URL 모드에선 이 판정을
   관리형 clone(``~/.claude/okf/remotes/<slug>``)의 실재 로컬 경로에 대해 한다 —
-  ``home_state``는 URL→slug→로컬 경로 매핑만 하는 **순수(무네트워크) 분류기**로
+  ``vault_state``는 URL→slug→로컬 경로 매핑만 하는 **순수(무네트워크) 분류기**로
   남고, clone/fetch는 별 모듈(``okf_remote``)의 명시 지점에서만 한다(#153 U1·C6).
 - 침묵 정책: 포인터 부재=무음, 존재·무효=SessionStart 계열만 1줄 경고(경고 문구는
   이 모듈이 만들고, 방출 여부는 호출자가 결정한다).
@@ -26,8 +30,13 @@ import os
 import re
 from pathlib import Path
 
-POINTER_ENV = "OKF_HOME_PROJECT"
-_POINTER_REL = ".claude/okf/home-project"
+VAULT_ENV = "OKF_VAULT_PROJECT"  # 신 env (정본, #152)
+_POINTER_REL = ".claude/okf/vault-project"  # 신 포인터 파일 (정본, #152)
+# 구 표면 — deprecated 폴백으로만 읽는다(#152 R1-2·R1-3). 구 env/파일만 있는 기존
+# 사용자는 동작 무변경 + doctor 마이그레이션 1줄 안내. 유저 머신 상태(커밋물 아님)라
+# 최소 1개 릴리스 이상 유지 후 CHANGELOG 예고로 제거한다.
+_LEGACY_ENV = "OKF_HOME_PROJECT"
+_LEGACY_POINTER_REL = ".claude/okf/home-project"
 
 # 무효 사유 코드 (doctor·경고 문구 공용)
 INVALID_MISSING = "대상 없음"
@@ -53,16 +62,45 @@ def expand(value: str) -> str:
 
 
 def read_pointer() -> str | None:
-    """포인터 원문(확장 후 경로)을 반환한다. 부재·빈 값은 None (옵트인 안 함)."""
-    raw = os.environ.get(POINTER_ENV)
+    """포인터 원문(확장 후 경로)을 반환한다. 부재·빈 값은 None (옵트인 안 함).
+
+    우선순위(#152 R1-3): 신 env → 구 env → 신 파일 → 구 파일. 구 표면
+    (``OKF_HOME_PROJECT``·``home-project``)은 deprecated 폴백으로만 읽어, 기존
+    사용자의 vault를 무음 증발 없이 승계한다.
+    """
+    raw = os.environ.get(VAULT_ENV)
     if raw is None:
-        pointer = Path(os.path.expanduser("~")) / _POINTER_REL
-        try:
-            raw = pointer.read_text(encoding="utf-8")
-        except OSError:
-            return None
+        raw = os.environ.get(_LEGACY_ENV)
+    if raw is None:
+        user_home = Path(os.path.expanduser("~"))  # OS 홈 디렉터리(vault 아님)
+        for rel in (_POINTER_REL, _LEGACY_POINTER_REL):
+            try:
+                raw = (user_home / rel).read_text(encoding="utf-8")
+                break
+            except OSError:
+                continue
+    if raw is None:
+        return None
     value = expand(raw)
     return value or None
+
+
+def legacy_surface_notice() -> str | None:
+    """구 표면(env·파일)으로 vault가 해소되면 마이그레이션 안내 1줄(#152). 없으면 None.
+
+    doctor의 [Vault] 절이 표시한다 — 구 env/파일만 쓰는 기존 사용자에게 새 표면으로의
+    이동을 1회성으로 안내하되, 동작은 무변경(폴백은 계속 읽힌다).
+    """
+    if os.environ.get(VAULT_ENV) is None and os.environ.get(_LEGACY_ENV) is not None:
+        return f"구 env {_LEGACY_ENV} 사용 중 — {VAULT_ENV}로 옮기세요(#152 deprecated)"
+    if os.environ.get(VAULT_ENV) is None and os.environ.get(_LEGACY_ENV) is None:
+        user_home = Path(os.path.expanduser("~"))
+        if not (user_home / _POINTER_REL).is_file() and (user_home / _LEGACY_POINTER_REL).is_file():
+            return (
+                f"구 포인터 파일 ~/{_LEGACY_POINTER_REL} 사용 중 — "
+                f"~/{_POINTER_REL}로 옮기세요(mv, #152 deprecated)"
+            )
+    return None
 
 
 def _is_git_repo(path: Path) -> bool:
@@ -70,10 +108,10 @@ def _is_git_repo(path: Path) -> bool:
     return (path / ".git").exists()
 
 
-def valid_home(path: str | Path) -> bool:
-    """경로가 유효 홈(실재 디렉토리 + git + ``.okf-wiki.json``)인지 — 순수 stat 판정.
+def valid_vault(path: str | Path) -> bool:
+    """경로가 유효 vault(실재 디렉토리 + git + ``.okf-wiki.json``)인지 — 순수 stat 판정.
 
-    ``home_state``는 사유를 구분하려 단계별로 검사하지만, clone 성립 여부 같은
+    ``vault_state``는 사유를 구분하려 단계별로 검사하지만, clone 성립 여부 같은
     bool 판정만 필요한 곳(``set_pointer``·``okf_remote``)은 이 헬퍼를 재사용한다.
     """
     p = Path(path)
@@ -83,7 +121,7 @@ def valid_home(path: str | Path) -> bool:
 # --- URL 모드 순수 헬퍼 (#153) — 무네트워크. clone/fetch는 okf_remote 소관 ----
 #
 # 포인터 값이 repo URL이면 관리형 clone(~/.claude/okf/remotes/<slug>)의 로컬 경로로
-# 해소한다. 여기의 함수는 전부 순수(문자열·해시·경로)라 home_state 핫패스(매 .md
+# 해소한다. 여기의 함수는 전부 순수(문자열·해시·경로)라 vault_state 핫패스(매 .md
 # Write 훅)에서 호출해도 네트워크에 블록되지 않는다(#153 U1-1·C6-1).
 
 _MANAGED_REL = ".claude/okf/remotes"
@@ -201,11 +239,11 @@ def is_managed_clone(path: str | Path) -> bool:
         return False
 
 
-def home_state() -> tuple[str | None, str | None]:
-    """(유효 홈 경로, 무효 사유)를 반환한다.
+def vault_state() -> tuple[str | None, str | None]:
+    """(유효 vault 경로, 무효 사유)를 반환한다.
 
     - (None, None): 포인터 부재 — 옵트인 안 함(완전 무음)
-    - (path, None): 유효 홈
+    - (path, None): 유효 vault
     - (None, 사유): 포인터 존재·무효 — SessionStart 계열에서만 경고
     """
     value = read_pointer()
@@ -244,24 +282,24 @@ def load_config(project: str | Path) -> dict | None:
 def resolve_inject(project: str | Path) -> dict:
     """주입(읽기) 스코프를 해소한다 (#91 §2 주입 3단 규칙).
 
-    반환 dict: target(str|None) · scope("project"|"home"|"none") · warning(str|None)
+    반환 dict: target(str|None) · scope("project"|"vault"|"none") · warning(str|None)
     """
     if (Path(project) / ".okf-wiki.json").is_file():
         return {"target": str(project), "scope": "project", "warning": None}
-    home, reason = home_state()
-    if home is None:
+    vault, reason = vault_state()
+    if vault is None:
         return {"target": None, "scope": "none", "warning": pointer_warning(reason)}
-    config = load_config(home) or {}
+    config = load_config(vault) or {}
     if config.get("inject") is False:
         return {"target": None, "scope": "none", "warning": None}
-    return {"target": home, "scope": "home", "warning": None}
+    return {"target": vault, "scope": "vault", "warning": None}
 
 
 def pointer_warning(reason: str | None) -> str | None:
     """무효 포인터 경고 문구 (공개 헬퍼 — 주입·캡처 해석기가 공용)."""
     if reason is None:
         return None
-    return f"okf: 홈 포인터 무효({reason}) — /okf-doctor로 진단"
+    return f"okf: Vault 포인터 무효({reason}) — /okf-doctor로 진단"
 
 
 def _pointer_file() -> Path:
@@ -296,32 +334,32 @@ def set_pointer(path: str) -> dict:
             "url": stored,
             "canonical": canonical,
             "clone_path": str(clone_path),
-            "clone_exists": valid_home(clone_path),
+            "clone_exists": valid_vault(clone_path),
             "pointer": str(pointer),
         }
-    saved = os.environ.get(POINTER_ENV)
-    os.environ[POINTER_ENV] = expanded or "-"
+    saved = os.environ.get(VAULT_ENV)
+    os.environ[VAULT_ENV] = expanded or "-"  # 신 env는 read_pointer 최우선 — 구 env 오염 무관
     try:
-        home, reason = home_state()
+        vault, reason = vault_state()
     finally:
         if saved is None:
-            os.environ.pop(POINTER_ENV, None)
+            os.environ.pop(VAULT_ENV, None)
         else:
-            os.environ[POINTER_ENV] = saved
-    if home is None:
+            os.environ[VAULT_ENV] = saved
+    if vault is None:
         return {"written": False, "reason": reason}
-    pointer = _write_pointer(home)
-    return {"written": True, "mode": "path", "home": home, "pointer": str(pointer)}
+    pointer = _write_pointer(vault)
+    return {"written": True, "mode": "path", "vault": vault, "pointer": str(pointer)}
 
 
 # --- CLI — doctor(V6)·feature 층 CLI가 소비하는 generic 기계 단계 -------------
 
 
 def _cli_status(project: str) -> dict:
-    home, invalid = home_state()
+    vault, invalid = vault_state()
     return {
         "pointer": read_pointer(),
-        "home": home,
+        "vault": vault,
         "invalid": invalid,
         "inject": resolve_inject(project),
     }
@@ -330,9 +368,9 @@ def _cli_status(project: str) -> dict:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    ap = argparse.ArgumentParser(prog="okf_home", description="홈 프로젝트 폴백 해석기(generic)")
+    ap = argparse.ArgumentParser(prog="okf_vault", description="Vault 폴백 해석기(generic)")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    status = sub.add_parser("status", help="현재 위치의 포인터·홈·주입 해소 결과(JSON)")
+    status = sub.add_parser("status", help="현재 위치의 포인터·vault·주입 해소 결과(JSON)")
     status.add_argument("project", nargs="?", default=".")
     set_cmd = sub.add_parser("set", help="포인터 검증 후 기록(JSON)")
     set_cmd.add_argument("path")

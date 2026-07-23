@@ -1,6 +1,6 @@
 """전역 원장 write-through·양쪽 조회 테스트 (#91 V4, 매트릭스 #2 시간축).
 
-promote/discard가 홈 원장에도 append되고, is_resolved가 활성∪홈을 조회해
+promote/discard가 vault 원장에도 append되고, is_resolved가 활성∪vault을 조회해
 "repo A에서 처리한 스니펫이 다른 위치에서 재큐"되는 구멍을 막는지 고정한다.
 """
 
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-import okf_home
+import okf_vault
 import pytest
 import study_hook
 import study_inbox
@@ -18,18 +18,18 @@ import study_store
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    monkeypatch.delenv(okf_vault.VAULT_ENV, raising=False)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
 
 
-def _valid_home(tmp_path, capture="review"):
-    home = tmp_path / "home-kb"
-    (home / ".git").mkdir(parents=True)
-    (home / ".okf-wiki.json").write_text(
+def _valid_vault(tmp_path, capture="review"):
+    vault = tmp_path / "vault-kb"
+    (vault / ".git").mkdir(parents=True)
+    (vault / ".okf-wiki.json").write_text(
         json.dumps({"study": {"capture": capture}}), encoding="utf-8"
     )
-    return home
+    return vault
 
 
 def _ledger_text(runtime):
@@ -47,8 +47,8 @@ def _shared():
 
 
 def test_record_writes_through_to_shared(monkeypatch, tmp_path):
-    home = _valid_home(tmp_path)
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _valid_vault(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     project = tmp_path / "repo-a"  # 자기 파이프라인 repo의 런타임(테스트에선 이 dir 자체)
     project.mkdir()
     study_inbox.record(project, "abc123def456", "promoted", ref=".okf/x.md")
@@ -57,24 +57,24 @@ def test_record_writes_through_to_shared(monkeypatch, tmp_path):
     assert entry in _ledger_text(_shared())  # write-through(유저 스코프)
 
 
-def test_is_resolved_consults_home_ledger(monkeypatch, tmp_path):
-    home = _valid_home(tmp_path)
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    study_inbox.record(home, "feedbeefcafe", "discarded")
+def test_is_resolved_consults_vault_ledger(monkeypatch, tmp_path):
+    vault = _valid_vault(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+    study_inbox.record(vault, "feedbeefcafe", "discarded")
     other = tmp_path / "elsewhere"
     other.mkdir()
-    assert study_inbox.is_resolved(other, "feedbeefcafe")  # 홈 원장 경유
+    assert study_inbox.is_resolved(other, "feedbeefcafe")  # vault 원장 경유
 
 
 def test_time_axis_requeue_blocked_end_to_end(monkeypatch, tmp_path):
-    # repo A에서 promote → 다른 위치(홈 폴백 스코프)의 재캡처가 원장에 막힌다
-    home = _valid_home(tmp_path)
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    # repo A에서 promote → 다른 위치(vault 폴백 스코프)의 재캡처가 원장에 막힌다
+    vault = _valid_vault(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     repo_a = tmp_path / "repo-a"
     repo_a.mkdir()
     snippet = "promoted knowledge"
     ident = study_inbox.content_hash(snippet)[:12]
-    study_inbox.record(repo_a, ident, "promoted")  # write-through로 홈 원장에도 기록
+    study_inbox.record(repo_a, ident, "promoted")  # write-through로 vault 원장에도 기록
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     payload = {
@@ -88,8 +88,8 @@ def test_time_axis_requeue_blocked_end_to_end(monkeypatch, tmp_path):
 
 
 def test_record_on_shared_itself_no_duplicate(monkeypatch, tmp_path):
-    home = _valid_home(tmp_path)
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _valid_vault(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     # 활성 런타임이 곧 공유 원장이면 write-through가 자기 자신 → 이중 기록 없음
     study_inbox.record(_shared(), "aaaa11112222", "promoted")
     assert _ledger_text(_shared()).count("aaaa11112222") == 1

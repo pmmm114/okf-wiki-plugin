@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 
-import okf_home
+import okf_vault
 import pytest
 import study
 import study_inbox
@@ -14,14 +14,14 @@ import study_session
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch, tmp_path):
-    # 홈 포인터·설정이 새어들지 않게 격리 → 바 프로젝트는 in-repo 런타임으로 해소
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    # vault 포인터·설정이 새어들지 않게 격리 → 바 프로젝트는 in-repo 런타임으로 해소
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    monkeypatch.delenv(okf_vault.VAULT_ENV, raising=False)
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
 
 
 def _rt(project):
-    """CLI가 쓰는 런타임 루트 — 바 프로젝트(설정·홈 없음)는 in-repo <repo>/.okf-study(#114)."""
+    """CLI가 쓰는 런타임 루트 — 바 프로젝트(설정·vault 없음)는 in-repo <repo>/.okf-study(#114)."""
     return project / ".okf-study"
 
 

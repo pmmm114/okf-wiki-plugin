@@ -111,7 +111,7 @@ def test_dispatch_skips_path_escape(tmp_path):
 
 
 def test_dispatch_runs_handler_with_repo_cwd(tmp_path, monkeypatch):
-    # #153 U2-4: 핸들러 cwd = 승격 대상 repo 루트여야 URL 모드(cwd≠홈)에서 PR 플로우가
+    # #153 U2-4: 핸들러 cwd = 승격 대상 repo 루트여야 URL 모드(cwd≠vault)에서 PR 플로우가
     # 성립한다. 핸들러가 pwd·$OKF_PROJECT를 기록해 검증한다.
     repo = _make_repo(tmp_path)
     _write_exec(

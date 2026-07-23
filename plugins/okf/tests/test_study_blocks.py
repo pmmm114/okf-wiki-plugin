@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-import okf_home
+import okf_vault
 import pytest
 import study
 import study_blocks
@@ -24,8 +24,8 @@ MEM = "/home/u/.claude/projects/proj/memory/MEMORY.md"
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    monkeypatch.delenv(okf_vault.VAULT_ENV, raising=False)
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
 
 

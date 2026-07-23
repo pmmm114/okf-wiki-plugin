@@ -4,7 +4,7 @@ U1(#130) 이전 스테이징은 markdown ``inbox.md`` + 평문 ``ledger`` + json
 ``journal.jsonl`` 3종 파일이었다. ``study migrate``가 이 옛 포맷을 읽어 ``study.db``
 로 이관하려고, U1에서 걷어낸 파서를 여기 둔다(엔진 아닌 마이그레이션 셔틀).
 
-두 위치가 대상이다: (a) pre-0.4 홈 ``<home>/.okf-study``, (b) 0.4.x 유저 스코프
+두 위치가 대상이다: (a) pre-0.4 vault ``<vault>/.okf-study``, (b) 0.4.x 유저 스코프
 ``~/.claude/okf/study`` — 둘 다 같은 markdown 포맷이다.
 """
 

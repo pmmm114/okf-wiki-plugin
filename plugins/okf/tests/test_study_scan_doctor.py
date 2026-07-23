@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 
 import okf_doctor
-import okf_home
+import okf_vault
 import pytest
 import study as study_cli
 import study_hook
@@ -19,8 +19,8 @@ import study_scope
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    monkeypatch.delenv(okf_vault.VAULT_ENV, raising=False)
     monkeypatch.delenv("CLAUDE_CODE_DISABLE_AUTO_MEMORY", raising=False)
     # 기본형 글롭이 실환경을 훑지 않게 config dir도 격리
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
@@ -99,49 +99,49 @@ def test_scan_cli_outputs_json(tmp_path, capsys):
 # --- doctor -----------------------------------------------------------------
 
 
-def _valid_home(tmp_path, study=None):
-    home = tmp_path / "home-kb"
-    (home / ".git").mkdir(parents=True)
+def _valid_vault(tmp_path, study=None):
+    vault = tmp_path / "vault-kb"
+    (vault / ".git").mkdir(parents=True)
     config = {"study": study} if study is not None else {}
-    (home / ".okf-wiki.json").write_text(json.dumps(config), encoding="utf-8")
-    return home
+    (vault / ".okf-wiki.json").write_text(json.dumps(config), encoding="utf-8")
+    return vault
 
 
 def test_doctor_fallback_trace(monkeypatch, tmp_path):
-    home = _valid_home(tmp_path, {"capture": "review"})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _valid_vault(tmp_path, {"capture": "review"})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     out = okf_doctor.run(str(_project(tmp_path)))
-    assert "홈 폴백" in out and str(home) in out
+    assert "vault 폴백" in out and str(vault) in out
     assert "(유효)" in out
 
 
 def test_doctor_invalid_pointer_recovery_hint(monkeypatch, tmp_path):
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(tmp_path / "nowhere"))
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(tmp_path / "nowhere"))
     out = okf_doctor.run(str(_project(tmp_path)))
     assert "무효" in out and "[회복]" in out and "study scan" in out
 
 
 def test_doctor_half_state_note(monkeypatch, tmp_path):
-    home = _valid_home(tmp_path)  # study 블록 없음
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _valid_vault(tmp_path)  # study 블록 없음
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     out = okf_doctor.run(str(_project(tmp_path)))
-    assert "주입 전용 홈" in out
-    assert "캡처 활성 제안" in out  # 회복 안내 — /okf-init --home 재실행
+    assert "주입 전용 vault" in out
+    assert "캡처 활성 제안" in out  # 회복 안내 — /okf-init --vault 재실행
 
 
 def test_doctor_capture_off_note(monkeypatch, tmp_path):
-    home = _valid_home(tmp_path, {"capture": "off"})  # 블록은 있으나 off
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _valid_vault(tmp_path, {"capture": "off"})  # 블록은 있으나 off
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     out = okf_doctor.run(str(_project(tmp_path)))
-    assert "홈 캡처 off" in out and "review로" in out
+    assert "vault 캡처 off" in out and "review로" in out
 
 
 def test_doctor_meaningless_scope_combo(monkeypatch, tmp_path):
-    home = _valid_home(tmp_path, {"capture": "review"})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _valid_vault(tmp_path, {"capture": "review"})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     project = _project(tmp_path)
     (project / ".okf-wiki.json").write_text(
-        json.dumps({"study": {"scope": "home", "handlers": [{"name": "x", "command": "y"}]}}),
+        json.dumps({"study": {"scope": "vault", "handlers": [{"name": "x", "command": "y"}]}}),
         encoding="utf-8",
     )
     out = okf_doctor.run(str(project))
@@ -154,28 +154,28 @@ def test_doctor_auto_memory_disabled(monkeypatch, tmp_path):
     assert "자동 메모리: 비활성" in out
 
 
-def test_doctor_home_conformance_bundle_present(monkeypatch, tmp_path):
-    # #114 U3 — 홈 부합: 번들 존재를 진단
-    home = _valid_home(tmp_path, {"capture": "review"})
-    (home / ".okf").mkdir()
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_doctor_vault_conformance_bundle_present(monkeypatch, tmp_path):
+    # #114 U3 — vault 부합: 번들 존재를 진단
+    vault = _valid_vault(tmp_path, {"capture": "review"})
+    (vault / ".okf").mkdir()
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     out = okf_doctor.run(str(_project(tmp_path)))
     assert "부합: 번들 .okf 있음" in out
 
 
-def test_doctor_home_conformance_flags_leaked_runtime(monkeypatch, tmp_path):
-    # #114 U3 — 홈에 런타임(.okf-study)이 잔존하면 마이그레이션 경고(순수 목적지 위반)
-    home = _valid_home(tmp_path, {"capture": "review"})
-    (home / ".okf-study").mkdir()
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_doctor_vault_conformance_flags_leaked_runtime(monkeypatch, tmp_path):
+    # #114 U3 — vault에 런타임(.okf-study)이 잔존하면 마이그레이션 경고(순수 목적지 위반)
+    vault = _valid_vault(tmp_path, {"capture": "review"})
+    (vault / ".okf-study").mkdir()
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     out = okf_doctor.run(str(_project(tmp_path)))
     assert "런타임 잔존" in out and "migrate" in out
 
 
 def test_doctor_shows_recent_journal(monkeypatch, tmp_path):
     # #114 U5 — doctor가 이벤트 저널 최근 이력을 보인다
-    home = _valid_home(tmp_path, {"capture": "review"})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _valid_vault(tmp_path, {"capture": "review"})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     study_inbox.append(study_scope.user_scope_runtime(), "저널 한 줄", "MEMORY.md")
     out = okf_doctor.run(str(_project(tmp_path)))
     assert "최근 이력" in out and "capture" in out
@@ -184,16 +184,16 @@ def test_doctor_shows_recent_journal(monkeypatch, tmp_path):
 def test_doctor_unqueued_recovery_hint(monkeypatch, tmp_path):
     # 미큐잉 집계는 후보(블록/줄) 수가 아니라 **파일 수** — 한 파일의 두 후보도 "파일 1개"
     _memory_file(tmp_path, ["eta fact", "theta fact"])
-    home = _valid_home(tmp_path, {"capture": "review"})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _valid_vault(tmp_path, {"capture": "review"})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     out = okf_doctor.run(str(_project(tmp_path)))
     assert "[회복]" in out and "미큐잉 후보가 있는 파일 1개" in out and "--enqueue" in out
 
 
 def test_doctor_shows_recurrence(monkeypatch, tmp_path):
     # U3 #132 — 재등장(recurrence>1) 후보를 doctor 대기 요약에 표시
-    home = _valid_home(tmp_path, {"capture": "review"})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _valid_vault(tmp_path, {"capture": "review"})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     rt = study_scope.user_scope_runtime()
     study_inbox.append(rt, "recurring concept", "MEMORY.md")
     study_inbox.append(rt, "recurring concept", "MEMORY.md")  # 재캡처 → recurrence 2
@@ -202,8 +202,8 @@ def test_doctor_shows_recurrence(monkeypatch, tmp_path):
 
 def test_doctor_flags_userscope_legacy_markdown(monkeypatch, tmp_path):
     # U5 #134 — 유저 스코프 레거시 markdown 잔존을 doctor가 감지·안내
-    home = _valid_home(tmp_path, {"capture": "review"})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _valid_vault(tmp_path, {"capture": "review"})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     us = study_scope.user_scope_runtime()
     us.mkdir(parents=True, exist_ok=True)
     (us / "inbox.md").write_text("# Study Inbox\n", encoding="utf-8")

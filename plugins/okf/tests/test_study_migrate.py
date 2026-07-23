@@ -1,14 +1,14 @@
-"""study migrate + 런타임-in-홈 회귀 게이트 (#114 U4).
+"""study migrate + 런타임-in-vault 회귀 게이트 (#114 U4).
 
-기존 홈 ``<home>/.okf-study`` 런타임을 유저 스코프로 멱등 이동하고, 홈/폴백 캡처의
-런타임이 절대 홈 repo 안이 아님을 게이트로 고정한다(재평가·co-location 회귀 차단).
+기존 vault ``<vault>/.okf-study`` 런타임을 유저 스코프로 멱등 이동하고, vault/폴백 캡처의
+런타임이 절대 vault repo 안이 아님을 게이트로 고정한다(재평가·co-location 회귀 차단).
 """
 
 from __future__ import annotations
 
 import json
 
-import okf_home
+import okf_vault
 import pytest
 import study
 import study_inbox
@@ -18,39 +18,39 @@ import study_scope
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    monkeypatch.delenv(okf_vault.VAULT_ENV, raising=False)
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
 
 
-def _home(tmp_path, capture="review"):
-    home = tmp_path / "home-kb"
-    (home / ".git").mkdir(parents=True)
-    (home / ".okf-wiki.json").write_text(
+def _vault(tmp_path, capture="review"):
+    vault = tmp_path / "vault-kb"
+    (vault / ".git").mkdir(parents=True)
+    (vault / ".okf-wiki.json").write_text(
         json.dumps({"study": {"capture": capture}}), encoding="utf-8"
     )
-    return home
+    return vault
 
 
 # --- 마이그레이션 -----------------------------------------------------------
 
 
 def test_migrate_moves_runtime_to_user_scope(monkeypatch, tmp_path, capsys):
-    home = _home(tmp_path)
-    legacy = home / ".okf-study"  # 구 모델: 홈 안 런타임
+    vault = _vault(tmp_path)
+    legacy = vault / ".okf-study"  # 구 모델: vault 안 런타임
     # 구 상태는 포인터를 걸기 전에 만든다 — 그래야 record가 유저 스코프로
     # write-through하지 않아 "이관 대상"으로 남는다(업그레이드 전 상태 재현).
     study_inbox.append(legacy, "legacy candidate", "MEMORY.md")
     study_inbox.record(legacy, "aaaa11112222", "promoted", ref=".okf/x.md")
     study_inbox.record(legacy, "bbbb33334444", "discarded")
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
 
     assert study.main(["migrate"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["migrated"] is True
     assert out["moved"]["candidates"] == 1 and out["moved"]["ledger"] == 2
 
-    assert not legacy.exists()  # 홈 런타임 제거 → 순수 목적지
+    assert not legacy.exists()  # vault 런타임 제거 → 순수 목적지
     us = study_scope.user_scope_runtime()
     assert len(study_inbox.list_candidates(us)) == 1
     assert study_inbox.is_resolved(us, "aaaa11112222")
@@ -58,9 +58,9 @@ def test_migrate_moves_runtime_to_user_scope(monkeypatch, tmp_path, capsys):
 
 
 def test_migrate_copies_trust(monkeypatch, tmp_path, capsys):
-    home = _home(tmp_path)
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    legacy = home / ".okf-study"
+    vault = _vault(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+    legacy = vault / ".okf-study"
     legacy.mkdir()
     (legacy / "trust").write_text("deadbeefcafe\n", encoding="utf-8")
 
@@ -72,9 +72,9 @@ def test_migrate_copies_trust(monkeypatch, tmp_path, capsys):
 
 
 def test_migrate_idempotent_second_run_noop(monkeypatch, tmp_path, capsys):
-    home = _home(tmp_path)
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    study_inbox.append(home / ".okf-study", "c", "s")
+    vault = _vault(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+    study_inbox.append(vault / ".okf-study", "c", "s")
     study.main(["migrate"])
     capsys.readouterr()
 
@@ -84,22 +84,22 @@ def test_migrate_idempotent_second_run_noop(monkeypatch, tmp_path, capsys):
 
 
 def test_migrate_no_pointer_is_noop(monkeypatch, tmp_path, capsys):
-    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    monkeypatch.delenv(okf_vault.VAULT_ENV, raising=False)
     assert study.main(["migrate"]) == 0
     assert json.loads(capsys.readouterr().out)["migrated"] is False
 
 
-def test_migrate_skips_managed_clone_home(monkeypatch, tmp_path, capsys):
-    # #153 U2-5: URL 홈(관리형 clone)의 .okf-study는 목적지 repo가 커밋한 git-추적
+def test_migrate_skips_managed_clone_vault(monkeypatch, tmp_path, capsys):
+    # #153 U2-5: URL vault(관리형 clone)의 .okf-study는 목적지 repo가 커밋한 git-추적
     # 자원이라 rmtree하면 안 된다 — migrate는 관리형 clone을 건드리지 않는다.
     url = "git@example.com:o/r.git"
-    clone = okf_home.managed_clone_path(okf_home.canonicalize_url(url))
+    clone = okf_vault.managed_clone_path(okf_vault.canonicalize_url(url))
     (clone / ".git").mkdir(parents=True)
     (clone / ".okf-wiki.json").write_text(json.dumps({"study": {"capture": "review"}}), "utf-8")
     committed = clone / ".okf-study"
     committed.mkdir()
     (committed / ".gitignore").write_text("*\n!.gitignore\n", encoding="utf-8")  # git-추적 파일
-    monkeypatch.setenv(okf_home.POINTER_ENV, url)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, url)
 
     assert study.main(["migrate"]) == 0
     out = json.loads(capsys.readouterr().out)
@@ -107,21 +107,21 @@ def test_migrate_skips_managed_clone_home(monkeypatch, tmp_path, capsys):
     assert (committed / ".gitignore").exists()  # 커밋된 파일 보존(clone dirty 방지)
 
 
-# --- 게이트: 홈/폴백 런타임은 절대 홈 안이 아니다 -----------------------------
+# --- 게이트: vault/폴백 런타임은 절대 vault 안이 아니다 -----------------------------
 
 
-def test_gate_home_fallback_runtime_never_in_home(monkeypatch, tmp_path):
-    # 파괴 감지 게이트(#114) — 이 불변식이 깨지면(홈에 런타임 생성) 재평가·인박스
-    # co-location 문제가 재발한다. 무설정 위치와 홈 자신 양쪽에서 검증한다.
-    home = _home(tmp_path, "review")
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_gate_vault_fallback_runtime_never_in_vault(monkeypatch, tmp_path):
+    # 파괴 감지 게이트(#114) — 이 불변식이 깨지면(vault에 런타임 생성) 재평가·인박스
+    # co-location 문제가 재발한다. 무설정 위치와 vault 자신 양쪽에서 검증한다.
+    vault = _vault(tmp_path, "review")
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     user_scope = str(study_scope.user_scope_runtime())
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    for loc in (scratch, home):
+    for loc in (scratch, vault):
         runtime = study_scope.resolve_capture(loc)["runtime_root"]
         assert runtime == user_scope
-        assert not runtime.startswith(str(home))  # 홈 repo 안이 아니다
+        assert not runtime.startswith(str(vault))  # vault repo 안이 아니다
 
 
 # --- 레거시 markdown 2원천 이관 (U5 #134) -----------------------------------
@@ -141,32 +141,32 @@ def _write_legacy_markdown(directory, cands, resolutions):
         (directory / study_legacy.LEDGER_NAME).write_text(led, encoding="utf-8")
 
 
-def test_migrate_imports_home_legacy_markdown(monkeypatch, tmp_path, capsys):
-    home = _home(tmp_path)
-    legacy = home / ".okf-study"
+def test_migrate_imports_vault_legacy_markdown(monkeypatch, tmp_path, capsys):
+    vault = _vault(tmp_path)
+    legacy = vault / ".okf-study"
     _write_legacy_markdown(
         legacy,
         [("legacy fact", "MEMORY.md", "2026-07-01")],
         [("aaaa11112222", "promoted", ".okf/x.md")],
     )
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
 
     assert study.main(["migrate"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["migrated"] is True and "home" in out["moved"]["sources"]
+    assert out["migrated"] is True and "vault" in out["moved"]["sources"]
     assert out["moved"]["candidates"] == 1 and out["moved"]["ledger"] == 1
 
     us = study_scope.user_scope_runtime()
     assert len(study_inbox.list_candidates(us)) == 1
     assert study_inbox.is_resolved(us, "aaaa11112222")
-    assert not legacy.exists()  # 홈은 순수 목적지로
+    assert not legacy.exists()  # vault은 순수 목적지로
 
 
 def test_migrate_imports_userscope_legacy_markdown(tmp_path, capsys):
     us = study_scope.user_scope_runtime()
     _write_legacy_markdown(us, [("userscope fact", "MEMORY.md", "2026-07-02")], [])
 
-    assert study.main(["migrate"]) == 0  # 홈 포인터 없이도 (b) 원천 처리
+    assert study.main(["migrate"]) == 0  # vault 포인터 없이도 (b) 원천 처리
     out = json.loads(capsys.readouterr().out)
     assert out["migrated"] is True and "user-scope-markdown" in out["moved"]["sources"]
     assert len(study_inbox.list_candidates(us)) == 1
@@ -176,23 +176,23 @@ def test_migrate_imports_userscope_legacy_markdown(tmp_path, capsys):
 def test_migrate_both_sources_together(monkeypatch, tmp_path, capsys):
     us = study_scope.user_scope_runtime()
     _write_legacy_markdown(us, [("from userscope", "M", "2026-07-02")], [])
-    home = _home(tmp_path)
-    _write_legacy_markdown(home / ".okf-study", [("from home", "M", "2026-07-01")], [])
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _vault(tmp_path)
+    _write_legacy_markdown(vault / ".okf-study", [("from vault", "M", "2026-07-01")], [])
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
 
     assert study.main(["migrate"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert set(out["moved"]["sources"]) == {"user-scope-markdown", "home"}
+    assert set(out["moved"]["sources"]) == {"user-scope-markdown", "vault"}
     assert len(study_inbox.list_candidates(us)) == 2  # 양쪽 이관
 
 
 def test_migrate_legacy_markdown_ledger_continuity(monkeypatch, tmp_path):
     # 레거시 promoted 줄-id → 이관 후 그 줄만의 블록은 재부상하지 않는다(A2′)
-    home = _home(tmp_path)
+    vault = _vault(tmp_path)
     snippet = "already promoted line"
     ident = study_inbox.content_hash(snippet)[:12]
-    _write_legacy_markdown(home / ".okf-study", [], [(ident, "promoted", ".okf/x.md")])
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    _write_legacy_markdown(vault / ".okf-study", [], [(ident, "promoted", ".okf/x.md")])
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     study.main(["migrate"])
 
     us = str(study_scope.user_scope_runtime())

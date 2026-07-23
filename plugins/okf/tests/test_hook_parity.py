@@ -65,7 +65,7 @@ def henv(tmp_path):
     for name in SH.values():
         shutil.copy2(PLUGIN / "scripts" / name, scripts / name)
     # okf_remote는 okf_hooks가 SessionStart URL 신선도로 import하는 core 모듈(#153).
-    for name in ["okf_hooks.py", "okf_home.py", "okf_remote.py"]:
+    for name in ["okf_hooks.py", "okf_vault.py", "okf_remote.py"]:
         shutil.copy2(PLUGIN / "scripts" / "core" / name, scripts / "core" / name)
     bin_dir = tmp_path / "plugin" / "bin"
     bin_dir.mkdir()

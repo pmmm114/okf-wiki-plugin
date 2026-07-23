@@ -2,7 +2,7 @@
 
 doctor는 study 진단을 try-import 심 1개로 선택 위임한다("있으면 실행, 없으면
 생략"). okf_* 파일만 배치된 환경에서 import·실행이 생존하고 core 섹션(위치·주입·
-홈)만 출력하는지 subprocess로 고정한다 — U1 이전엔 이 시나리오가 study_inbox
+vault)만 출력하는지 subprocess로 고정한다 — U1 이전엔 이 시나리오가 study_inbox
 경유 ModuleNotFoundError로 죽었다(#145 사전 검증 실증).
 """
 
@@ -18,7 +18,7 @@ PLUGIN = Path(__file__).resolve().parent.parent
 SCRIPTS_CORE = PLUGIN / "scripts" / "core"
 SCRIPTS_STUDY = PLUGIN / "scripts" / "study"
 # okf_remote는 core 인프라(URL 모드 관리형 clone, #153) — core-only 배치에도 함께 온다.
-CORE_ONLY = ["okf_doctor.py", "okf_home.py", "okf_remote.py"]
+CORE_ONLY = ["okf_doctor.py", "okf_vault.py", "okf_remote.py"]
 
 
 def _src(name: str) -> Path:
@@ -26,21 +26,21 @@ def _src(name: str) -> Path:
     return (SCRIPTS_STUDY if name.startswith("study") else SCRIPTS_CORE) / name
 
 
-def _run_doctor_with(tmp_path, files, *, with_home_pointer=False):
+def _run_doctor_with(tmp_path, files, *, with_vault_pointer=False):
     scripts = tmp_path / "partial-deploy"
     scripts.mkdir()
     for name in files:
         shutil.copy2(_src(name), scripts / name)
     project = tmp_path / "proj"
     project.mkdir(exist_ok=True)
-    env = {**os.environ, "HOME": str(tmp_path / "isolated-home")}
+    env = {**os.environ, "HOME": str(tmp_path / "isolated-vault")}
     env.pop("OKF_HOME_PROJECT", None)
     env.pop("CLAUDE_CONFIG_DIR", None)
-    if with_home_pointer:
-        home = tmp_path / "home-kb"
-        (home / ".git").mkdir(parents=True)
-        (home / ".okf-wiki.json").write_text("{}", encoding="utf-8")
-        env["OKF_HOME_PROJECT"] = str(home)
+    if with_vault_pointer:
+        vault = tmp_path / "vault-kb"
+        (vault / ".git").mkdir(parents=True)
+        (vault / ".okf-wiki.json").write_text("{}", encoding="utf-8")
+        env["OKF_HOME_PROJECT"] = str(vault)
     return subprocess.run(
         [sys.executable, str(scripts / "okf_doctor.py"), str(project)],
         capture_output=True,
@@ -53,16 +53,16 @@ def test_doctor_survives_without_study_modules(tmp_path):
     res = _run_doctor_with(tmp_path, CORE_ONLY)
     assert res.returncode == 0, res.stderr
     out = res.stdout.decode("utf-8")
-    for core_section in ("[위치]", "[주입]", "[홈]"):
+    for core_section in ("[위치]", "[주입]", "[Vault]"):
         assert core_section in out
     # study 섹션은 심 부재로 전부 생략 — 캡처 트레이스·입구·스토어·inbox·이력·회복
     for study_section in ("[캡처]", "[캡처 입구]", "[스토어]", "[inbox]", "[최근 이력]", "[회복]"):
         assert study_section not in out
 
 
-def test_doctor_core_home_notes_without_study(tmp_path):
-    # 유효 홈이면 generic 홈 메모(포인터·번들 부합)는 study 없이도 나온다
-    res = _run_doctor_with(tmp_path, CORE_ONLY, with_home_pointer=True)
+def test_doctor_core_vault_notes_without_study(tmp_path):
+    # 유효 vault이면 generic vault 메모(포인터·번들 부합)는 study 없이도 나온다
+    res = _run_doctor_with(tmp_path, CORE_ONLY, with_vault_pointer=True)
     assert res.returncode == 0, res.stderr
     out = res.stdout.decode("utf-8")
     assert "(유효)" in out
@@ -82,7 +82,7 @@ def test_doctor_partial_deployment_names_missing_module(tmp_path):
 
 
 def test_doctor_url_pointer_shows_managed_clone_notes(tmp_path):
-    # #153: URL 포인터면 [홈] 섹션에 관리형 clone 상태(모드·미생성)를 무네트워크로 표기한다.
+    # #153: URL 포인터면 [Vault] 섹션에 관리형 clone 상태(모드·미생성)를 무네트워크로 표기한다.
     scripts = tmp_path / "url-deploy"
     scripts.mkdir()
     for name in CORE_ONLY:
@@ -108,7 +108,7 @@ def test_doctor_full_sections_with_study_present(tmp_path):
     # bin/okf-py 셔틀 경유(셔틀이 core/·study/를 PYTHONPATH로 노출, #145 U5)
     project = tmp_path / "proj"
     project.mkdir()
-    env = {**os.environ, "HOME": str(tmp_path / "isolated-home"), "OKF_PYTHON": sys.executable}
+    env = {**os.environ, "HOME": str(tmp_path / "isolated-vault"), "OKF_PYTHON": sys.executable}
     env.pop("OKF_HOME_PROJECT", None)
     env.pop("CLAUDE_CONFIG_DIR", None)
     res = subprocess.run(
@@ -119,5 +119,5 @@ def test_doctor_full_sections_with_study_present(tmp_path):
     )
     assert res.returncode == 0, res.stderr
     out = res.stdout.decode("utf-8")
-    for section in ("[위치]", "[캡처]", "[주입]", "[홈]", "[캡처 입구]", "[스토어]", "[inbox]"):
+    for section in ("[위치]", "[캡처]", "[주입]", "[Vault]", "[캡처 입구]", "[스토어]", "[inbox]"):
         assert section in out

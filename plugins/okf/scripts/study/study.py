@@ -11,7 +11,7 @@
   study scan     <project> [--enqueue]                   미큐잉 후보 결정론 탐지(+재적재)
   study log      <project> [--limit N]                    이벤트 저널(capture/promote/discard)
   study near     <project> [--threshold N]                근사중복 자문(SimHash 해밍거리)
-  study migrate  [<project>]                              홈 .okf-study → 유저 스코프 멱등 이동
+  study migrate  [<project>]                              vault .okf-study → 유저 스코프 멱등 이동
 
 ``dispatch``는 trust 미승인 핸들러가 있으면 결과에 안내를 붙인다(가시적 저하) —
 개념은 이미 스킬이 로컬 번들에 승격·검증했고, 여기서 핸들러만 보류된다.
@@ -29,7 +29,7 @@ import json
 import os
 from pathlib import Path
 
-import okf_home
+import okf_vault
 import study_blocks
 import study_dispatch
 import study_inbox
@@ -55,7 +55,7 @@ def memory_dirs(project: str | Path) -> list[Path]:
 
 def _scope(project: str | Path) -> tuple[str | None, str]:
     """(promote_target, runtime_root) 해소 — 인박스는 runtime_root, 설정·핸들러는
-    promote_target(#114). 스코프 미해소(설정·홈 없음)면 런타임은 in-repo로 폴백해
+    promote_target(#114). 스코프 미해소(설정·vault 없음)면 런타임은 in-repo로 폴백해
     바 프로젝트의 인박스 조회를 유지한다(무회귀)."""
     scope = study_scope.resolve_capture(project)
     runtime = scope["runtime_root"] or str(Path(project) / ".okf-study")
@@ -68,7 +68,7 @@ def scan_memory(
     """미큐잉 후보를 결정론적으로 탐지(+선택 재적재)한다. 승격은 하지 않는다.
 
     메모리 디렉토리는 현재 위치(``project``)의 L0 설정·글롭에서, 인박스·원장은
-    ``runtime``(미지정 시 해소)에서 본다 — 홈/폴백이면 유저 스코프(#114).
+    ``runtime``(미지정 시 해소)에서 본다 — vault/폴백이면 유저 스코프(#114).
     """
     if runtime is None:
         runtime = _scope(project)[1]
@@ -192,11 +192,11 @@ def _import_into(dst: str, cands: list[dict], resolutions: list, moved: dict) ->
 
 def cmd_migrate(args) -> int:
     # 레거시 스테이징을 유저 스코프 study.db로 멱등 이관(#114 U4 · #134 U5). 2원천:
-    # (a) pre-0.4 홈 <home>/.okf-study, (b) 0.4.x 유저 스코프 markdown. 둘 다 옛 3종 파일.
+    # (a) pre-0.4 vault <vault>/.okf-study, (b) 0.4.x 유저 스코프 markdown. 둘 다 옛 3종 파일.
     import shutil
 
     dst = str(study_scope.user_scope_runtime())
-    home, reason = okf_home.home_state()
+    vault, reason = okf_vault.vault_state()
     moved = {"candidates": 0, "ledger": 0, "trust": False, "sources": []}
 
     # (b) 유저 스코프 자체의 옛 markdown → 같은 디렉토리 study.db로 인플레이스 이관 후 소모.
@@ -207,12 +207,12 @@ def cmd_migrate(args) -> int:
         study_legacy.remove_legacy(dst)
         moved["sources"].append("user-scope-markdown")
 
-    # (a) 홈 <home>/.okf-study → 유저 스코프. markdown·study.db·trust 모두 흡수 후 rmtree.
+    # (a) vault <vault>/.okf-study → 유저 스코프. markdown·study.db·trust 모두 흡수 후 rmtree.
     # URL 모드(#153 U2-5): 관리형 clone은 건너뛴다 — clone의 .okf-study는 목적지 repo가
     # 커밋한 git-추적 자원이라 rmtree하면 clone이 dirty(추적 파일 삭제)가 되고, 애초에
     # URL 모드는 신설이라 이관할 pre-0.4 레거시 런타임이 없다.
-    if home is not None and not okf_home.is_managed_clone(home):
-        src = Path(home) / ".okf-study"
+    if vault is not None and not okf_vault.is_managed_clone(vault):
+        src = Path(vault) / ".okf-study"
         if src.exists():
             _import_into(
                 dst, study_legacy.read_candidates(src), study_legacy.read_resolutions(src), moved
@@ -225,8 +225,8 @@ def cmd_migrate(args) -> int:
                 dst_trust.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(src_trust, dst_trust)
                 moved["trust"] = True
-            shutil.rmtree(src)  # 홈을 순수 목적지로 되돌린다
-            moved["sources"].append("home")
+            shutil.rmtree(src)  # vault를 순수 목적지로 되돌린다
+            moved["sources"].append("vault")
 
     result = {"migrated": bool(moved["sources"]), "moved": moved}
     if not moved["sources"]:
@@ -298,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     nr.add_argument("project", nargs="?", default=".")
     nr.add_argument("--threshold", type=int, default=study_simhash.DEFAULT_THRESHOLD)
 
-    mig = sub.add_parser("migrate", help="기존 홈 .okf-study 런타임 → 유저 스코프 멱등 이동")
+    mig = sub.add_parser("migrate", help="기존 vault .okf-study 런타임 → 유저 스코프 멱등 이동")
     mig.add_argument("project", nargs="?", default=".")
 
     args = ap.parse_args(argv)

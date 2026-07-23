@@ -1,4 +1,4 @@
-"""okf_hooks session-start 홈 폴백 + okf_home CLI 테스트 (#91 V3).
+"""okf_hooks session-start vault 폴백 + okf_vault CLI 테스트 (#91 V3).
 
 매트릭스 대응: #9·#19(SessionStart 경고 방출), 주입 3단 규칙, 무회귀(포인터 부재).
 파리티 하네스(sh↔py)는 포인터 부재 전제라 기존 표 그대로 유효하다 — 여기서는
@@ -9,29 +9,29 @@ from __future__ import annotations
 
 import json
 
-import okf_home
 import okf_hooks
+import okf_vault
 import pytest
 
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    monkeypatch.delenv(okf_vault.VAULT_ENV, raising=False)
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
 
 
-def _make_home(tmp_path, *, inject=None):
-    home = tmp_path / "home-kb"
-    (home / ".git").mkdir(parents=True)
+def _make_vault(tmp_path, *, inject=None):
+    vault = tmp_path / "vault-kb"
+    (vault / ".git").mkdir(parents=True)
     config: dict = {"bundlePath": ".okf"}
     if inject is not None:
         config["inject"] = inject
-    (home / ".okf-wiki.json").write_text(json.dumps(config), encoding="utf-8")
-    bundle = home / ".okf"
+    (vault / ".okf-wiki.json").write_text(json.dumps(config), encoding="utf-8")
+    bundle = vault / ".okf"
     bundle.mkdir()
     (bundle / "index.md").write_text("# index\n", encoding="utf-8")
-    return home
+    return vault
 
 
 def _emitted(capfd):
@@ -39,9 +39,9 @@ def _emitted(capfd):
     return json.loads(out) if out.strip() else None
 
 
-def test_session_start_injects_home_bundle(monkeypatch, tmp_path, capfd):
-    home = _make_home(tmp_path)
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_session_start_injects_vault_bundle(monkeypatch, tmp_path, capfd):
+    vault = _make_vault(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(scratch))
@@ -50,12 +50,12 @@ def test_session_start_injects_home_bundle(monkeypatch, tmp_path, capfd):
     out = _emitted(capfd)
     hso = out["hookSpecificOutput"]
     assert hso["additionalContext"] == "HOME-CTX"
-    assert hso["watchPaths"] == [str(home / ".okf" / "index.md")]
+    assert hso["watchPaths"] == [str(vault / ".okf" / "index.md")]
 
 
 def test_session_start_project_config_wins(monkeypatch, tmp_path, capfd):
-    home = _make_home(tmp_path)
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _make_vault(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     project = tmp_path / "work"
     (project / ".okf").mkdir(parents=True)
     (project / ".okf" / "note.md").write_text("x\n", encoding="utf-8")
@@ -69,18 +69,18 @@ def test_session_start_project_config_wins(monkeypatch, tmp_path, capfd):
 
 
 def test_session_start_warns_on_invalid_pointer(monkeypatch, tmp_path, capfd):
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(tmp_path / "nowhere"))
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(tmp_path / "nowhere"))
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(scratch))
     assert okf_hooks.hook_session_start() == 0
     hso = _emitted(capfd)["hookSpecificOutput"]
-    assert "홈 포인터 무효" in hso["additionalContext"]
+    assert "Vault 포인터 무효" in hso["additionalContext"]
 
 
-def test_session_start_home_inject_false_is_silent(monkeypatch, tmp_path, capfd):
-    home = _make_home(tmp_path, inject=False)
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_session_start_vault_inject_false_is_silent(monkeypatch, tmp_path, capfd):
+    vault = _make_vault(tmp_path, inject=False)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(scratch))
@@ -99,12 +99,12 @@ def test_session_start_no_pointer_regression(monkeypatch, tmp_path, capfd):
 def test_session_start_injects_from_managed_clone(monkeypatch, tmp_path, capfd):
     # #153: URL 포인터 + 물질화된 관리형 clone → 하류(주입)는 로컬 경로와 동일 파이프라인.
     url = "git@example.com:o/r.git"
-    clone = okf_home.managed_clone_path(okf_home.canonicalize_url(url))
+    clone = okf_vault.managed_clone_path(okf_vault.canonicalize_url(url))
     (clone / ".git").mkdir(parents=True)
     (clone / ".okf-wiki.json").write_text(json.dumps({"bundlePath": ".okf"}), encoding="utf-8")
     (clone / ".okf").mkdir()
     (clone / ".okf" / "index.md").write_text("# index\n", encoding="utf-8")
-    monkeypatch.setenv(okf_home.POINTER_ENV, url)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, url)
     monkeypatch.setenv("OKF_REMOTE_OFFLINE", "1")  # SessionStart fetch는 무동작(git 미필요)
     scratch = tmp_path / "scratch"
     scratch.mkdir()
@@ -118,50 +118,50 @@ def test_session_start_injects_from_managed_clone(monkeypatch, tmp_path, capfd):
 
 def test_session_start_url_missing_clone_warns(monkeypatch, tmp_path, capfd):
     # URL 포인터인데 clone 미생성 → SessionStart가 전용 사유로 1줄 경고(무네트워크)
-    monkeypatch.setenv(okf_home.POINTER_ENV, "git@example.com:o/r.git")
+    monkeypatch.setenv(okf_vault.VAULT_ENV, "git@example.com:o/r.git")
     monkeypatch.setenv("OKF_REMOTE_OFFLINE", "1")
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(scratch))
     assert okf_hooks.hook_session_start() == 0
     ctx = _emitted(capfd)["hookSpecificOutput"]["additionalContext"]
-    assert "홈 포인터 무효" in ctx and "관리형 clone 미생성" in ctx
+    assert "Vault 포인터 무효" in ctx and "관리형 clone 미생성" in ctx
 
 
-# --- okf_home CLI (set/status) ---------------------------------------------
+# --- okf_vault CLI (set/status) ---------------------------------------------
 
 
 def test_cli_set_writes_pointer(monkeypatch, tmp_path, capsys):
-    home = _make_home(tmp_path)
-    assert okf_home.main(["set", str(home)]) == 0
+    vault = _make_vault(tmp_path)
+    assert okf_vault.main(["set", str(vault)]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["written"] is True
-    pointer = tmp_path / "isolated-home" / ".claude" / "okf" / "home-project"
-    assert pointer.read_text(encoding="utf-8").strip() == str(home)
+    pointer = tmp_path / "isolated-vault" / ".claude" / "okf" / "vault-project"
+    assert pointer.read_text(encoding="utf-8").strip() == str(vault)
     # 기록 후 폴백이 실제로 발동하는지 (env 없이 파일 경유)
-    assert okf_home.home_state() == (str(home), None)
+    assert okf_vault.vault_state() == (str(vault), None)
 
 
 def test_cli_set_rejects_invalid(tmp_path, capsys):
-    assert okf_home.main(["set", str(tmp_path / "nowhere")]) == 0
+    assert okf_vault.main(["set", str(tmp_path / "nowhere")]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["written"] is False
-    assert result["reason"] == okf_home.INVALID_MISSING
-    pointer = tmp_path / "isolated-home" / ".claude" / "okf" / "home-project"
+    assert result["reason"] == okf_vault.INVALID_MISSING
+    pointer = tmp_path / "isolated-vault" / ".claude" / "okf" / "vault-project"
     assert not pointer.exists()  # 무효 대상은 기록하지 않는다
 
 
 def test_cli_status_reports_resolution(monkeypatch, tmp_path, capsys):
-    home = _make_home(tmp_path)
-    (home / ".okf-wiki.json").write_text(
+    vault = _make_vault(tmp_path)
+    (vault / ".okf-wiki.json").write_text(
         json.dumps({"study": {"capture": "review"}}), encoding="utf-8"
     )
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    assert okf_home.main(["status", str(scratch)]) == 0
+    assert okf_vault.main(["status", str(scratch)]) == 0
     result = json.loads(capsys.readouterr().out)
-    assert result["home"] == str(home)
-    assert result["inject"]["target"] == str(home)
+    assert result["vault"] == str(vault)
+    assert result["inject"]["target"] == str(vault)
     # #145 U3 — 캡처 해소는 study 층(study_scope status) 소관: generic status에 없음
     assert "capture" not in result

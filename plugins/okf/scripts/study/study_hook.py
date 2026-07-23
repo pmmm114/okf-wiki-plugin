@@ -2,11 +2,11 @@
 
 Claude Code 메모리 저장을 감지해 ``study.capture`` 정책대로 후보를 inbox에
 적재한다. **훅은 절대 승격·디스패치하지 않는다**(모델 부재) — 적재 또는
-무동작뿐이다. 메모리 경로 판정과 캡처 스코프 해소(프로젝트/홈 폴백)는
-``study_scope``에 위임한다 — 무효 홈 포인터는 이 훅에서 **무음 스킵**이다
+무동작뿐이다. 메모리 경로 판정과 캡처 스코프 해소(프로젝트/vault 폴백)는
+``study_scope``에 위임한다 — 무효 vault 포인터는 이 훅에서 **무음 스킵**이다
 (경고 방출은 SessionStart 계열의 몫, #91 §3).
 
-- `capture` `off`(또는 study 부재·홈 미옵트인): 무동작.
+- `capture` `off`(또는 study 부재·vault 미옵트인): 무동작.
 - `review`/`auto`: 저장 내용의 **모든 개념 블록**을 스니펫으로 뽑아 활성 스코프의
   inbox에 적재(이미 promoted/discarded된 블록이면 skip).
 
@@ -43,7 +43,7 @@ def run(payload: dict, project: str | Path) -> str | None:
     # 무효 포인터(warning 있음)도 여기선 무음 — PostToolUse는 경고 방출 지점이 아니다
     if scope["capture"] not in ("review", "auto") or scope["runtime_root"] is None:
         return None
-    runtime = scope["runtime_root"]  # inbox/ledger는 런타임 루트(홈/폴백=유저 스코프)
+    runtime = scope["runtime_root"]  # inbox/ledger는 런타임 루트(vault/폴백=유저 스코프)
 
     content = _dig(payload, "tool_input", "content")
     if content is None:

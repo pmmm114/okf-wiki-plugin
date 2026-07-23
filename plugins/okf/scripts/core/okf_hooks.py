@@ -16,8 +16,8 @@ import signal
 import subprocess
 import sys
 
-import okf_home
 import okf_remote
+import okf_vault
 
 # URL 모드(#153) SessionStart fetch 상한 — fetch-only는 주입 신선도에 기여하지 않으므로
 # (워킹트리 미변경) 짧게 잡는다. 실패는 backoff로 dedup되어 반복 스톨을 막는다(D3·D-design).
@@ -199,9 +199,9 @@ def _remote_freshness():
 def hook_session_start():
     project = _project_dir()
     _remote_freshness()  # #153: URL 모드면 fetch-only(무URL·오프라인은 무동작)
-    # 홈 폴백(#91 V3): 프로젝트 설정 존재가 판별자, 없으면 유효 홈으로. SessionStart는
+    # vault 폴백(#91 V3): 프로젝트 설정 존재가 판별자, 없으면 유효 vault로. SessionStart는
     # 무효 포인터 경고의 방출 지점이다(§3) — PostToolUse 계열은 무음 유지.
-    resolved = okf_home.resolve_inject(project)
+    resolved = okf_vault.resolve_inject(project)
     if resolved["warning"]:
         _emit("SessionStart", {"additionalContext": resolved["warning"]})
         return 0

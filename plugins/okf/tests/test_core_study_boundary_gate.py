@@ -3,7 +3,7 @@
 plugin-core(``okf_*``) 스크립트는 study feature(``study_*``)를 import하지 않는다 —
 엔진 무참조 grep 게이트(CLAUDE.md)와 동형인 feature 경계 계약이다. 접두사가
 관례일 뿐 계약이 아니어서 study가 core로 샜던 유착(#145: okf_inbox 실체 불일치·
-okf_home 융합·doctor 하드 import)을 U1·U3·U4가 해소했고, 이 게이트가 그 완료를
+okf_vault 융합·doctor 하드 import)을 U1·U3·U4가 해소했고, 이 게이트가 그 완료를
 회귀 계약으로 고정한다 — 다음 주입 기능도 강제로 독립 모듈로 남는다.
 
 유일한 예외는 doctor의 선택 위임 심(try-import ``study_doctor``, #145 U4 —
