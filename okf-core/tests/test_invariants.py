@@ -21,12 +21,17 @@ _ENTRY_URL = re.compile(r"^\* \[[^\]]*\]\(([^)]+)\)", re.MULTILINE)
 
 
 def _consumable_files(root: Path) -> set[str]:
-    """생성된 index들이 개념 항목으로 나열한 파일 집합(번들 상대경로)."""
+    """생성된 index들이 개념 항목으로 나열한 파일 집합(번들 상대경로).
+
+    하위 디렉터리 항목은 그 ``index.md``(예약 파일)를 가리키는 **탐색 링크**이지
+    개념 항목이 아니다 — 예약 파일명 링크는 제외해 개념 소비 집합만 센다(§9 통과
+    집합도 예약 파일을 제외하므로 두 집합이 같은 층위에서 비교된다).
+    """
     consumed = set()
     for index_rel, text in generate_indexes(root).items():
         base = posixpath.dirname(index_rel)
         for url in _ENTRY_URL.findall(text):
-            if url.endswith(".md"):
+            if url.endswith(".md") and posixpath.basename(url) not in RESERVED:
                 consumed.add(posixpath.normpath(posixpath.join(base, url)))
     return consumed
 
