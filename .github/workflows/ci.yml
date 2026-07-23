@@ -33,7 +33,7 @@ jobs:
       - name: 릴리스 노트 생성기 테스트
         run: uv run --no-project --with pytest python -m pytest scripts -q
       - name: 훅 py3.10 하한 게이트
-        run: uv run --python 3.10 --no-project python -m py_compile plugins/okf/scripts/okf_hooks.py
+        run: uv run --python 3.10 --no-project python -m py_compile plugins/okf/scripts/core/okf_hooks.py
       - name: 픽스처 스위트
         run: uv run --with pyyaml python okf-core/scripts/run_fixture_suite.py
       - name: 오라클 차동 (리포트 전용)

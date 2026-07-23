@@ -5,6 +5,12 @@
 # bare `python3`는 ENOENT로 죽는 환경이 있다. 인터프리터 탐색은 Python으로 쓸 수
 # 없는 부트스트랩이라 bin/ 셔틀만 shell이 허용된다(CLAUDE.md).
 set -eu
+# 물리 분리된 스크립트 디렉토리(core/·study/)를 모듈 경로로 노출(#145 U5) —
+# 훅·커맨드의 Python spawn은 전부 이 셔틀을 거치므로 교차 디렉토리 import
+# (study→core 단방향, doctor의 study_doctor 심)의 부트스트랩은 여기 한 곳이다.
+here="$(cd "$(dirname "$0")" && pwd)"
+PYTHONPATH="$here/../scripts/core:$here/../scripts/study${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
 if [ -n "${OKF_PYTHON:-}" ]; then
   exec "$OKF_PYTHON" "$@"
 fi

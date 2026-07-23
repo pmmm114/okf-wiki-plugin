@@ -134,8 +134,8 @@ repo 루트 `docs/adopting-study.md` 참조.
 진단·회복은 `/okf-doctor`(해소 트레이스·건강·캡처 입구 진단)와
 `study scan [--enqueue]`(미큐잉 후보 결정론 탐지·멱등 재적재)가 담당한다.
 
-> 구현 배선: 포인터·홈 판정·주입 해소는 generic 공유 모듈 `scripts/okf_home.py`에,
-> 캡처 스코프·런타임 루트·캡처 입구 판정은 study 층 `scripts/study_scope.py`에 있다
+> 구현 배선: 포인터·홈 판정·주입 해소는 generic 공유 모듈 `scripts/core/okf_home.py`에,
+> 캡처 스코프·런타임 루트·캡처 입구 판정은 study 층 `scripts/study/study_scope.py`에 있다
 > (#145 U3 분할 — import는 study_scope→okf_home 단방향). 캡처 훅(`study_hook`·
 > `study_session`)은 `study_scope`를, 주입 훅(`okf_hooks` session-start)은
 > `okf_home`을 재사용한다. doctor는 generic(`okf_home`)만 하드 의존하고 study

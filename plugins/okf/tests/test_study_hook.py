@@ -15,6 +15,9 @@ import study_scope
 
 MEM = "/home/u/.claude/projects/proj/memory/MEMORY.md"
 SCRIPT = Path(study_hook.__file__)
+# 직접 spawn 대신 실배선(hooks.json)과 동일하게 bin/okf-py 셔틀 경유 — 셔틀이
+# scripts/core·scripts/study를 PYTHONPATH로 노출한다(#145 U5 교차 디렉토리 import)
+SHIM = SCRIPT.resolve().parent.parent.parent / "bin" / "okf-py"
 
 
 def _rt(project):
@@ -78,11 +81,11 @@ def test_resolved_memory_not_reappended(tmp_path):
 
 def _run_hook(project, stdin: str):
     return subprocess.run(
-        [sys.executable, str(SCRIPT)],
+        [str(SHIM), str(SCRIPT)],
         input=stdin,
         text=True,
         capture_output=True,
-        env={**os.environ, "CLAUDE_PROJECT_DIR": str(project)},
+        env={**os.environ, "CLAUDE_PROJECT_DIR": str(project), "OKF_PYTHON": sys.executable},
     )
 
 
