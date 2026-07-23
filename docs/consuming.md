@@ -1,6 +1,6 @@
 # 소비 repo에서 번들 검증하기 (CI · pre-commit)
 
-OKF 번들을 쓰는 repo는 엔진과 똑같은 §9 컨포먼스 검사를 배포면에 걸 수 있다.
+OKF 번들을 쓰는 repo는 엔진과 똑같은 [컨포먼스 검사](../okf-core/vendor/spec/SPEC.md#9-conformance)를 배포면에 걸 수 있다.
 검증을 CI와 커밋 단계로 당겨 두면, 형식이 어긋난 번들이 조용히 병합되는 것을 막는다.
 
 ## GitHub Actions
