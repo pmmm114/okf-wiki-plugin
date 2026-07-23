@@ -44,8 +44,8 @@ uv run --with pyyaml python okf-core/scripts/run_fixture_suite.py       # 픽스
 ```
 okf validate <path> [--strict] [--format json]   # 컨포먼스 검사
 okf index    <path> [--write]                     # index.md 재생성
-okf graph    <path> --json [--linked-to P]        # 링크 그래프·역링크 조회
-okf context  <path> [--max-chars N]               # 주입용 압축 인덱스
+okf graph    <path> --json [--linked-to P] [--edges-from KEY] [--chain C]  # 링크·역링크·근거 사슬
+okf context  <path> [--max-chars N] [--group-by KEY] [--filter KEY=VALUE]  # 주입용 압축 인덱스(층별 그룹·필터)
 okf log      append <path> -m MSG                 # log.md 항목 추가
 okf init     <dir>                                # 컨포먼트 최소 번들 스캐폴드
 ```

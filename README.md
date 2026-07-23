@@ -265,7 +265,7 @@ flowchart TD
 플러그인은 슬래시 커맨드로 써요.
 
 ```
-/okf-init [--vault <path>]                         # 번들이랑 런타임 세팅(여러 번 돌려도 안전). vault 포인터 마법사
+/okf-init [--vault <path|url>]                     # 번들이랑 런타임 세팅(여러 번 돌려도 안전). vault 포인터(경로나 URL) 마법사
 /study    [<topic> | --type T | --scope vault|project | --clear | --trust]
                                                   # 후보를 골라 지식 개념으로 승격
 /okf-doctor                                       # 지금 위치에서 스코프가 어떻게 풀리는지, 건강 상태 진단
