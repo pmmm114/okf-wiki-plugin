@@ -3,6 +3,11 @@
 OKF 번들 엔진(`okf-core/`) + Claude Code 플러그인(`plugins/okf/`) + 배포면
 (`actions/validate/`, `.pre-commit-hooks.yaml`)을 담은 repo.
 
+이 파일은 **교차 불변식·금지의 정본**이다(매 세션 로드). 서브시스템 상세는 하위 `CLAUDE.md`가
+담당하며 그 디렉토리에서 작업할 때 자동 로드된다: `okf-core/CLAUDE.md`(엔진 모듈 지도·불변식),
+`plugins/okf/CLAUDE.md`(플러그인 배선·셔틀), `plugins/okf/scripts/study/CLAUDE.md`(study 계약·
+모듈), `okf-core/vendor/CLAUDE.md`(벤더 무수정 트립와이어).
+
 ## 명령
 
 - 테스트: `uv run --with pytest --with pyyaml python -m pytest okf-core/tests -q`
