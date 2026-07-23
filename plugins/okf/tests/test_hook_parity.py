@@ -234,6 +234,16 @@ CASES = [
         calls_contain="--max-chars 8000",
     ),
     dict(
+        id="ss-groupBy-커스텀",  # 축 섹션 구분 — sh·py 동일하게 --group-by 부가
+        hook="session-start",
+        config={"context": {"groupBy": "layer"}},
+        bundle=["a.md"],
+        stub={"stdout": "CTX\n"},
+        out="same",
+        ctx="CTX",
+        calls_contain="--max-chars 8000 --group-by layer",
+    ),
+    dict(
         id="ss-context-타입불량",  # 비파리티 ④ — sh는 jq 오류 5, py는 기본값 관용
         hook="session-start",
         config={"context": False},
