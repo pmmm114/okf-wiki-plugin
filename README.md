@@ -144,16 +144,19 @@ deploy/release.md [concept] — 릴리스 컷 명령과 승인 게이트.
 지정합니다. 그 자리에는 아무것도 만들지 않습니다 — 지식은 홈 repo의 `.okf/`로 흐르고,
 런타임 스테이징은 유저 스코프(`~/.claude/okf/study`)에 격리됩니다.
 
-**전제** — 홈으로 쓸 git repo 하나가 위 2~3단계를 마친 상태여야 합니다(`.okf/` 번들 +
+**전제** — 홈으로 쓸 repo 하나가 위 2~3단계를 마친 상태여야 합니다(`.okf/` 번들 +
 `.okf-wiki.json`). 코드 repo 대신 지식 전용 repo를 두는 것을 권합니다.
 
-비-git 폴더에서는 포인터만 겁니다.
+비-git 폴더에서는 포인터만 겁니다. 홈 값은 **로컬 경로**나 **repo URL**(`https`·`ssh`·
+`git`·`file`) 둘 다 됩니다 — URL이면 유저 스코프 관리형 clone(`~/.claude/okf/remotes/<slug>`)
+으로 받아 로컬 경로 홈과 같은 파이프라인을 탑니다(clone 생성은 동의를 받는 옵트인).
 
 ```
-/okf-init --home ~/kb
+/okf-init --home ~/kb          # 로컬 경로 홈
+/okf-init --home <repo-url>    # URL 홈 → 관리형 clone
 ```
 
-`~/.claude/okf/home-project`에 경로가 기록되고, 홈의 캡처가 꺼져 있으면 켤지 물어봅니다.
+`~/.claude/okf/home-project`에 포인터가 기록되고, 홈의 캡처가 꺼져 있으면 켤지 물어봅니다.
 대상이 조건을 만족하지 못하면 기록하지 않고 사유를 알려줍니다.
 
 | 사유 | 뜻 |
@@ -161,6 +164,7 @@ deploy/release.md [concept] — 릴리스 컷 명령과 승인 게이트.
 | `대상 없음` | 경로 오타 — 실재하는 디렉터리여야 한다 |
 | `git repo 아님` | 홈은 실제 git repo여야 한다(지식을 git으로 버저닝하므로) |
 | `.okf-wiki.json 없음` | 아직 번들 골격이 아니다 — 동의하면 그 경로에서 초기화 후 재시도한다 |
+| `URL 포인터 — 미지원 transport` | URL 홈은 `https`·`ssh`·`git`·`file`만 된다(`ext::` 등 명령 실행 transport는 거부) |
 
 이제 그 폴더에서 캡처·주입이 어디로 가는지 확인합니다.
 
@@ -177,6 +181,9 @@ deploy/release.md [concept] — 릴리스 컷 명령과 승인 게이트.
   스코프: home ← 프로젝트 설정 없음 → 유효 홈
   대상: ~/kb
 ```
+
+위 예시는 로컬 경로 홈 기준입니다. URL 홈이면 `/okf-doctor`가 관리형 clone의
+신선도(모드·clone 존재·번들 부합·마지막 fetch)를 **무네트워크**로 함께 표시합니다.
 
 > 비-git 폴더에서 `/okf-init`을 **인자 없이** 돌리지 않습니다 — `capture:"off"` 블록이
 > 생겨 그 자리의 홈 폴백까지 꺼버립니다. 가드가 exit 3으로 차단하고 `--home`을 안내합니다.
