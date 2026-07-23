@@ -11,7 +11,7 @@ import ast
 import sys
 from pathlib import Path
 
-SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+SCRIPTS = Path(__file__).resolve().parent.parent / "scripts" / "study"
 STAGING = ["study_store.py", "study_simhash.py", "study_blocks.py", "study_legacy.py"]
 FORBIDDEN = {"numpy", "scipy", "pandas", "requests", "datasketch", "simhash"}
 LOCAL = {

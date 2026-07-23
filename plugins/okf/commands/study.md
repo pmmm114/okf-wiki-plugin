@@ -6,11 +6,11 @@ argument-hint: "[<topic> | --type <type> | --scope home|project | --clear | --tr
 study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 후보 검토).
 
 실행은 전부 플러그인 스크립트·`okf` CLI에 위임하고, **판정(선별·개념화·배치)만 직접**
-한다. 경로: 스크립트 `${CLAUDE_PLUGIN_ROOT}/scripts`, 엔진 `${CLAUDE_PLUGIN_ROOT}/bin/okf`.
+한다. 경로: 스크립트 `${CLAUDE_PLUGIN_ROOT}/scripts/study`, 엔진 `${CLAUDE_PLUGIN_ROOT}/bin/okf`.
 
 0. **대상 스코프 해소(`--scope`, #91)**: 이하 모든 단계의 `<project>`(스크립트의
    project 인자·번들 경로의 기준)를 정한다.
-   - 인자 없음(기본): `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study_scope.py" status .`의
+   - 인자 없음(기본): `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study_scope.py" status .`의
      `capture.target`을 쓴다 — 현재 위치의 해소 결과(프로젝트 또는 홈). `target`이
      null이고 `invalid`가 있으면 그 사유를 사용자에게 보이고(가시적 진단) 종료.
      null이며 무효 사유도 없으면 현재 repo(`.`)를 그대로 쓴다(수동 승격 경로).

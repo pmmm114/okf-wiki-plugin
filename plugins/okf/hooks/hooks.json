@@ -4,10 +4,10 @@
     "SessionStart": [
       { "hooks": [ { "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",
-          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/okf_hooks.py", "session-start"] } ] },
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_hooks.py", "session-start"] } ] },
       { "hooks": [ { "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",
-          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/study_session.py"] } ] } ],
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/study/study_session.py"] } ] } ],
     "PostToolUse": [
       { "matcher": "Write|Edit",
         "hooks": [ { "type": "command",
@@ -15,7 +15,7 @@
       { "matcher": "Write",
         "hooks": [ { "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",
-          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/study_hook.py"] } ] } ],
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/study/study_hook.py"] } ] } ],
     "FileChanged": [
       { "hooks": [ { "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/scripts/file_changed.sh", "args": [] } ] } ]

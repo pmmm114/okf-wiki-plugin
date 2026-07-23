@@ -60,9 +60,12 @@ exit "$(cat "$OKF_STUB_DIR/exit" 2>/dev/null || echo 0)"
 @pytest.fixture()
 def henv(tmp_path):
     scripts = tmp_path / "plugin" / "scripts"
-    scripts.mkdir(parents=True)
-    for name in [*SH.values(), "okf_hooks.py", "okf_home.py"]:
+    # 실제 배치 구조 미러링(#145 U5): 레거시 .sh는 scripts/ 루트, py는 scripts/core/
+    (scripts / "core").mkdir(parents=True)
+    for name in SH.values():
         shutil.copy2(PLUGIN / "scripts" / name, scripts / name)
+    for name in ["okf_hooks.py", "okf_home.py"]:
+        shutil.copy2(PLUGIN / "scripts" / "core" / name, scripts / "core" / name)
     bin_dir = tmp_path / "plugin" / "bin"
     bin_dir.mkdir()
     (bin_dir / "okf").write_text(STUB_OKF)
@@ -78,7 +81,7 @@ def run_hook(scripts, kind, hook, *, project, stdin=b"", stub=None, env_override
     if kind == "sh":
         cmd = [str(scripts / SH[hook])]
     else:
-        cmd = [sys.executable, str(scripts / "okf_hooks.py"), hook]
+        cmd = [sys.executable, str(scripts / "core" / "okf_hooks.py"), hook]
     env = os.environ.copy()
     env["CLAUDE_PROJECT_DIR"] = str(project)
     if stub is not None:
@@ -720,7 +723,7 @@ def test_okf_timeout_diagnosable_and_reaps(henv):
 def test_direct_execution_and_usage_errors(tmp_path):
     """실행 비트+셔뱅으로 직접 실행 가능해야 하고(플립 후 전멸 방지), 서브커맨드
     누락·불명은 exit 1이다(훅 차단 의미인 exit 2 금지)."""
-    script = PLUGIN / "scripts" / "okf_hooks.py"
+    script = PLUGIN / "scripts" / "core" / "okf_hooks.py"
     assert os.access(script, os.X_OK)
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(tmp_path)}
     ok = subprocess.run([str(script), "session-start"], env=env, capture_output=True)

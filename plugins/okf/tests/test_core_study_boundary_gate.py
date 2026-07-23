@@ -20,15 +20,17 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+# #145 U5 물리 분리 — 경계 정의가 접두사(okf_*)에서 디렉토리(scripts/core/)로
+# 승격됐다. core 디렉토리의 모든 파이썬 파일이 게이트 대상이다.
+SCRIPTS_CORE = Path(__file__).resolve().parent.parent / "scripts" / "core"
 
 # 선언된 위임 심 — (core 파일명, 허용 study 모듈). 이 집합 외는 전부 금지.
 ALLOWED_SEAMS = {("okf_doctor.py", "study_doctor")}
 
 
 def _core_files() -> list[Path]:
-    files = sorted(SCRIPTS.glob("okf_*.py"))
-    assert files, "okf_* 스크립트 미발견 — 게이트 대상 공집합(경로 확인)"
+    files = sorted(SCRIPTS_CORE.glob("*.py"))
+    assert files, "scripts/core/ 파이썬 파일 미발견 — 게이트 대상 공집합(경로 확인)"
     return files
 
 
