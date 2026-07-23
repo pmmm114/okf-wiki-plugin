@@ -12,6 +12,23 @@
 > ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). 코드는 MIT
 > ([LICENSE](LICENSE)).
 
+## 목차
+
+- [구성](#구성)
+- [왜 okf-wiki-plugin인가](#왜-okf-wiki-plugin인가)
+- [Getting Started](#getting-started)
+- [동작 방식](#동작-방식)
+- [단기 기억과 장기 기억 (`study`)](#단기-기억과-장기-기억-study)
+- [신뢰 경계와 스코프](#신뢰-경계와-스코프)
+- [일상 명령](#일상-명령)
+- [데이터와 프라이버시](#데이터와-프라이버시)
+- [CI와 pre-commit으로 번들 검증 (소비 repo)](#ci와-pre-commit으로-번들-검증-소비-repo)
+- [기여자 — 컨포먼스와 회귀 계약](#기여자--컨포먼스와-회귀-계약)
+- [문서](#문서)
+- [라이선스](#라이선스)
+
+## 구성
+
 | 구성 | 경로 | 역할 |
 | --- | --- | --- |
 | 엔진 | `okf-core/` | 파서·§9 검사기·index/graph/context 생성기 + `okf` CLI |
