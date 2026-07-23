@@ -2,15 +2,14 @@
 
 **오픈소스 · 로컬 우선 · 사용자 소유 · Markdown 네이티브 지식**
 
-[OKF(Open Knowledge Format) v0.1](okf-core/vendor/spec/SPEC.md) 지식 번들을
-만들고, 검증하고, Claude Code 세션에 주입하는 도구 모음입니다. 에이전트가 세션마다
-처음부터 다시 시작하지 않도록, 지식을 `cat` 가능한 markdown으로 남겨 **git에서
-버저닝**하고 다음 세션·다른 에이전트가 그대로 이어받게 합니다.
+[OKF(Open Knowledge Format) v0.1](okf-core/vendor/spec/SPEC.md) 지식 번들을 만들고
+검증해서 Claude Code 세션에 넣어 주는 도구 모음입니다. 에이전트가 세션마다 맨땅에서
+다시 시작하지 않도록, 알아낸 것을 `cat` 한 번으로 읽히는 markdown에 적어 **git으로
+버전 관리**합니다. 그러면 다음 세션이나 다른 에이전트가 그 지식을 그대로 이어받습니다.
 
-> **비공식 고지** — 이 프로젝트는 Google과 무관한 비공식 도구이며, OKF
-> 스펙 원문은 Apache-2.0으로 무수정 벤더링했습니다
-> ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). 코드는 MIT
-> ([LICENSE](LICENSE)).
+> **비공식 고지** — 이 프로젝트는 Google과 무관한 비공식 도구입니다. OKF 스펙 원문은
+> Apache-2.0 라이선스 그대로(수정 없이) 벤더링했으며([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)),
+> 코드는 MIT입니다([LICENSE](LICENSE)).
 
 ## 목차
 
@@ -22,8 +21,6 @@
 - [신뢰 경계와 스코프](#신뢰-경계와-스코프)
 - [일상 명령](#일상-명령)
 - [데이터와 프라이버시](#데이터와-프라이버시)
-- [CI와 pre-commit으로 번들 검증 (소비 repo)](#ci와-pre-commit으로-번들-검증-소비-repo)
-- [기여자 — 컨포먼스와 회귀 계약](#기여자--컨포먼스와-회귀-계약)
 - [문서](#문서)
 - [라이선스](#라이선스)
 
@@ -31,29 +28,29 @@
 
 | 구성 | 경로 | 역할 |
 | --- | --- | --- |
-| 엔진 | `okf-core/` | 파서·§9 검사기·index/graph/context 생성기 + `okf` CLI |
+| 엔진 | `okf-core/` | 파서, 컨포먼스 검사기, index/graph/context 생성기, 그리고 `okf` CLI |
 | 플러그인 | `plugins/okf/` | Claude Code 플러그인 — 스킬 + 세션 컨텍스트 주입 훅 + `study` 승격 |
 | CI 소비면 | `actions/validate/` | 소비 repo용 composite action |
 | pre-commit | `.pre-commit-hooks.yaml` | 소비 repo용 pre-commit 훅 정의 |
 
 ## 왜 okf-wiki-plugin인가
 
-| 필요 | okf-wiki-plugin이 주는 것 |
+| 겪는 문제 | okf-wiki-plugin이 주는 것 |
 | --- | --- |
-| 세션이 끝나면 맥락이 사라지고 다음 에이전트가 처음부터 시작한다 | 지식을 `.okf/` git 번들의 **개념**으로 남겨, 다음 세션·다른 에이전트가 그대로 이어받는다 |
-| 답의 근거가 코드·대화·문서에 흩어져 있다 | 개념은 설명이 아니라 **답**(스키마 컬럼·조인 키·명령어·수치)을 담고, 백링크·인용으로 근거를 연결한다 |
-| 지식이 특정 도구·SaaS 포맷에 갇힌다 | `cat` 가능한 **markdown + YAML frontmatter**를 git으로 배포 — SDK·스키마 레지스트리·중앙 권위가 필요 없다(OKF v0.1) |
-| 메모리는 일시적이고 취향과 지식이 섞인다 | `study`가 **장기 지식만** 골라 개념으로 선택 승격한다 — 스테이징은 드레인되면 소모된다 |
-| 커밋된 설정 파일이 임의 코드를 실행할 수 있다 | 핸들러 실행은 **로컬 trust 승인**이 게이트다 — fresh clone은 항상 미승인에서 시작한다 |
-| 형식이 흔들리면 소비가 조용히 깨진다 | `okf validate`의 **§9 컨포먼스 검사** + CI 픽스처 스냅샷·오라클 차동이 회귀를 계약으로 막는다 |
+| 세션이 끝나면 맥락이 사라지고, 다음 에이전트는 처음부터 다시 시작한다 | 알아낸 것을 `.okf/` git 번들 안의 **개념**으로 남긴다. 다음 세션이나 다른 에이전트가 그대로 이어받는다 |
+| 답의 근거가 코드와 대화, 문서에 흩어져 있다 | 개념은 설명이 아니라 **답**을 담는다(스키마 컬럼, 조인 키, 명령어, 수치). 근거는 백링크와 인용으로 잇는다 |
+| 지식이 특정 도구나 SaaS 포맷에 갇힌다 | `cat`으로 읽히는 **markdown + YAML frontmatter**를 git으로 배포한다. SDK도 스키마 레지스트리도 중앙 권위도 필요 없다(OKF v0.1) |
+| 메모리는 일시적이고, 취향과 지식이 뒤섞인다 | `study`가 **오래 남길 지식만** 골라 개념으로 승격한다. 스테이징에 쌓인 후보는 드레인되면 사라진다 |
+| 커밋된 설정 파일이 임의 코드를 실행할 수 있다 | 핸들러 실행은 **로컬 trust 승인**을 거쳐야 한다. 새로 클론하면 늘 미승인 상태에서 시작한다 |
+| 형식이 흔들리면 소비 쪽이 조용히 깨진다 | `okf validate`의 **컨포먼스 검사**에, CI의 픽스처 스냅샷과 오라클 차동이 더해져 회귀를 계약으로 막는다 |
 
 ## Getting Started
 
 **목표** — 첫 개념 하나를 남기고, 그것이 다음 세션에 주입되는 것까지 확인합니다.
-5단계, 약 5분.
+5단계, 약 5분이면 됩니다.
 
-**필요한 것** — Claude Code, 그리고 지식을 담을 git repo 하나. 엔진은 플러그인에
-동봉되어 있어 별도 설치 스텝이 없습니다.
+**필요한 것** — Claude Code, 그리고 지식을 담아 둘 git repo 하나. 엔진은 플러그인에
+함께 들어 있어서 따로 설치할 것이 없습니다.
 
 ### 1. 플러그인 설치
 
@@ -64,13 +61,12 @@
 
 ### 2. 번들 초기화
 
-지식을 담을 repo에서 실행합니다.
+지식을 담을 repo에서 실행합니다. 여러 번 실행해도 안전하고(멱등), 이미 있는 파일은
+건드리지 않습니다.
 
 ```
 /okf-init
 ```
-
-멱등·비파괴입니다 — 여러 번 실행해도 안전하고 이미 있는 파일은 보존합니다.
 
 | 산출물 | 역할 | git |
 | --- | --- | --- |
@@ -80,12 +76,12 @@
 | `.okf-study/study.db`(+WAL) | 후보 큐·원장·이벤트 저널(SQLite) | gitignored |
 | `.okf-study/trust` | 핸들러 로컬 승인 해시 | gitignored |
 
-> **여기가 git repo가 아니라면** 가드가 exit 3으로 차단합니다 — 그 자리에서는 대신
-> vault 포인터를 겁니다([repo 밖에서 쓰려면](#repo-밖에서-쓰려면-비-git-폴더)).
+> git repo가 아닌 곳이라면 가드가 막습니다(exit 3). 그럴 때는 대신 vault repo를
+> 목적지로 지정합니다 — 방법은 [study 도입 가이드](docs/adopting-study.md)에 있습니다.
 
 ### 3. 세션 주입 켜기
 
-`/okf-init`이 만든 repo 루트 `.okf-wiki.json`에 주입 설정이 있는지 확인합니다.
+repo 루트의 `.okf-wiki.json`에 주입 설정이 있는지 확인합니다.
 
 ```json
 {
@@ -96,14 +92,14 @@
 ```
 
 이 파일이 있어야 SessionStart 훅이 번들 요약을 세션에 넣습니다. 없으면 훅은 아무것도
-하지 않습니다(fail-open — 지식 번들이 없는 repo의 일반 작업에는 개입하지 않습니다).
-전체 스키마: [CONFIG.md](plugins/okf/skills/okf/reference/CONFIG.md).
+하지 않습니다(fail-open — 지식 번들이 없는 repo의 평범한 작업에는 끼어들지 않습니다).
+전체 스키마는 [CONFIG.md](plugins/okf/skills/okf/reference/CONFIG.md)에 있습니다.
 
 ### 4. 첫 개념 작성
 
-개념은 설명이 아니라 **답**을 담습니다 — 스키마 컬럼, 조인 키, 명령어, 수치처럼
-다음 세션이 곧바로 쓸 수 있는 것. 한 파일에 한 개념이고, **주제 하위디렉토리**로
-묶습니다.
+개념은 설명이 아니라 **답**을 담습니다. 스키마 컬럼이나 조인 키, 명령어, 수치처럼
+다음 세션이 곧바로 쓸 수 있는 것 말입니다. 한 파일에 한 개념씩, **주제별
+하위디렉토리**로 묶습니다.
 
 `.okf/deploy/release.md`:
 
@@ -124,20 +120,20 @@ make release VERSION=x.y.z
 - 롤백 창: 배포 후 30분
 ````
 
-지켜야 할 규칙은 셋입니다 — frontmatter `type` **필수**, `description` **1문장**,
-주제 하위디렉토리 배치. Claude에게 "이 내용을 개념으로 적재해줘"라고 맡기면
-okf 스킬이 이 규칙대로 배치·작성하고 index까지 재생성합니다.
+규칙은 세 가지뿐입니다 — frontmatter `type` **필수**, `description`은 **한 문장**,
+그리고 주제별 하위디렉토리에 배치. Claude에게 "이 내용을 개념으로 적재해줘"라고
+맡기면 okf 스킬이 이 규칙대로 쓰고 배치한 뒤 index까지 다시 만들어 줍니다.
 
-### 5. 검증하고 주입을 확인
+### 5. 검증하고 주입 확인
 
-Claude에게 "번들 검증해줘"라고 하면 스킬이 검사기를 실행합니다. 통과하면 이렇게
+Claude에게 "번들 검증해줘"라고 하면 스킬이 검사기를 돌립니다. 통과하면 이렇게
 나옵니다.
 
 ```
 컨포먼트: error 0건, warn 0건
 ```
 
-이어서 "주입될 컨텍스트 보여줘"라고 하면 압축 인덱스를 그대로 출력합니다.
+이어서 "주입될 컨텍스트 보여줘"라고 하면 압축 인덱스를 그대로 보여 줍니다.
 
 ```
 <okf-context>
@@ -145,335 +141,122 @@ deploy/release.md [concept] — 릴리스 컷 명령과 승인 게이트.
 </okf-context>
 ```
 
-**이 블록이 다음 세션 시작 시 그대로 주입되는 텍스트입니다.** 새 세션을 열어
-확인해 보세요. 여기까지 왔으면 루프가 닫혔습니다 — `.okf/`를 커밋하면 팀과 다음
-세션이 이 지식을 그대로 이어받습니다.
+**이 블록이 다음 세션이 시작될 때 그대로 주입되는 텍스트입니다.** 새 세션을 열어
+확인해 보세요. 여기까지 왔으면 루프가 닫힌 것입니다. 이제 `.okf/`를 커밋하면 팀과
+다음 세션이 이 지식을 그대로 이어받습니다.
 
-지금 이 위치에서 캡처·주입이 **어디로 가는지** 확인하려면:
-
-```
-/okf-doctor
-```
-
-### repo 밖에서 쓰려면 (비-git 폴더)
-
-스크래치 폴더처럼 git repo가 아닌 곳에서도 지식을 적립하려면 **vault repo**를 목적지로
-지정합니다. 그 자리에는 아무것도 만들지 않습니다 — 지식은 vault repo의 `.okf/`로 흐르고,
-런타임 스테이징은 유저 스코프(`~/.claude/okf/study`)에 격리됩니다.
-
-**전제** — vault로 쓸 repo 하나가 위 2~3단계를 마친 상태여야 합니다(`.okf/` 번들 +
-`.okf-wiki.json`). 코드 repo 대신 지식 전용 repo를 두는 것을 권합니다.
-
-비-git 폴더에서는 포인터만 겁니다. vault 값은 **로컬 경로**나 **repo URL**(`https`·`ssh`·
-`git`·`file`) 둘 다 됩니다 — URL이면 유저 스코프 관리형 clone(`~/.claude/okf/remotes/<slug>`)
-으로 받아 로컬 경로 vault와 같은 파이프라인을 탑니다(clone 생성은 동의를 받는 옵트인).
-
-```
-/okf-init --vault ~/kb          # 로컬 경로 vault
-/okf-init --vault <repo-url>    # URL vault → 관리형 clone
-```
-
-`~/.claude/okf/vault-project`에 포인터가 기록되고, vault의 캡처가 꺼져 있으면 켤지 물어봅니다.
-대상이 조건을 만족하지 못하면 기록하지 않고 사유를 알려줍니다.
-
-| 사유 | 뜻 |
-| --- | --- |
-| `대상 없음` | 경로 오타 — 실재하는 디렉터리여야 한다 |
-| `git repo 아님` | vault는 실제 git repo여야 한다(지식을 git으로 버저닝하므로) |
-| `.okf-wiki.json 없음` | 아직 번들 골격이 아니다 — 동의하면 그 경로에서 초기화 후 재시도한다 |
-| `URL 포인터 — 미지원 transport` | URL vault는 `https`·`ssh`·`git`·`file`만 된다(`ext::` 등 명령 실행 transport는 거부) |
-
-이제 그 폴더에서 캡처·주입이 어디로 가는지 확인합니다.
-
-```
-/okf-doctor
-```
-
-```
-[캡처]
-  스코프: vault (capture=review) ← study 블록 없음 → 유효 vault 폴백
-  승격 대상: ~/kb
-  적재(런타임): ~/.claude/okf/study
-[주입]
-  스코프: vault ← 프로젝트 설정 없음 → 유효 vault
-  대상: ~/kb
-```
-
-위 예시는 로컬 경로 vault 기준입니다. URL vault이면 `/okf-doctor`가 관리형 clone의
-신선도(모드·clone 존재·번들 부합·마지막 fetch)를 **무네트워크**로 함께 표시합니다.
-
-> 비-git 폴더에서 `/okf-init`을 **인자 없이** 돌리지 않습니다 — `capture:"off"` 블록이
-> 생겨 그 자리의 vault 폴백까지 꺼버립니다. 가드가 exit 3으로 차단하고 `--vault`을 안내합니다.
-
-어느 위치의 지식이 어디로 흐르는지는
-[스코프 우선순위](#스코프-우선순위와-설정-user--project)가 규칙이고, 도입 상세는
-[docs/adopting-study.md](docs/adopting-study.md) §7이 정본입니다.
+지금 이 위치에서 캡처와 주입이 **어디로 가는지** 궁금하면 `/okf-doctor`로 확인합니다.
 
 ### 다음 단계
 
-- 메모리를 자동으로 후보에 쌓고 골라 승격하기 → [`study`](#단기-기억과-장기-기억-study)
-- 팀 repo에 CI·pre-commit 검사 걸기 → [소비 repo 배포면](#ci와-pre-commit으로-번들-검증-소비-repo)
+- 비-git 폴더에서 쓰거나 vault repo로 적립하기 → [study 도입 가이드](docs/adopting-study.md)
+- 메모리를 후보로 쌓고 골라 승격하기 → [단기 기억과 장기 기억](#단기-기억과-장기-기억-study)
+- 소비 repo에 CI·pre-commit 검사 걸기 → [소비 repo 가이드](docs/consuming.md)
 
 ## 동작 방식
 
-엔진은 **파일당 한 번만 파싱**한다. `parser.parse`가 만든 `ParsedDoc`을
-validate·index·graph·context가 재사용한다(재파싱 금지 — 호출 카운터 테스트로
-고정). 세션 주입은 플러그인 계층이 담당한다 — **엔진(`okf-core/`)은 Claude를
-모른다**(무참조 grep 불변식).
+엔진은 **파일 하나를 딱 한 번만 파싱한다.** `parser.parse`가 만든 `ParsedDoc`을
+validate·index·graph·context가 돌려쓴다(다시 파싱하지 않도록 호출 카운터 테스트가
+막는다). 세션에 주입하는 일은 플러그인 쪽이 맡는다. **엔진(`okf-core/`)은 Claude를
+모른다.**
 
-```
-파일(.okf/*.md)
-   │  parser.parse   (파일당 1회 → ParsedDoc 재사용)
-   ▼
-ParsedDoc ──┬─▶ validate   §9 컨포먼스 검사 (3규칙 error / 나머지 warn)
-            ├─▶ index      §6 형식 index.md 재생성
-            ├─▶ graph      링크·역링크 그래프
-            └─▶ context    주입용 압축 인덱스
-                              │
-   Claude Code SessionStart 훅 │  (플러그인 계층 — 엔진 밖)
-                              ▼
-                  <okf-context> 세션 자동 주입
+```mermaid
+flowchart TD
+    subgraph engine["엔진 (okf-core) — Claude를 모름"]
+        F["파일 (.okf/*.md)"] -->|"parser.parse (파일당 1회)"| P["ParsedDoc (재사용)"]
+        P --> V["validate — 컨포먼스 검사<br/>(3규칙 error / 나머지 warn)"]
+        P --> I["index — index.md 재생성"]
+        P --> G["graph — 링크·역링크 그래프"]
+        P --> C["context — 주입용 압축 인덱스"]
+    end
+    subgraph plugin["플러그인 계층 (엔진 밖)"]
+        O["세션에 &lt;okf-context&gt; 자동 주입"]
+    end
+    C -->|"Claude Code SessionStart 훅"| O
 ```
 
-1. **파스 1회, 판정 재사용** — validate/policy/index/graph/context가 같은
-   `ParsedDoc`을 공유한다.
-2. **§9 3규칙만 error** — 스펙이 거부를 요구하지 않는 항목은 warn이다(`--strict`는
-   권장 필드 위반을 error로 승격). 판정 상수는 코드가 아니라
-   [`rules/v0_1.json`](okf-core/src/okf_core/rules/v0_1.json)이 단일 원천.
-3. **"index 소비 집합 == validate 통과 집합" 불변식** — 색인 로직을 바꾸면 검증
-   판정과 함께 움직여야 한다(불변식 테스트가 차단).
-4. **주입은 압축 컨텍스트** — 번들 전체가 아니라 `context`가 만든 압축 인덱스를
-   `<okf-context>` 블록으로 세션에 넣는다(문자 상한은 `.okf-wiki.json`에서 조정).
-5. **fail-open** — 소비 repo에 `.okf-wiki.json`이 없으면 훅은 아무것도 하지
-   않는다. 지식 번들이 없는 repo의 일반 작업에는 개입하지 않는다.
+- **파싱은 한 번, 판정은 재사용** — validate/index/graph/context가 같은 `ParsedDoc`을 공유한다.
+- **컨포먼스 규칙 중 셋만 error** — 스펙이 거부를 요구하는 세 규칙만 error이고, 나머지는 warn이다(`--strict`는 권장 필드 위반을 error로 올린다). 어떤 규칙이 error인지 같은 판정 상수는 코드가 아니라 [`rules/v0_1.json`](okf-core/src/okf_core/rules/v0_1.json)에 모여 있다.
+- **"index가 쓰는 파일 == validate를 통과한 파일"** — 이 불변식 덕분에 색인 로직을 바꾸면 검증 판정도 함께 움직인다.
+- **주입은 압축 컨텍스트로** — 번들 전체가 아니라 `context`가 만든 압축 인덱스를 `<okf-context>` 블록에 담아 세션에 넣는다(글자 수 상한은 `.okf-wiki.json`에서 조정).
+- **fail-open** — `.okf-wiki.json`이 없는 repo에서는 훅이 아무 일도 하지 않는다.
 
 ## 단기 기억과 장기 기억 (`study`)
 
-`study`는 Claude Code **메모리**(일시적)를 감지·적재해 이 repo의 **OKF 지식
-개념**(영구)으로 선택 승격하고, **소비처가 주입한 핸들러**로 흘려보내는
-기능이다. 플러그인은 목적지를 모른다 — "어디로 보낼지"는 소비처가 제공하는
-핸들러의 몫이다([docs/adopting-study.md](docs/adopting-study.md)).
+`study`는 Claude Code의 **메모리**(일시적)를 감지해, 이 repo의 **OKF 지식
+개념**(영구)으로 골라 승격하는 기능이다. 승격된 개념은 소비처가 주입한 핸들러로
+흘려보낸다. 플러그인은 목적지를 모른다 — "어디로 보낼지"는 소비처가 정한다.
 
 | 계층 | 저장소 | 수명 |
 | --- | --- | --- |
-| 단기 — 메모리 | Claude Code 메모리(일시) | 세션·휘발 |
-| 캡처 스테이징 | `.okf-study/study.db`(SQLite, gitignored) + `trust` | 드레인되면 소모(소모성 런타임) |
-| 장기 — 지식 개념 | `.okf/` git 번들 + `log.md` | 영구(git 버저닝) |
+| 단기 — 메모리 | Claude Code 메모리(일시) | 세션이 끝나면 사라짐 |
+| 캡처 스테이징 | `.okf-study/study.db`(SQLite, gitignored) + `trust` | 드레인되면 소모 |
+| 장기 — 지식 개념 | `.okf/` git 번들 + `log.md` | 영구(git으로 버전 관리) |
 
-지식·이력의 **정본은 번들 + log.md + git**이다. 스테이징(후보 큐·승격/폐기
-원장·이벤트 저널)은 단일 SQLite `study.db`에 담기는 소모성 상태로, 드레인되면
-사라진다 — 승격 시 캡처 일자·재등장 수를 `log.md`에 새겨 **버저닝을 git에
-남긴다**.
+지식과 이력의 정본은 언제나 **번들 + `log.md` + git**이다. 스테이징은 소모성
+상태라 드레인되면 사라지고, 승격할 때 캡처 일자와 재등장 횟수를 `log.md`에 남겨
+git에 기록한다.
 
-### 승격 게이트
-
-okf에는 자동 점수나 자동 병합이 **없다** — 승격 판정은 사람과 모델의 몫이다.
-게이트는 다음으로 구성된다:
-
-- **캡처 사다리** `off ⊂ review ⊂ auto` — 사용자 손잡이는 이 하나뿐.
-  - `off`(기본): 훅 무동작. `/study`로 수동 승격.
-  - `review`(권장): 저장 시 개념 블록 후보만 스테이징에 적재. `/study`로 검토·승격.
-  - `auto`: review + 살아있는 세션이 능동 드레인(모델 개입·trust 필요).
-- **선별** — 장기 지식(스키마·명령·결정·규약)만. 상호작용 취향·일회성은 제외.
-- **재등장 카운터** — 같은 개념이 반복 캡처되면 카운터가 오른다(반복 학습 신호).
-- **근사중복 자문(SimHash)** — 재서술된 후보를 `study near`가 해밍거리로 표시한다.
-  **자문 전용**이며 자동병합·게이팅은 없다(정확 해시 앵커는 불변).
-- **드레인** — `okf validate --strict` 통과분만 원장에 `promoted`로 기록하고
-  inbox에서 제거한다. 버릴 후보는 `discarded`(동일 스니펫 재적재 방지).
-
-```
-메모리 저장 ──(review)──▶ 개념 블록 후보 적재(스테이징 study.db)
-                              │
-                       /study │ (선택 승격: 판정 = 사람 + 모델)
-                              ▼
-        개념 작성(type + 주제 하위디렉토리) → okf validate --strict
-                              ▼
-                    원장에 promoted 기록 + inbox 드레인
-                              ▼
-              핸들러 디스패치(커밋 경로 · trust 게이트)
-```
-
-카테고리는 승격 시점의 `type`(필수) + **주제 하위디렉토리**이다 — `tags`는 선택
-메타일 뿐 배치·필터 축이 아니다.
+**자동 점수도 자동 병합도 없다** — 승격은 사람과 모델이 판단한다. 사용자가 만지는
+손잡이는 캡처 사다리 `off ⊂ review ⊂ auto` 하나뿐이다. 자세한 승격 게이트(선별
+기준, 재등장 카운터, 근사중복 자문, 드레인)와 도입 절차는
+[study 도입 가이드](docs/adopting-study.md)에 있다.
 
 ## 신뢰 경계와 스코프
 
-### 핸들러 trust 경계
+**핸들러 trust 경계** — 승격된 개념을 소비처 핸들러로 넘겨 실행하려면 **로컬 승인**을
+받아야 한다. 커밋되는 `.okf-wiki.json`만으로는 코드가 실행되지 않게 막는 게이트다.
+승인(`/study --trust`)은 핸들러 셋의 내용 해시로 `.okf-study/trust`(gitignore)에
+저장되므로, 새로 클론하면 늘 미승인에서 시작한다. 스크립트나 설정이 바뀌면 다시
+승인해야 한다.
 
-승격된 개념을 소비처 핸들러로 넘기는 실행은 **로컬 승인**이 필요하다 —
-커밋되는 `.okf-wiki.json`이 코드 실행을 좌우하지 못하게 하는 게이트다.
+**적재 스코프** — `study`가 지식을 어디에 쌓을지는 두 스코프로 갈린다. 슬로건은
+간단하다 — **"자기 파이프라인이 있으면 거기로(Project), 없으면 vault로(User)."**
+그 repo에 `study` 블록이 있으면 Project 스코프로 repo 안에(런타임·trust 포함) 쌓고,
+없으면 User 스코프로 vault repo에 적립한다. 비-git 폴더에서도 vault로 흘려보낼 수 있다.
 
-```
-/study --trust
-```
-
-- 승인은 `.okf-study/trust`(gitignore·로컬)에 **핸들러 셋 내용 해시**로 저장된다
-  → 프레시 클론은 항상 미승인에서 시작한다.
-- 해시 입력 = 핸들러 `name` + 정규화 경로 + **스크립트 바이트 SHA-256** +
-  `capture`. 스크립트 내용·핸들러 셋·capture가 바뀌면 **재승인**을 강제한다.
-- 핸들러 `command`는 **git에 커밋된 repo 내 경로**여야 한다 — 미추적·`.okf-study/`
-  하위·repo 밖(심링크/`..` 포함)은 거부(fail-closed).
-- 미승인 상태의 `auto`는 **가시적 저하**다: 개념은 로컬 번들에 승격·검증되고
-  **핸들러 실행만 보류**된다("N개 승격됨; `/study --trust`로 승인" 안내).
-
-### 스코프 우선순위와 설정 (User / Project)
-
-`study`의 적재 목적지는 **두 스코프**로 설정한다. 해소기가 위치마다 **정확히
-하나**를 고른다 — 슬로건대로 **"자기 파이프라인이 있으면 거기로(Project), 없으면
-vault로(User)."**
-
-| 스코프 | 설정 위치 | 런타임·trust | 이기는 조건 |
-| --- | --- | --- | --- |
-| **Project** | `<repo>/.okf-wiki.json`의 `study` 블록 | `<repo>/.okf-study/` | 그 repo에 `study` 블록이 **있을 때**(명시가 이긴다 — `capture:"off"`도 이 자리에선 vault 폴백을 끈다) |
-| **User** | 포인터 `~/.claude/okf/vault-project` → vault repo | `~/.claude/okf/study/` | repo에 `study` 블록이 **없을 때**, 비-git 폴더 |
-
-우선순위는 **Project 블록이 있으면 Project, 없으면 User(vault)**. 한 이벤트의 스코프는
-늘 정확히 하나이며, `/study --scope vault|project`로 그때그때 벽을 넘는다.
-
-**User scope — 비-git 폴더 어디서나 vault repo로 적재:**
-
-```
-/okf-init --vault <vault repo 경로>   # ~/.claude/okf/vault-project 포인터 기록 + 캡처 활성 제안
-/study --trust                    # vault 핸들러를 유저 스코프에 승인
-```
-
-vault는 **순수 지식 목적지**다 — 큐레이션된 지식만 담고 런타임 스테이징은 담지 않는다
-(스테이징·trust는 유저 스코프 `~/.claude/okf/study`에 격리). vault repo의
-`.okf-wiki.json`에 핸들러를 배선하고 **커밋**해 둔다:
-
-```json
-{ "study": { "capture": "review",
-             "handlers": [{ "name": "kb-pr", "command": "scripts/okf-open-pr.sh" }] } }
-```
-
-포인터를 처음 거는 절차·실패 사유·확인 방법은
-[repo 밖에서 쓰려면](#repo-밖에서-쓰려면-비-git-폴더)에 있다.
-
-**Project scope — 이 repo만의 파이프라인:**
-
-```
-/okf-init          # <repo>/.okf-wiki.json study 블록 + .okf-study/ 런타임(멱등)
-/study --trust     # 이 repo의 .okf-study/trust에 승인
-```
-
-그 repo의 `study.handlers`가 vault보다 우선하고 런타임·trust도 repo 안에 격리된다.
-블록을 만들지 않으면 자동으로 User(vault) 폴백을 따른다. 진단·회복은
-`/okf-doctor`(스코프 해소 트레이스·건강)와 `study scan`이 담당한다.
-
-정본 해소 규칙(캡처 4단·주입 3단·침묵 정책)은
-[CONFIG.md](plugins/okf/skills/okf/reference/CONFIG.md)의 "vault 프로젝트 폴백" 절,
-도입 상세는 [docs/adopting-study.md](docs/adopting-study.md) §7.
+정확한 해소 규칙(캡처 4단, 주입 3단, 침묵 정책)은
+[CONFIG.md](plugins/okf/skills/okf/reference/CONFIG.md)가, vault 폴백 도입 절차는
+[study 도입 가이드](docs/adopting-study.md)가 정본이다.
 
 ## 일상 명령
 
-### 슬래시 커맨드 (플러그인)
+플러그인은 슬래시 커맨드로 씁니다.
 
 ```
 /okf-init [--vault <path>]                         # 번들·런타임 세팅(멱등) / vault 포인터 마법사
 /study    [<topic> | --type T | --scope vault|project | --clear | --trust]
-                                                  # 후보를 선택적으로 지식 개념으로 승격
-/okf-doctor                                       # 현재 위치의 스코프 해소 결과·건강 진단
+                                                  # 후보를 골라 지식 개념으로 승격
+/okf-doctor                                       # 지금 위치의 스코프 해소 결과·건강 진단
 ```
 
-### `okf` CLI (엔진)
-
-플러그인 사용자는 CLI를 직접 부를 일이 없다 — 스킬이 위임 실행한다. 아래는
-CI·pre-commit·기여자용 직접 호출면이다.
-
-```
-okf validate <path> [--strict] [--format json]   # §9 컨포먼스 검사
-okf index    <path> [--write]                     # §6 형식 index.md 재생성
-okf graph    <path> --json [--linked-to P]        # 링크 그래프·역링크 조회
-okf context  <path> [--max-chars N]               # 주입용 압축 인덱스
-okf log      append <path> -m MSG                 # log.md 항목 추가(§7)
-okf init     <dir>                                # §9 컨포먼트 최소 번들 스캐폴드
-```
-
-`validate` 종료코드: `0` 컨포먼트 / `1` 비컨포먼트 / `2` 실행 오류. `--format json`은
-발견 1건당 `{"file","rule","level","msg"}` 객체를 출력한다.
+엔진 `okf` CLI는 스킬이 대신 실행하므로 직접 부를 일이 거의 없습니다. CI·pre-commit·
+기여자용 직접 호출면은 [CONTRIBUTING.md](CONTRIBUTING.md)에 정리해 두었습니다.
 
 ## 데이터와 프라이버시
 
-- **로컬 우선** — 지식은 당신의 git repo(`.okf/`)에 산다. 중앙 서버·SaaS·
-  텔레메트리가 없다.
-- **정본은 git** — 지식·이력의 정본은 번들 + `log.md` + git이다. 스테이징
-  `study.db`·WAL·`trust`는 gitignored 소모성 런타임이라 커밋되지 않는다.
-- **trust 게이트** — 핸들러(외부로 내보내는 코드) 실행은 로컬 승인이 필요하고,
-  프레시 클론은 미승인에서 시작한다. 커밋된 설정만으로는 코드가 실행되지 않는다.
-- **계층 분리** — 엔진은 Claude를 모르고, 플러그인은 특정 목적지를 모른다.
-  "어디로 내보낼지"는 소비처가 자기 repo의 커밋 핸들러로 주입한다.
-- **vault는 순수 목적지** — vault 폴백을 써도 vault repo에는 런타임 스테이징을 만들지
-  않는다(유저 스코프에 격리).
-
-## CI와 pre-commit으로 번들 검증 (소비 repo)
-
-번들을 쓰는 repo는 같은 §9 검사를 배포면에서 걸 수 있다.
-
-```yaml
-# GitHub Actions
-steps:
-  - uses: actions/checkout@<SHA>
-  - uses: pmmm114/okf-wiki-plugin/actions/validate@<v태그>
-    with: { path: .okf, strict: true }
-```
-
-```yaml
-# .pre-commit-config.yaml
-repos:
-  - repo: https://github.com/pmmm114/okf-wiki-plugin
-    rev: <v태그>
-    hooks:
-      - id: okf-validate
-```
-
-## 기여자 — 컨포먼스와 회귀 계약
-
-이 repo는 벤치마크가 아니라 **컨포먼스 계약**으로 정확성을 담보한다. `okf
-validate`는 OKF §9의 3규칙만 error로 보고하고 나머지는 warn으로 둔다. 판정
-상수(예약 파일명·필수/권장 필드·strict 승격 집합)는 코드에 하드코딩되지 않고
-[`rules/v0_1.json`](okf-core/src/okf_core/rules/v0_1.json)이 단일 원천이다.
-
-CI의 `core` 잡이 아래를 게이트로 건다(모두 로컬에서 재현 가능):
-
-| 게이트 | 하는 일 |
-| --- | --- |
-| 자기 번들 검증 | 이 repo의 `.okf/`를 `--strict`로 검증(도그푸딩) |
-| 픽스처 스위트 | 픽스처별 `validate --format json` 출력을 `tests/expected/*.json` 스냅샷과 비교 — 스냅샷이 곧 회귀 계약 |
-| 오라클 차동 | 벤더 업스트림 검증기와 파일별 §9 위반 집합을 비교(리포트 전용, 빌드 실패 아님) |
-| vendor 동기화 | `okf-core/vendor/`가 업스트림과 **바이트 그대로**인지 확인(1바이트 수정도 차단) |
-| 라이선스 검사 | 벤더 반입물 라이선스 고지 정합 |
-| 플러그인 검증 | `claude plugin validate`(비-strict — plugin.json은 커밋 SHA 추적) |
-
-로컬 재현:
-
-```bash
-uv run --with pytest --with pyyaml python -m pytest okf-core/tests -q   # 엔진 테스트
-uv run --no-project --with pytest python -m pytest plugins/okf/tests -q # 플러그인 테스트
-uvx ruff check . && uvx ruff format --check .                          # 린트·포맷 (CI 0.15.8 핀)
-uv run --with pyyaml python okf-core/scripts/run_fixture_suite.py       # 픽스처 스냅샷
-```
-
-이 repo를 클론해 엔진 CLI를 직접 쓰려면:
-
-```bash
-uv run --project okf-core okf validate .okf --strict   # uv (권장)
-pip install ./okf-core && okf validate .okf --strict   # 또는 pip (repo 루트 설치도 동작)
-```
+- **로컬 우선** — 지식은 당신의 git repo(`.okf/`) 안에 있다. 중앙 서버도, SaaS도, 텔레메트리도 없다.
+- **정본은 git** — 지식과 이력의 정본은 번들과 `log.md`, 그리고 git이다. 스테이징(`study.db`, WAL, `trust`)은 gitignore된 소모성 런타임이라 커밋되지 않는다.
+- **trust 게이트** — 외부로 내보내는 핸들러 코드는 로컬 승인을 받아야 실행된다. 새로 클론하면 미승인 상태라, 커밋된 설정만으로는 코드가 돌지 않는다.
+- **계층 분리** — 엔진은 Claude를 모르고, 플러그인은 특정 목적지를 모른다. "어디로 내보낼지"는 소비처가 자기 repo에 커밋한 핸들러로 정한다.
+- **vault는 순수 목적지** — vault 폴백을 써도 vault repo에는 런타임 스테이징을 만들지 않는다. 스테이징은 유저 스코프에 따로 격리된다.
 
 ## 문서
 
 | 문서 | 내용 |
 | --- | --- |
-| [docs/adopting-study.md](docs/adopting-study.md) | `study` 도입(설치→핸들러 계약→trust→vault 폴백) |
-| [plugins/okf/skills/okf/reference/CONFIG.md](plugins/okf/skills/okf/reference/CONFIG.md) | `.okf-wiki.json` 전체 스키마·스코프 해소 규칙 |
-| [okf-core/vendor/spec/SPEC.md](okf-core/vendor/spec/SPEC.md) | OKF v0.1 스펙 원문(무수정 벤더링) |
+| [study 도입 가이드](docs/adopting-study.md) | 설치부터 핸들러 계약, trust, vault 폴백까지 |
+| [CONFIG.md](plugins/okf/skills/okf/reference/CONFIG.md) | `.okf-wiki.json` 전체 스키마와 스코프 해소 규칙 |
+| [소비 repo 가이드](docs/consuming.md) | CI·pre-commit으로 번들 검증하기 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 컨포먼스·회귀 계약, 엔진 CLI, 로컬 재현 |
+| [OKF v0.1 스펙](okf-core/vendor/spec/SPEC.md) | 스펙 원문(수정 없이 벤더링) |
 | [docs/branching.md](docs/branching.md) | 브랜치·커밋·머지·벤더 반영 전략 |
-| [docs/releasing.md](docs/releasing.md) | 배포·버전관리(스코프 마일스톤·커밋-도출 SemVer·컷 절차) |
+| [docs/releasing.md](docs/releasing.md) | 배포·버전 관리(스코프 마일스톤, 커밋 도출 SemVer, 컷 절차) |
 | [CLAUDE.md](CLAUDE.md) | 에이전트 작업 규칙(불변식·게이트) |
-| [.okf/](.okf/index.md) | 엔진 자기 번들(아키텍처·벤더 정책·컨포먼스 결정) |
+| [.okf/](.okf/index.md) | 엔진 자기 번들(아키텍처, 벤더 정책, 컨포먼스 결정) |
 | [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | 벤더 반입물 출처·라이선스 고지 |
 
 ## 라이선스
 
-MIT ([LICENSE](LICENSE)). 벤더 반입물의 출처·라이선스는
+MIT([LICENSE](LICENSE)). 벤더 반입물의 출처와 라이선스는
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 고지되어 있습니다.
