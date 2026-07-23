@@ -26,11 +26,14 @@
 
 ## 구성
 
-크게 네 조각이에요. 지식을 파싱하고 검증하고 색인하는 **엔진**이 `okf-core/`에 있고,
-`okf` CLI도 여기 들어 있어요. Claude Code에 붙는 **플러그인**은 `plugins/okf/`에
-있는데, 스킬이랑 세션에 컨텍스트를 넣어 주는 훅, 그리고 `study` 승격을 맡아요.
-나머지 둘은 이 번들을 가져다 쓰는 repo를 위한 거예요. `actions/validate/`는 CI에서
-쓰는 composite action이고, `.pre-commit-hooks.yaml`은 pre-commit 훅 정의예요.
+okf-wiki-plugin은 크게 네 조각이에요.
+
+| 조각 | 경로 | 하는 일 |
+| --- | --- | --- |
+| 엔진 | `okf-core/` | 파서와 컨포먼스 검사기, index/graph/context 생성기, `okf` CLI |
+| 플러그인 | `plugins/okf/` | 스킬, 세션 컨텍스트 주입 훅, `study` 승격 |
+| CI 소비면 | `actions/validate/` | 가져다 쓰는 repo용 composite action |
+| pre-commit | `.pre-commit-hooks.yaml` | 가져다 쓰는 repo용 훅 정의 |
 
 ## 왜 okf-wiki-plugin인가
 
