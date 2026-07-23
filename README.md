@@ -17,6 +17,7 @@
 - [왜 okf-wiki-plugin인가](#왜-okf-wiki-plugin인가)
 - [Getting Started](#getting-started)
 - [동작 방식](#동작-방식)
+- [인식층과 근거 사슬](#인식층과-근거-사슬)
 - [단기 기억과 장기 기억 (`study`)](#단기-기억과-장기-기억-study)
 - [신뢰 경계와 스코프](#신뢰-경계와-스코프)
 - [일상 명령](#일상-명령)
@@ -26,11 +27,14 @@
 
 ## 구성
 
-크게 네 조각이에요. 지식을 파싱하고 검증하고 색인하는 **엔진**이 `okf-core/`에 있고,
-`okf` CLI도 여기 들어 있어요. Claude Code에 붙는 **플러그인**은 `plugins/okf/`에
-있는데, 스킬이랑 세션에 컨텍스트를 넣어 주는 훅, 그리고 `study` 승격을 맡아요.
-나머지 둘은 이 번들을 가져다 쓰는 repo를 위한 거예요. `actions/validate/`는 CI에서
-쓰는 composite action이고, `.pre-commit-hooks.yaml`은 pre-commit 훅 정의예요.
+okf-wiki-plugin은 크게 네 조각이에요.
+
+| 조각 | 경로 | 하는 일 |
+| --- | --- | --- |
+| 엔진 | `okf-core/` | 파서와 컨포먼스 검사기, index/graph/context 생성기, `okf` CLI |
+| 플러그인 | `plugins/okf/` | 스킬, 세션 컨텍스트 주입 훅, `study` 승격 |
+| CI 소비면 | `actions/validate/` | 가져다 쓰는 repo용 composite action |
+| pre-commit | `.pre-commit-hooks.yaml` | 가져다 쓰는 repo용 훅 정의 |
 
 ## 왜 okf-wiki-plugin인가
 
@@ -194,6 +198,33 @@ flowchart TD
 - 세션에 넣을 땐 번들 전체가 아니라 `context`가 만든 압축 인덱스만 `<okf-context>` 블록에 담아요. 글자 수 상한은 `.okf-wiki.json`에서 조절하고요.
 - 그리고 `.okf-wiki.json`이 없는 repo에서는 훅이 아무것도 안 해요.
 
+## 인식층과 근거 사슬
+
+개념에는 `type`(무엇의 개념인가)과 나란히 **인식층**이라는 축을 얹을 수 있어요.
+같은 주제라도 담고 있는 인식의 고도가 다르거든요.
+
+| 층 | 담는 것 | 예 |
+| --- | --- | --- |
+| 정보 `information` | 사실 그 자체, 답 | 스키마 행, 수치, 컬럼 |
+| 지식 `knowledge` | 왜, 어떻게 연결되는가 | 관계, 구조, 모델 |
+| 지혜 `wisdom` | 언제, 하지 말아야 할 것 | 판단, 규약, 플레이북 |
+
+이 축은 `type`과 직교라서 `Playbook`이면서 `wisdom`일 수도, `BigQuery Table`이면서
+`information`일 수도 있어요. 선택 항목이라 `layer`를 안 붙여도 정상으로 동작하고요.
+
+그리고 각 개념은 무엇을 토대로 만들어졌는지를 `derived_from`으로 이어 둬요. 지혜는
+지식에서, 지식은 정보에서, 정보는 다시 외부 출처(`resource`나 `# Citations`)에 닿아요.
+이 사슬이 곧 **"AI가 지어낸 게 아니라는 근거"**예요. 어떤 판단이든 사슬을 따라 내려가면
+출처 있는 사실까지 확인할 수 있고, 근거 없이 떠 있는 개념은 접지 린트가 잡아 줘요.
+
+이 층을 이렇게 써요.
+
+- `okf context --group-by layer`로 층별로 묶어 뽑거나, `--filter layer=wisdom`으로 지혜만 볼 수 있어요.
+- `okf graph --chain <개념> --edges-from derived_from`으로 근거 사슬을 따라갈 수 있어요.
+- `.okf-wiki.json`의 `context.groupBy`를 켜면 세션에 주입되는 컨텍스트도 층으로 구분돼요.
+
+어휘와 정초 규칙의 정본은 [인식층 문서](plugins/okf/skills/okf/reference/LAYERS.md)에 있어요.
+
 ## 단기 기억과 장기 기억 (`study`)
 
 `study`는 Claude Code의 메모리(잠깐 있다 사라지는)를 알아채서, 이 repo의 OKF 지식
@@ -234,7 +265,7 @@ flowchart TD
 플러그인은 슬래시 커맨드로 써요.
 
 ```
-/okf-init [--vault <path>]                         # 번들이랑 런타임 세팅(여러 번 돌려도 안전). vault 포인터 마법사
+/okf-init [--vault <path|url>]                     # 번들이랑 런타임 세팅(여러 번 돌려도 안전). vault 포인터(경로나 URL) 마법사
 /study    [<topic> | --type T | --scope vault|project | --clear | --trust]
                                                   # 후보를 골라 지식 개념으로 승격
 /okf-doctor                                       # 지금 위치에서 스코프가 어떻게 풀리는지, 건강 상태 진단
@@ -259,6 +290,7 @@ flowchart TD
 | --- | --- |
 | [study 도입 가이드](docs/adopting-study.md) | 설치부터 핸들러 계약, trust, vault로 모으기까지 |
 | [CONFIG.md](plugins/okf/skills/okf/reference/CONFIG.md) | `.okf-wiki.json` 설정 항목 전체와 스코프 해소 규칙 |
+| [인식층과 근거 사슬](plugins/okf/skills/okf/reference/LAYERS.md) | `layer` 축(정보, 지식, 지혜)과 근거 사슬 규칙의 정본 |
 | [소비 repo 가이드](docs/consuming.md) | 가져다 쓰는 repo에서 CI와 pre-commit으로 검증하기 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 컨포먼스와 회귀 계약, 엔진 CLI, 로컬에서 재현하기 |
 | [OKF v0.1 스펙](okf-core/vendor/spec/SPEC.md) | 스펙 원문(고치지 않고 가져옴) |
