@@ -84,3 +84,58 @@ def test_context_within_budget_and_line_format():
 
     for budget in (120, 300):
         assert len(build_context(APPENDIX_A, max_chars=budget)) <= budget
+
+
+def _concept(dirpath, name, type_val, description, layer=None):
+    fm = [f"type: {type_val}", f"description: {description}"]
+    if layer is not None:
+        fm.append(f"layer: {layer}")
+    body = "---\n" + "\n".join(fm) + "\n---\n\n# " + name + "\n"
+    (dirpath / name).write_text(body, encoding="utf-8")
+
+
+def _axis_bundle(tmp_path):
+    bundle = tmp_path / "axis"
+    bundle.mkdir()
+    _concept(bundle, "info.md", "Fact", "토마토는 식물학적으로 과일이다.", layer="information")
+    _concept(bundle, "know.md", "Model", "식물학적 분류와 요리적 분류는 다르다.", layer="knowledge")
+    _concept(bundle, "wise.md", "Convention", "토마토는 과일 샐러드에 넣지 않는다.", layer="wisdom")
+    _concept(bundle, "plain.md", "Note", "층 미표시 개념.")
+    return bundle
+
+
+def test_context_group_by_axis(tmp_path):
+    bundle = _axis_bundle(tmp_path)
+    out = build_context(bundle, group_by="layer")
+    lines = out.split("\n")[1:-1]  # 래퍼 제외
+    # 값 알파벳순 섹션 + 미기재(None)는 맨 뒤
+    assert [ln for ln in lines if ln.startswith("## ")] == [
+        "## information",
+        "## knowledge",
+        "## wisdom",
+        "## (unclassified)",
+    ]
+    # 각 개념이 자기 섹션 바로 아래에
+    assert lines[lines.index("## information") + 1].startswith("info.md ")
+    assert lines[lines.index("## knowledge") + 1].startswith("know.md ")
+    assert lines[lines.index("## wisdom") + 1].startswith("wise.md ")
+    assert lines[lines.index("## (unclassified)") + 1].startswith("plain.md ")
+    # 예산 준수(그룹 헤딩 포함)
+    assert len(build_context(bundle, group_by="layer", max_chars=200)) <= 200
+
+
+def test_context_filter_axis(tmp_path):
+    out = build_context(_axis_bundle(tmp_path), filter_key="layer", filter_value="wisdom")
+    lines = out.split("\n")[1:-1]
+    assert lines == ["wise.md [Convention] — 토마토는 과일 샐러드에 넣지 않는다."]
+    assert not any(ln.startswith("## ") for ln in lines)  # 필터만 하면 섹션 없음
+
+
+def test_context_axis_is_section9_neutral_and_default_unchanged(tmp_path):
+    bundle = _axis_bundle(tmp_path)
+    # §9 중립성: layer는 미지 optional 키라 판정에 영향 없음(전부 컨포먼트, warn 0)
+    assert validate_bundle(bundle) == []
+    # 무플래그 출력은 축 도입 전과 동일(그룹 헤딩 없음, walk 정렬 순서)
+    default = build_context(bundle).split("\n")[1:-1]
+    assert not any(ln.startswith("## ") for ln in default)
+    assert default[0].startswith("info.md ")
