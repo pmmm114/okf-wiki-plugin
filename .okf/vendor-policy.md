@@ -17,4 +17,4 @@ tags: [vendor, policy]
 * 수정이 필요하면 벤더 파일을 고치지 않고 `vendor/patches/`에 패치로 둔다.
 
 판정의 원천은 벤더 스펙 §9이며, 우리 해석은
-[Conformance Decisions](/conformance-decisions.md)에 기록한다.
+[Conformance Decisions](conformance-decisions.md)에 기록한다.

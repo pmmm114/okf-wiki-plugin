@@ -31,7 +31,12 @@ def test_index_regenerate_reparse_conformant(tmp_path):
     # §6 형식: 섹션 헤딩 + `* [Title](url) - description`
     assert "# Contents" in sub.body
     assert "* [Orders](orders.md) - One row per completed customer order." in sub.body
-    assert "* [datasets](datasets/)" in (bundle / "index.md").read_text(encoding="utf-8")
+    # 하위 디렉터리 링크는 베어 `datasets/`(디렉터리 링크)가 아니라 그 index.md를
+    # 가리켜야 원격 repo 정적 웹뷰에서도 해소된다(문서간 링크 이식성).
+    root_text = (bundle / "index.md").read_text(encoding="utf-8")
+    assert "* [datasets](datasets/index.md)" in root_text
+    assert "* [datasets](datasets/)" not in root_text  # 베어 디렉터리 링크 회귀 금지
+    assert (bundle / "datasets" / "index.md").is_file()  # 링크 대상 실재
 
 
 def test_graph_detects_triangle_edges():

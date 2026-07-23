@@ -4,6 +4,11 @@
 생성한다. 루트 index.md만 ``okf_version`` frontmatter를 유지한다(§11) — 기존
 루트 index의 선언 값을 보존하고, 없으면 "0.1"을 쓴다. 생성 결과는 다시
 파싱했을 때 §9를 통과해야 한다(자기 출력 컨포먼트).
+
+하위 디렉터리 항목은 베어 디렉터리(``<name>/``)가 아니라 그 ``<name>/index.md``를
+링크한다 — 디렉터리→index 자동 해소를 하는 로컬 뷰어에선 둘 다 열리지만, 정적
+웹뷰(원격 repo 브라우징)에선 디렉터리 링크가 파일이 아니라 깨진다. index.md를
+직접 가리키면 로컬·원격 양쪽에서 동일하게 해소된다(문서간 링크 이식성).
 """
 
 from __future__ import annotations
@@ -71,7 +76,11 @@ def generate_indexes(root: str | Path) -> dict[str, str]:
         lines: list[str] = ["# Contents", ""]
         for sub in sorted(subdirs):
             name = posixpath.basename(sub)
-            lines.append(_entry(name, f"{name}/", ""))
+            # 하위 디렉터리는 그 index.md로 링크한다 — 베어 `<name>/`(디렉터리 링크)는
+            # 로컬 뷰어에선 index로 해소되지만 정적 웹뷰(원격 repo)에선 파일이 아니라
+            # 깨진다. 모든 하위 디렉터리는 index.md를 갖도록 위 dirs에 등록되므로
+            # (조상 체인 불변식) 대상은 항상 실재한다.
+            lines.append(_entry(name, f"{name}/index.md", ""))
         for rel in sorted(concepts):
             doc = docs[rel]
             lines.append(_entry(_title(rel, doc), posixpath.basename(rel), _description(doc)))

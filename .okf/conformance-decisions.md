@@ -19,5 +19,5 @@ tags: [conformance, decision]
 
 벤더 오라클은 §9.1·§9.2만 error로 내고 예약 파일 구조는 §6/§7/§11 warning으로
 보고한다. 차동 비교(oracle diff)에서는 §9 위반 집합을 비교하되 이 차이를
-매핑해야 한다. [Vendor Policy](/vendor-policy.md)의 무수정 원칙에 따라
+매핑해야 한다. [Vendor Policy](vendor-policy.md)의 무수정 원칙에 따라
 오라클을 고치지 않고 어댑터가 흡수한다.
