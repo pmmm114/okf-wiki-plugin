@@ -1,6 +1,6 @@
-"""study_scope — 캡처 스코프 해소·캡처 입구 판정·홈 캡처 활성 테스트 (#145 U3).
+"""study_scope — 캡처 스코프 해소·캡처 입구 판정·vault 캡처 활성 테스트 (#145 U3).
 
-okf_home 분할로 study 층에 이동한 절반의 테스트다(원 출처 test_okf_home.py —
+okf_vault 분할로 study 층에 이동한 절반의 테스트다(원 출처 test_okf_vault.py —
 #91 V2 매트릭스 번호 유지): #1·#3(단일 스코프), #5(주입 전용 repo), #13(반쪽
 상태), #14(자기 위임), #15~#17(캡처 입구), #18(scope 의미 한정), #114(런타임
 루트 분리), 마법사 캡처 활성(0.3.0) + CLI(set의 capture_ready·enable-capture).
@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import okf_home
+import okf_vault
 import pytest
 import study_scope
 
@@ -19,18 +19,18 @@ import study_scope
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch, tmp_path):
     """실환경 포인터·설정이 새어들지 않게 HOME·env를 테스트별로 격리한다."""
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    monkeypatch.delenv(okf_vault.VAULT_ENV, raising=False)
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
 
 
-def _home(tmp_path, config: dict | None) -> Path:
-    """유효 홈 골격(git + 설정)을 만든다. config=None이면 설정 파일 생략."""
-    home = tmp_path / "home-kb"
-    (home / ".git").mkdir(parents=True)
+def _vault(tmp_path, config: dict | None) -> Path:
+    """유효 vault 골격(git + 설정)을 만든다. config=None이면 설정 파일 생략."""
+    vault = tmp_path / "vault-kb"
+    (vault / ".git").mkdir(parents=True)
     if config is not None:
-        (home / ".okf-wiki.json").write_text(json.dumps(config), encoding="utf-8")
-    return home
+        (vault / ".okf-wiki.json").write_text(json.dumps(config), encoding="utf-8")
+    return vault
 
 
 def _project(tmp_path, config: dict | None = None) -> Path:
@@ -45,8 +45,8 @@ def _project(tmp_path, config: dict | None = None) -> Path:
 
 
 def test_rule2_project_block_wins(monkeypatch, tmp_path):
-    home = _home(tmp_path, {"study": {"capture": "auto"}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _vault(tmp_path, {"study": {"capture": "auto"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     project = _project(tmp_path, {"study": {"capture": "review"}})
     scope = study_scope.resolve_capture(project)
     assert (scope["target"], scope["capture"], scope["scope"]) == (
@@ -56,87 +56,96 @@ def test_rule2_project_block_wins(monkeypatch, tmp_path):
     )
 
 
-def test_rule2_capture_off_silences_home_too(monkeypatch, tmp_path):
-    home = _home(tmp_path, {"study": {"capture": "auto"}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_rule2_capture_off_silences_vault_too(monkeypatch, tmp_path):
+    vault = _vault(tmp_path, {"study": {"capture": "auto"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     project = _project(tmp_path, {"study": {"capture": "off"}})
     scope = study_scope.resolve_capture(project)
     assert scope["scope"] == "project"
-    assert scope["capture"] == "off"  # 명시가 이긴다 — 홈이 auto여도 침묵
+    assert scope["capture"] == "off"  # 명시가 이긴다 — vault이 auto여도 침묵
 
 
-def test_rule1_scope_home_delegates(monkeypatch, tmp_path):
-    home = _home(tmp_path, {"study": {"capture": "off"}})  # 레벨은 블록 값임을 증명
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_rule1_scope_vault_delegates(monkeypatch, tmp_path):
+    vault = _vault(tmp_path, {"study": {"capture": "off"}})  # 레벨은 블록 값임을 증명
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+    project = _project(tmp_path, {"study": {"capture": "review", "scope": "vault"}})
+    scope = study_scope.resolve_capture(project)
+    assert (scope["target"], scope["capture"], scope["scope"]) == (str(vault), "review", "vault")
+
+
+def test_rule1_legacy_scope_home_alias_delegates(monkeypatch, tmp_path):
+    # #152 R1-1 — 커밋된 구 값 scope:"home"도 위임으로 해석(하위호환), 출력 scope는 "vault"
+    vault = _vault(tmp_path, {"study": {"capture": "off"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     project = _project(tmp_path, {"study": {"capture": "review", "scope": "home"}})
     scope = study_scope.resolve_capture(project)
-    assert (scope["target"], scope["capture"], scope["scope"]) == (str(home), "review", "home")
+    assert (scope["target"], scope["capture"], scope["scope"]) == (str(vault), "review", "vault")
 
 
-def test_rule1_scope_home_without_capture_is_off(monkeypatch, tmp_path):
+def test_rule1_scope_vault_without_capture_is_off(monkeypatch, tmp_path):
     # #18 — scope는 목적지 위임 키일 뿐 활성화 키가 아니다
-    home = _home(tmp_path, {"study": {"capture": "auto"}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    project = _project(tmp_path, {"study": {"scope": "home"}})
+    vault = _vault(tmp_path, {"study": {"capture": "auto"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+    project = _project(tmp_path, {"study": {"scope": "vault"}})
     scope = study_scope.resolve_capture(project)
     assert scope["capture"] == "off"
-    assert scope["scope"] == "home"  # 목적지는 홈이되 비활성
+    assert scope["scope"] == "vault"  # 목적지는 vault이되 비활성
 
 
 def test_rule1_invalid_pointer_warns(monkeypatch, tmp_path):
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(tmp_path / "nowhere"))
-    project = _project(tmp_path, {"study": {"capture": "review", "scope": "home"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(tmp_path / "nowhere"))
+    project = _project(tmp_path, {"study": {"capture": "review", "scope": "vault"}})
     scope = study_scope.resolve_capture(project)
     assert scope["target"] is None
     assert "무효" in scope["warning"] and "doctor" in scope["warning"]
 
 
 def test_rule1_no_pointer_is_silent_noop(tmp_path):
-    project = _project(tmp_path, {"study": {"capture": "review", "scope": "home"}})
+    project = _project(tmp_path, {"study": {"capture": "review", "scope": "vault"}})
     scope = study_scope.resolve_capture(project)
     assert scope["target"] is None
     assert scope["warning"] is None  # 옵트인 안 한 협업자 — 무음
 
 
-def test_rule3_fallback_to_home(monkeypatch, tmp_path):
-    home = _home(tmp_path, {"study": {"capture": "review"}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_rule3_fallback_to_vault(monkeypatch, tmp_path):
+    vault = _vault(tmp_path, {"study": {"capture": "review"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     project = _project(tmp_path)  # 설정 없음
     scope = study_scope.resolve_capture(project)
-    assert (scope["target"], scope["capture"], scope["scope"]) == (str(home), "review", "home")
+    assert (scope["target"], scope["capture"], scope["scope"]) == (str(vault), "review", "vault")
 
 
-def test_rule3_inject_only_project_falls_home(monkeypatch, tmp_path):
-    # #5 — 주입 전용 얇은 설정(study 블록 없음)은 캡처를 홈으로 폴백
-    home = _home(tmp_path, {"study": {"capture": "review"}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_rule3_inject_only_project_falls_vault(monkeypatch, tmp_path):
+    # #5 — 주입 전용 얇은 설정(study 블록 없음)은 캡처를 vault으로 폴백
+    vault = _vault(tmp_path, {"study": {"capture": "review"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     project = _project(tmp_path, {"bundlePath": ".okf"})
     scope = study_scope.resolve_capture(project)
-    assert scope["target"] == str(home)
+    assert scope["target"] == str(vault)
 
 
-def test_rule3_half_state_home_is_normal_silence(monkeypatch, tmp_path):
-    # #13 — 홈에 study 블록 없음 = 주입 전용 홈(정상, 무경고)
-    home = _home(tmp_path, {"bundlePath": ".okf"})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_rule3_half_state_vault_is_normal_silence(monkeypatch, tmp_path):
+    # #13 — vault에 study 블록 없음 = 주입 전용 vault(정상, 무경고)
+    vault = _vault(tmp_path, {"bundlePath": ".okf"})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     scope = study_scope.resolve_capture(_project(tmp_path))
     assert scope["target"] is None
     assert scope["warning"] is None
 
 
 def test_rule3_invalid_pointer_warns(monkeypatch, tmp_path):
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(tmp_path / "nowhere"))
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(tmp_path / "nowhere"))
     scope = study_scope.resolve_capture(_project(tmp_path))
     assert scope["target"] is None
     assert scope["warning"] is not None
 
 
 def test_self_delegation_is_harmless(monkeypatch, tmp_path):
-    # #14 — 홈 repo 자신의 scope:"home"은 자기 자신으로의 위임
-    home = _home(tmp_path, {"study": {"capture": "review", "scope": "home"}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    scope = study_scope.resolve_capture(home)
-    assert (scope["target"], scope["scope"]) == (str(home), "home")
+    # #14 — vault repo 자신의 scope:"vault"은 자기 자신으로의 위임
+    vault = _vault(tmp_path, {"study": {"capture": "review", "scope": "vault"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+    scope = study_scope.resolve_capture(vault)
+    assert (scope["target"], scope["scope"]) == (str(vault), "vault")
 
 
 def test_runtime_root_project_scope_is_in_repo(tmp_path):
@@ -147,21 +156,21 @@ def test_runtime_root_project_scope_is_in_repo(tmp_path):
 
 
 def test_runtime_root_fallback_is_user_scope(monkeypatch, tmp_path):
-    # #114 U1 — 폴백(자기 파이프라인 없는 곳)의 런타임은 유저 스코프(홈 repo에 안 씀)
-    home = _home(tmp_path, {"study": {"capture": "review"}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    # #114 U1 — 폴백(자기 파이프라인 없는 곳)의 런타임은 유저 스코프(vault repo에 안 씀)
+    vault = _vault(tmp_path, {"study": {"capture": "review"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     scope = study_scope.resolve_capture(_project(tmp_path))
-    assert scope["scope"] == "home"
+    assert scope["scope"] == "vault"
     assert scope["runtime_root"] == str(study_scope.user_scope_runtime())
 
 
-def test_home_equals_project_routes_runtime_to_user_scope(monkeypatch, tmp_path):
-    # #114 U1 — 홈=현재 프로젝트여도 런타임은 유저 스코프(홈에 in-repo 런타임 미생성).
-    # 승격 대상은 홈, 런타임은 ~/.claude/okf/study — 홈은 순수 목적지로 유지된다.
-    home = _home(tmp_path, {"study": {"capture": "review"}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
-    scope = study_scope.resolve_capture(home)
-    assert scope["target"] == str(home) and scope["scope"] == "home"
+def test_vault_equals_project_routes_runtime_to_user_scope(monkeypatch, tmp_path):
+    # #114 U1 — vault=현재 프로젝트여도 런타임은 유저 스코프(vault에 in-repo 런타임 미생성).
+    # 승격 대상은 vault, 런타임은 ~/.claude/okf/study — vault은 순수 목적지로 유지된다.
+    vault = _vault(tmp_path, {"study": {"capture": "review"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+    scope = study_scope.resolve_capture(vault)
+    assert scope["target"] == str(vault) and scope["scope"] == "vault"
     assert scope["runtime_root"] == str(study_scope.user_scope_runtime())
 
 
@@ -212,17 +221,17 @@ def test_entrance_transcript_sibling(tmp_path):
     assert study_scope.is_memory_path(path, payload, tmp_path)
 
 
-def test_entrance_home_pattern_override(monkeypatch, tmp_path):
-    home = _home(
+def test_entrance_vault_pattern_override(monkeypatch, tmp_path):
+    vault = _vault(
         tmp_path, {"study": {"capture": "review", "memoryPathPattern": r"/weird-mem/.*\.md$"}}
     )
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     assert study_scope.is_memory_path("/opt/weird-mem/x.md", {}, tmp_path)
 
 
 def test_entrance_invalid_pattern_tolerated(monkeypatch, tmp_path, capsys):
-    home = _home(tmp_path, {"study": {"capture": "review", "memoryPathPattern": "("}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _vault(tmp_path, {"study": {"capture": "review", "memoryPathPattern": "("}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     assert not study_scope.is_memory_path("/opt/anything/x.md", {}, tmp_path)
     assert "memoryPathPattern" in capsys.readouterr().err
 
@@ -231,74 +240,74 @@ def test_entrance_non_md_rejected(tmp_path):
     assert not study_scope.is_memory_path("/home/u/.claude/projects/p/memory/m.txt", {}, tmp_path)
 
 
-# --- home_capture_state / enable_home_capture (마법사 캡처 활성, 0.3.0) -------
+# --- vault_capture_state / enable_vault_capture (마법사 캡처 활성, 0.3.0) -------
 
 
 def test_capture_state_absent(tmp_path):
-    home = _home(tmp_path, {})  # study 블록 없음
-    assert study_scope.home_capture_state(home) == "absent"
+    vault = _vault(tmp_path, {})  # study 블록 없음
+    assert study_scope.vault_capture_state(vault) == "absent"
 
 
 def test_capture_state_off(tmp_path):
-    home = _home(tmp_path, {"study": {"capture": "off"}})
-    assert study_scope.home_capture_state(home) == "off"
+    vault = _vault(tmp_path, {"study": {"capture": "off"}})
+    assert study_scope.vault_capture_state(vault) == "off"
 
 
 @pytest.mark.parametrize("level", ["review", "auto"])
 def test_capture_state_active(tmp_path, level):
-    home = _home(tmp_path, {"study": {"capture": level}})
-    assert study_scope.home_capture_state(home) == "active"
+    vault = _vault(tmp_path, {"study": {"capture": level}})
+    assert study_scope.vault_capture_state(vault) == "active"
 
 
-def test_enable_capture_from_absent_activates_without_home_runtime(tmp_path):
-    home = _home(tmp_path, {"bundlePath": ".okf"})  # study 블록 없음
-    result = study_scope.enable_home_capture(home)
+def test_enable_capture_from_absent_activates_without_vault_runtime(tmp_path):
+    vault = _vault(tmp_path, {"bundlePath": ".okf"})  # study 블록 없음
+    result = study_scope.enable_vault_capture(vault)
     assert result["before"] == "absent"
     assert result["capture"] == "review" and result["changed"] is True
-    data = json.loads((home / ".okf-wiki.json").read_text(encoding="utf-8"))
+    data = json.loads((vault / ".okf-wiki.json").read_text(encoding="utf-8"))
     assert data["study"]["capture"] == "review"
     assert data["bundlePath"] == ".okf"  # 기존 키 보존
-    # #114 U2 — 홈엔 런타임(.okf-study)을 만들지 않는다; 런타임은 유저 스코프
-    assert not (home / ".okf-study").exists()
+    # #114 U2 — vault엔 런타임(.okf-study)을 만들지 않는다; 런타임은 유저 스코프
+    assert not (vault / ".okf-study").exists()
     assert study_scope.user_scope_runtime().is_dir()
     assert result["runtime_root"] == str(study_scope.user_scope_runtime())
-    assert study_scope.home_capture_state(home) == "active"
+    assert study_scope.vault_capture_state(vault) == "active"
 
 
 def test_enable_capture_from_off_bumps_preserving_handlers(tmp_path):
-    home = _home(
+    vault = _vault(
         tmp_path,
         {"study": {"capture": "off", "handlers": [{"name": "x", "command": "h.py"}]}},
     )
-    result = study_scope.enable_home_capture(home)
+    result = study_scope.enable_vault_capture(vault)
     assert result["before"] == "off" and result["changed"] is True
-    data = json.loads((home / ".okf-wiki.json").read_text(encoding="utf-8"))
+    data = json.loads((vault / ".okf-wiki.json").read_text(encoding="utf-8"))
     assert data["study"]["capture"] == "review"
     assert data["study"]["handlers"] == [{"name": "x", "command": "h.py"}]  # 보존
 
 
 def test_enable_capture_does_not_downgrade_auto(tmp_path):
-    home = _home(tmp_path, {"study": {"capture": "auto"}})
-    result = study_scope.enable_home_capture(home)  # 기본 level=review
+    vault = _vault(tmp_path, {"study": {"capture": "auto"}})
+    result = study_scope.enable_vault_capture(vault)  # 기본 level=review
     assert result["changed"] is False
     assert result["capture"] == "auto"  # 격하 금지
-    data = json.loads((home / ".okf-wiki.json").read_text(encoding="utf-8"))
+    data = json.loads((vault / ".okf-wiki.json").read_text(encoding="utf-8"))
     assert data["study"]["capture"] == "auto"
 
 
 def test_enable_capture_level_auto(tmp_path):
-    home = _home(tmp_path, {})
-    result = study_scope.enable_home_capture(home, level="auto")
+    vault = _vault(tmp_path, {})
+    result = study_scope.enable_vault_capture(vault, level="auto")
     assert result["capture"] == "auto" and result["changed"] is True
 
 
 def test_enable_capture_idempotent(tmp_path):
-    home = _home(tmp_path, {})
-    study_scope.enable_home_capture(home)
-    before = (home / ".okf-wiki.json").read_text(encoding="utf-8")
-    second = study_scope.enable_home_capture(home)
+    vault = _vault(tmp_path, {})
+    study_scope.enable_vault_capture(vault)
+    before = (vault / ".okf-wiki.json").read_text(encoding="utf-8")
+    second = study_scope.enable_vault_capture(vault)
     assert second["changed"] is False  # 이미 active
-    assert (home / ".okf-wiki.json").read_text(encoding="utf-8") == before
+    assert (vault / ".okf-wiki.json").read_text(encoding="utf-8") == before
 
 
 # --- CLI: status의 capture 키 · set의 capture_ready · enable-capture 동사 -----
@@ -306,46 +315,46 @@ def test_enable_capture_idempotent(tmp_path):
 
 def test_cli_status_includes_capture(monkeypatch, tmp_path, capsys):
     # 캡처 해소가 필요한 소비처(/study 스코프 해소)는 study_scope status를 쓴다(#145 U3)
-    home = _home(tmp_path, {"study": {"capture": "review"}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+    vault = _vault(tmp_path, {"study": {"capture": "review"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     assert study_scope.main(["status", str(scratch)]) == 0
     result = json.loads(capsys.readouterr().out)
-    assert result["home"] == str(home)
-    assert result["capture"]["target"] == str(home)
-    assert result["inject"]["target"] == str(home)
+    assert result["vault"] == str(vault)
+    assert result["capture"]["target"] == str(vault)
+    assert result["inject"]["target"] == str(vault)
 
 
 def test_cli_set_reports_capture_ready(monkeypatch, tmp_path, capsys):
-    home = _home(tmp_path, {})  # 주입 전용(캡처 absent)
-    assert study_scope.main(["set", str(home)]) == 0
+    vault = _vault(tmp_path, {})  # 주입 전용(캡처 absent)
+    assert study_scope.main(["set", str(vault)]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["written"] is True and out["capture_ready"] == "absent"
 
 
 def test_cli_set_capture_ready_active(monkeypatch, tmp_path, capsys):
-    home = _home(tmp_path, {"study": {"capture": "review"}})
-    assert study_scope.main(["set", str(home)]) == 0
+    vault = _vault(tmp_path, {"study": {"capture": "review"}})
+    assert study_scope.main(["set", str(vault)]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["capture_ready"] == "active"
 
 
 def test_cli_enable_capture_activates(tmp_path, capsys):
-    home = _home(tmp_path, {})
-    assert study_scope.main(["enable-capture", str(home)]) == 0
+    vault = _vault(tmp_path, {})
+    assert study_scope.main(["enable-capture", str(vault)]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["enabled"] is True and out["capture"] == "review"
 
 
 def test_cli_enable_capture_refuses_non_git(tmp_path, capsys):
-    # 유효 홈이 아니면(비-git) 편집 없이 사유 반환 — 반쪽 파이프라인 방지
+    # 유효 vault이 아니면(비-git) 편집 없이 사유 반환 — 반쪽 파이프라인 방지
     bad = tmp_path / "not-git"
     bad.mkdir()
     (bad / ".okf-wiki.json").write_text("{}", encoding="utf-8")
     assert study_scope.main(["enable-capture", str(bad)]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["enabled"] is False and out["reason"] == okf_home.INVALID_NOT_GIT
+    assert out["enabled"] is False and out["reason"] == okf_vault.INVALID_NOT_GIT
     assert not (bad / ".okf-study").exists()  # 편집 없음
 
 
@@ -353,7 +362,7 @@ def test_cli_enable_capture_refuses_non_git(tmp_path, capsys):
 
 
 def _managed_clone(url: str, config: dict) -> Path:
-    clone = okf_home.managed_clone_path(okf_home.canonicalize_url(url))
+    clone = okf_vault.managed_clone_path(okf_vault.canonicalize_url(url))
     (clone / ".git").mkdir(parents=True)
     (clone / ".okf-wiki.json").write_text(json.dumps(config), encoding="utf-8")
     return clone
@@ -376,7 +385,7 @@ def test_cli_set_url_reports_capture_ready_when_clone_present(tmp_path, capsys):
 
 
 def test_cli_enable_capture_refuses_managed_clone(tmp_path, capsys):
-    # #153 U2-6: URL 홈(관리형 clone)에 캡처를 켜면 origin과 diverge → 거부·안내
+    # #153 U2-6: URL vault(관리형 clone)에 캡처를 켜면 origin과 diverge → 거부·안내
     url = "git@example.com:o/r.git"
     clone = _managed_clone(url, {})
     assert study_scope.main(["enable-capture", url]) == 0

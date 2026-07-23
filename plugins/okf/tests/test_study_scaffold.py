@@ -72,10 +72,10 @@ def test_bad_config_raises_value_error(tmp_path):
 
 
 def test_cli_refuses_non_git_dir(tmp_path, capsys):
-    # 비-git 위치: 거부(exit 3) + 파일 생성 0 — 홈 폴백 안내 포함
+    # 비-git 위치: 거부(exit 3) + 파일 생성 0 — vault 폴백 안내 포함
     assert study_scaffold.main([str(tmp_path)]) == 3
     out = capsys.readouterr().out
-    assert "git repo가 아님" in out and "--home" in out and "--force" in out
+    assert "git repo가 아님" in out and "--vault" in out and "--force" in out
     assert not (tmp_path / ".okf-study").exists()
     assert not (tmp_path / ".okf-wiki.json").exists()
 
@@ -87,7 +87,7 @@ def test_cli_force_bypasses_guard(tmp_path):
 
 
 def test_cli_git_repo_proceeds(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
     monkeypatch.delenv("OKF_HOME_PROJECT", raising=False)
     subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
     assert study_scaffold.main([str(tmp_path)]) == 0
@@ -96,19 +96,19 @@ def test_cli_git_repo_proceeds(tmp_path, monkeypatch, capsys):
     assert "주의" not in out  # 포인터 없으면 고지 없음
 
 
-def test_cli_home_pointer_notice(tmp_path, monkeypatch, capsys):
-    # git repo + 유효 홈 포인터: 진행하되 우선순위 고지를 기계 출력
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    home = tmp_path / "home-kb"
-    (home / ".git").mkdir(parents=True)
-    (home / ".okf-wiki.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("OKF_HOME_PROJECT", str(home))
+def test_cli_vault_pointer_notice(tmp_path, monkeypatch, capsys):
+    # git repo + 유효 vault 포인터: 진행하되 우선순위 고지를 기계 출력
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    vault = tmp_path / "vault-kb"
+    (vault / ".git").mkdir(parents=True)
+    (vault / ".okf-wiki.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("OKF_HOME_PROJECT", str(vault))
     project = tmp_path / "work"
     project.mkdir()
     subprocess.run(["git", "init"], cwd=project, capture_output=True, check=True)
     assert study_scaffold.main([str(project)]) == 0
     out = capsys.readouterr().out
-    assert "주의" in out and "홈 캡처보다 우선" in out
+    assert "주의" in out and "vault 캡처보다 우선" in out
 
 
 def test_guard_accepts_git_file_worktree(tmp_path):

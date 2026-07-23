@@ -1,5 +1,5 @@
 ---
-description: okf 홈 폴백·캡처 입구 진단 — 현재 위치의 스코프 해소 결과와 이유
+description: okf vault 폴백·캡처 입구 진단 — 현재 위치의 스코프 해소 결과와 이유
 ---
 
 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_doctor.py" .`를 실행하고 출력을 **그대로**

@@ -37,7 +37,7 @@ def test_append_dedup_same_id(tmp_path):
 
 
 def test_concurrent_append_no_loss(tmp_path):
-    # #91 #6 — 홈 inbox 공유 핫스팟: 동시 append에도 후보 유실이 없어야 한다
+    # #91 #6 — vault inbox 공유 핫스팟: 동시 append에도 후보 유실이 없어야 한다
     import threading
 
     def worker(index: int) -> None:

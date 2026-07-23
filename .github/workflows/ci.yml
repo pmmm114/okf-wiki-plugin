@@ -36,7 +36,7 @@ jobs:
         run: |
           uv run --python 3.10 --no-project python -m py_compile \
             plugins/okf/scripts/core/okf_hooks.py \
-            plugins/okf/scripts/core/okf_home.py \
+            plugins/okf/scripts/core/okf_vault.py \
             plugins/okf/scripts/core/okf_remote.py
       - name: 픽스처 스위트
         run: uv run --with pyyaml python okf-core/scripts/run_fixture_suite.py

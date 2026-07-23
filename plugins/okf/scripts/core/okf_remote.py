@@ -1,15 +1,15 @@
 """관리형 clone 계층 (#153) — URL 포인터의 git I/O를 담는 generic 모듈.
 
-``okf_home``이 순수(무네트워크) 분류기로 남는 대가로, clone/fetch/ff-갱신 같은
+``okf_vault``이 순수(무네트워크) 분류기로 남는 대가로, clone/fetch/ff-갱신 같은
 **모든 네트워크·worktree 조작을 이 모듈이 소유**한다(#153 C6-1 — 배치/순수성 경계).
 호출은 전부 **명시 지점**에서만 한다:
 
-- ``clone``     : ``/okf-init --home`` 마법사가 사용자 동의 후 1회(옵트인, #91 #153 AC5).
+- ``clone``     : ``/okf-init --vault`` 마법사가 사용자 동의 후 1회(옵트인, #91 #153 AC5).
 - ``session_fetch`` : SessionStart 훅 **단일 지점**에서 fetch-only + TTL dedup(U1-5·U3-2).
 - ``refresh``   : ``/study`` 진입(step 0)에서 clean-gate 통과 시에만 ff-only 갱신(U3-2·U3-6).
-- ``doctor_home_notes`` : doctor의 **무네트워크** 신선도 표시(로컬 git 메타만, U1-8).
+- ``doctor_vault_notes`` : doctor의 **무네트워크** 신선도 표시(로컬 git 메타만, U1-8).
 
-resolver(``home_state``/``resolve_capture``/``resolve_inject``)에는 **절대 들어가지
+resolver(``vault_state``/``resolve_capture``/``resolve_inject``)에는 **절대 들어가지
 않는다** — 매 ``.md`` Write 훅이 resolver를 타므로 여기 네트워크가 붙으면 저장마다
 블록된다(#153 U1-1·U1-2). 신선도 실패(오프라인·인증)는 fail-closed가 아니라
 **캐시로 저하 + 사유 반환**이다 — 주입은 clone 캐시로 계속되고 PR만 보류된다.
@@ -35,7 +35,7 @@ try:
 except ImportError:  # pragma: no cover - 비-POSIX(윈도우 등)에선 락 없이 best-effort 진행
     fcntl = None
 
-import okf_home
+import okf_vault
 
 _DEFAULT_FETCH_TTL = 900.0  # 초 — 마지막 성공 fetch 후 재fetch 억제(신선 캐시 dedup)
 _DEFAULT_FAIL_BACKOFF = 60.0  # 초 — 마지막 실패 attempt 후 재시도 억제(오프라인 반복 스톨 방지)
@@ -96,7 +96,7 @@ def _sync_meta_path(clone_path: str | Path) -> Path | None:
 
 def _read_sync(clone_path: str | Path) -> dict:
     path = _sync_meta_path(clone_path)
-    return (okf_home.read_json(path) or {}) if path is not None else {}
+    return (okf_vault.read_json(path) or {}) if path is not None else {}
 
 
 def _stamp(clone_path: str | Path, **fields) -> None:
@@ -181,22 +181,22 @@ def origin_canonical(path: str | Path) -> str | None:
     rc, out, _err = _run_git(["remote", "get-url", "origin"], cwd=str(path))
     if rc != 0 or not out.strip():
         return None
-    return okf_home.canonicalize_url(out.strip())
+    return okf_vault.canonicalize_url(out.strip())
 
 
-# --- URL 포인터 해소 (순수 — okf_home 위임) -----------------------------------
+# --- URL 포인터 해소 (순수 — okf_vault 위임) -----------------------------------
 
 
 def _resolve_pointer(url: str | None = None):
     """(stored_url, canonical, clone_path) 또는 사유 문자열을 반환한다(무네트워크)."""
-    value = url if url is not None else okf_home.read_pointer()
-    if not value or not okf_home.is_url(value):
+    value = url if url is not None else okf_vault.read_pointer()
+    if not value or not okf_vault.is_url(value):
         return "URL 포인터 아님"
-    stored = okf_home.clone_url(value)
-    canonical = okf_home.canonicalize_url(value)
+    stored = okf_vault.clone_url(value)
+    canonical = okf_vault.canonicalize_url(value)
     if stored is None or canonical is None:
-        return okf_home.INVALID_URL_TRANSPORT
-    return stored, canonical, okf_home.managed_clone_path(canonical)
+        return okf_vault.INVALID_URL_TRANSPORT
+    return stored, canonical, okf_vault.managed_clone_path(canonical)
 
 
 # --- clone (옵트인 — 마법사가 동의 후 호출) ------------------------------------
@@ -213,7 +213,7 @@ def clone(url: str | None = None, timeout: float = _CLONE_TIMEOUT) -> dict:
     if isinstance(resolved, str):
         return {"cloned": False, "reason": resolved}
     stored, _canonical, dest = resolved
-    if okf_home.valid_home(dest):
+    if okf_vault.valid_vault(dest):
         return {
             "cloned": False,
             "reason": "이미 존재(재사용)",
@@ -241,7 +241,7 @@ def clone(url: str | None = None, timeout: float = _CLONE_TIMEOUT) -> dict:
         # 경합: 다른 세션이 먼저 물질화했으면 그걸 채택하고 임시본은 폐기(이 프로세스는
         # clone 안 했으므로 cloned:False로 정확히 보고 — D5).
         shutil.rmtree(tmp, ignore_errors=True)
-        if okf_home.valid_home(dest):
+        if okf_vault.valid_vault(dest):
             return {
                 "cloned": False,
                 "reason": "이미 존재(경합 — 재사용)",
@@ -249,7 +249,7 @@ def clone(url: str | None = None, timeout: float = _CLONE_TIMEOUT) -> dict:
                 "valid": True,
             }
         return {"cloned": False, "reason": "clone rename 실패", "clone_path": str(dest)}
-    valid = okf_home.valid_home(dest)
+    valid = okf_vault.valid_vault(dest)
     now = time.time()
     _stamp(dest, last_fetch=now, last_attempt=now)
     warning = None if valid else "clone됨 — .okf-wiki.json 부재(원격에 큐레이션 번들 필요)"
@@ -290,7 +290,7 @@ def session_fetch(ttl: float | None = None, timeout: float = _FETCH_TIMEOUT) -> 
     if isinstance(resolved, str):
         return {"skipped": resolved}
     _stored, _canonical, clone_path = resolved
-    if not okf_home.valid_home(clone_path):
+    if not okf_vault.valid_vault(clone_path):
         return {"skipped": "clone 미생성"}
     if ttl is None:
         ttl = _env_float("OKF_REMOTE_FETCH_TTL", _DEFAULT_FETCH_TTL)
@@ -320,7 +320,7 @@ def refresh(timeout: float = _FETCH_TIMEOUT) -> dict:
     if isinstance(resolved, str):
         return {"refreshed": False, "reason": resolved}
     _stored, _canonical, clone_path = resolved
-    if not okf_home.valid_home(clone_path):
+    if not okf_vault.valid_vault(clone_path):
         return {"refreshed": False, "reason": "clone 미생성"}
     # worktree 조작 구간은 다른 세션의 refresh와 직렬화한다(D4) — 획득 실패면 저하.
     with _clone_lock(clone_path) as acquired:
@@ -378,25 +378,25 @@ def _age_str(epoch) -> str:
     return f"{delta // 86400}일 전"
 
 
-def doctor_home_notes(pointer: str) -> list[str]:
+def doctor_vault_notes(pointer: str) -> list[str]:
     """URL 포인터의 무네트워크 진단 — 모드·clone 상태·마지막 fetch·behind·dirty(U1-8·U4-7).
 
     능동 fetch는 하지 않는다(로컬 git 메타만). 미생성·미허용 transport도 여기서 표기한다.
     """
     lines = ["  모드: URL(관리형 clone)"]
-    stored = okf_home.clone_url(pointer)
-    canonical = okf_home.canonicalize_url(pointer)
+    stored = okf_vault.clone_url(pointer)
+    canonical = okf_vault.canonicalize_url(pointer)
     if stored is None or canonical is None:
         lines.append(f"  URL: {pointer} — ⚠ 미지원 transport(https/ssh/git/file만)")
         return lines
-    clone_path = okf_home.managed_clone_path(canonical)
+    clone_path = okf_vault.managed_clone_path(canonical)
     lines.append(f"  URL: {stored}")
     lines.append(f"  clone: {clone_path}")
-    if not okf_home.valid_home(clone_path):
+    if not okf_vault.valid_vault(clone_path):
         if clone_path.exists():
             lines.append("  상태: ⚠ 반쪽 clone — okf_remote clone으로 재생성")
         else:
-            lines.append("  상태: ⚠ 미생성 — /okf-init --home으로 옵트인 생성")
+            lines.append("  상태: ⚠ 미생성 — /okf-init --vault로 옵트인 생성")
         return lines
     lines.append(f"  마지막 fetch: {_age_str(_read_sync(clone_path).get('last_fetch'))}")
     branch = _current_branch(clone_path)
@@ -413,19 +413,19 @@ def doctor_home_notes(pointer: str) -> list[str]:
     return lines
 
 
-def dualization_note(pointer: str, home: str) -> str | None:
-    """로컬 경로 홈이 같은 origin의 관리형 clone과 이원화됐는지 1줄 경고(U4-7·무네트워크).
+def dualization_note(pointer: str, vault: str) -> str | None:
+    """로컬 경로 vault가 같은 origin의 관리형 clone과 이원화됐는지 1줄 경고(U4-7·무네트워크).
 
     포인터가 로컬 경로인데 그 repo의 origin과 같은 canonical의 관리형 clone이 이미
     있으면 지식이 두 clone으로 갈린다 — doctor가 감지·안내한다.
     """
-    if okf_home.is_url(pointer) or okf_home.is_managed_clone(home):
+    if okf_vault.is_url(pointer) or okf_vault.is_managed_clone(vault):
         return None
-    canonical = origin_canonical(home)
+    canonical = origin_canonical(vault)
     if canonical is None:
         return None
-    twin = okf_home.managed_clone_path(canonical)
-    if okf_home.valid_home(twin):
+    twin = okf_vault.managed_clone_path(canonical)
+    if okf_vault.valid_vault(twin):
         return f"  ⚠ 이원화: 같은 origin의 관리형 clone 존재({twin}) — URL 모드와 로컬 경로 혼용"
     return None
 
@@ -452,11 +452,11 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "refresh":
         result = refresh()
     else:  # status
-        pointer = okf_home.read_pointer()
+        pointer = okf_vault.read_pointer()
         result = {
             "pointer": pointer,
-            "is_url": okf_home.is_url(pointer),
-            "notes": doctor_home_notes(pointer) if okf_home.is_url(pointer) else [],
+            "is_url": okf_vault.is_url(pointer),
+            "notes": doctor_vault_notes(pointer) if okf_vault.is_url(pointer) else [],
         }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

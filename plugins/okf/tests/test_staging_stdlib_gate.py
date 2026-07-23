@@ -15,7 +15,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "scripts" / "study"
 STAGING = ["study_store.py", "study_simhash.py", "study_blocks.py", "study_legacy.py"]
 FORBIDDEN = {"numpy", "scipy", "pandas", "requests", "datasketch", "simhash"}
 LOCAL = {
-    "okf_home",
+    "okf_vault",
     "study_inbox",
     "study_store",
     "study_simhash",

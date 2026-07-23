@@ -13,7 +13,7 @@
 **CLI 가드(#104, fail-closed — #91 #20 원칙: 판정은 스크립트)**: cwd가 git repo가
 아니면 스캐폴드를 거부한다(exit 3) — 핸들러 git-추적 요건상 디스패치가 영구
 불가한 반쪽 파이프라인이 되고, study 블록이 생기는 순간 해소 규칙 2("명시가
-이긴다")로 그 자리의 홈 캡처까지 꺼지기 때문이다. 우회는 명시 ``--force``뿐.
+이긴다")로 그 자리의 vault 캡처까지 꺼지기 때문이다. 우회는 명시 ``--force``뿐.
 라이브러리 함수(``scaffold``)는 순수하게 유지한다.
 """
 
@@ -31,8 +31,8 @@ DEFAULT_CONFIG = {"bundlePath": ".okf", "study": DEFAULT_STUDY}
 
 GUARD_NOT_GIT = (
     "거부: git repo가 아님 — 이 위치의 로컬 study 파이프라인은 핸들러 git-추적 요건상 "
-    "디스패치가 불가하고, 생성되는 study 블록이 이 자리의 홈 캡처를 꺼버린다(해소 규칙 2). "
-    "위치 무관 적립은 /okf-init --home <홈경로>(포인터만 기록)를 쓰라. "
+    "디스패치가 불가하고, 생성되는 study 블록이 이 자리의 vault 캡처를 꺼버린다(해소 규칙 2). "
+    "위치 무관 적립은 /okf-init --vault <경로>(포인터만 기록)를 쓰라. "
     "정말 로컬 스캐폴드가 필요하면 --force로 재실행."
 )
 
@@ -44,23 +44,23 @@ def guard(project: str | Path) -> str | None:
     return None
 
 
-def home_notice(project: str | Path) -> str | None:
-    """유효 홈 포인터와 공존할 때의 우선순위 고지(진행은 허용 — 정보 출력만)."""
+def vault_notice(project: str | Path) -> str | None:
+    """유효 vault 포인터와 공존할 때의 우선순위 고지(진행은 허용 — 정보 출력만)."""
     try:
-        import okf_home
+        import okf_vault
     except ImportError:  # pragma: no cover - 단독 배포 등 비정상 배치 관용
         return None
-    home, _reason = okf_home.home_state()
-    if home is None:
+    vault, _reason = okf_vault.vault_state()
+    if vault is None:
         return None
     try:
-        if Path(home).resolve() == Path(project).resolve():
+        if Path(vault).resolve() == Path(project).resolve():
             return None
     except OSError:
         return None
     return (
-        f"주의: 유효한 홈 포인터({home})가 있다 — 이 repo에 study 블록이 생기면 "
-        "여기서는 로컬 파이프라인이 홈 캡처보다 우선한다(해소 규칙 2)."
+        f"주의: 유효한 vault 포인터({vault})가 있다 — 이 repo에 study 블록이 생기면 "
+        "여기서는 로컬 파이프라인이 vault 캡처보다 우선한다(해소 규칙 2)."
     )
 
 
@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         if reason:
             print(reason)
             return 3
-    notice = home_notice(args.project)
+    notice = vault_notice(args.project)
     try:
         lines = scaffold(args.project)
     except ValueError as exc:

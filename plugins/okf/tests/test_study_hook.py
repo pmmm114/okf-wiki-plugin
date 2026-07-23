@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import okf_home
+import okf_vault
 import study_hook
 import study_inbox
 import study_scope
@@ -105,25 +105,25 @@ def test_main_emits_additional_context(tmp_path):
     assert "인박스" in out["hookSpecificOutput"]["additionalContext"]
 
 
-# --- 홈 폴백 (#91 V2) -------------------------------------------------------
+# --- vault 폴백 (#91 V2) -------------------------------------------------------
 
 
-def _make_home(tmp_path, config: dict):
-    home = tmp_path / "home-kb"
-    (home / ".git").mkdir(parents=True)
-    (home / ".okf-wiki.json").write_text(json.dumps(config), encoding="utf-8")
-    return home
+def _make_vault(tmp_path, config: dict):
+    vault = tmp_path / "vault-kb"
+    (vault / ".git").mkdir(parents=True)
+    (vault / ".okf-wiki.json").write_text(json.dumps(config), encoding="utf-8")
+    return vault
 
 
-def test_scope_home_delegates_inbox_to_home(monkeypatch, tmp_path):
-    # #91 §2 규칙 1 — 위임 repo의 캡처가 홈 inbox로 (레벨은 위임 블록 값)
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    home = _make_home(tmp_path, {"study": {"capture": "off"}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_scope_vault_delegates_inbox_to_vault(monkeypatch, tmp_path):
+    # #91 §2 규칙 1 — 위임 repo의 캡처가 vault inbox로 (레벨은 위임 블록 값)
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    vault = _make_vault(tmp_path, {"study": {"capture": "off"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     project = tmp_path / "work"
     project.mkdir()
     (project / ".okf-wiki.json").write_text(
-        json.dumps({"study": {"capture": "review", "scope": "home"}}), encoding="utf-8"
+        json.dumps({"study": {"capture": "review", "scope": "vault"}}), encoding="utf-8"
     )
     payload = {"tool_input": {"file_path": MEM, "content": "* delegated knowledge\n"}}
     message = study_hook.run(payload, project)
@@ -132,11 +132,11 @@ def test_scope_home_delegates_inbox_to_home(monkeypatch, tmp_path):
     assert study_inbox.list_candidates(project) == []  # 프로젝트 쪽엔 흔적 없음(#1)
 
 
-def test_configless_dir_falls_back_to_home(monkeypatch, tmp_path):
-    # R1 핵심 — 설정 없는 위치(비-repo 동치)에서도 캡처가 홈으로
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    home = _make_home(tmp_path, {"study": {"capture": "review"}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_configless_dir_falls_back_to_vault(monkeypatch, tmp_path):
+    # R1 핵심 — 설정 없는 위치(비-repo 동치)에서도 캡처가 vault으로
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    vault = _make_vault(tmp_path, {"study": {"capture": "review"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     payload = {"tool_input": {"file_path": MEM, "content": "* anywhere knowledge\n"}}
@@ -145,23 +145,23 @@ def test_configless_dir_falls_back_to_home(monkeypatch, tmp_path):
     assert len(study_inbox.list_candidates(_rt(scratch))) == 1
 
 
-def test_capture_never_writes_to_home_repo(monkeypatch, tmp_path):
-    # #114 U2 — 홈 폴백 캡처는 유저 스코프에만 적재, 홈 repo에 런타임을 만들지 않는다
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    home = _make_home(tmp_path, {"study": {"capture": "review"}})
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(home))
+def test_capture_never_writes_to_vault_repo(monkeypatch, tmp_path):
+    # #114 U2 — vault 폴백 캡처는 유저 스코프에만 적재, vault repo에 런타임을 만들지 않는다
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    vault = _make_vault(tmp_path, {"study": {"capture": "review"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    payload = {"tool_input": {"file_path": MEM, "content": "* home-clean check\n"}}
+    payload = {"tool_input": {"file_path": MEM, "content": "* vault-clean check\n"}}
     assert study_hook.run(payload, scratch)
     assert len(study_inbox.list_candidates(study_scope.user_scope_runtime())) == 1
-    assert not (home / ".okf-study").exists()  # 홈 repo 깨끗(런타임 미생성)
+    assert not (vault / ".okf-study").exists()  # vault repo 깨끗(런타임 미생성)
 
 
 def test_invalid_pointer_is_silent_in_posttooluse(monkeypatch, tmp_path):
     # #9·#19 — PostToolUse 캡처 훅은 무효 포인터에도 무음 스킵
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    monkeypatch.setenv(okf_home.POINTER_ENV, str(tmp_path / "nowhere"))
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(tmp_path / "nowhere"))
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     payload = {"tool_input": {"file_path": MEM, "content": "* x\n"}}
@@ -170,8 +170,8 @@ def test_invalid_pointer_is_silent_in_posttooluse(monkeypatch, tmp_path):
 
 def test_auto_memory_directory_capture(monkeypatch, tmp_path):
     # #17 e2e — autoMemoryDirectory로 옮긴 메모리도 캡처된다
-    monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
-    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "isolated-vault"))
+    monkeypatch.delenv(okf_vault.VAULT_ENV, raising=False)
     cfg = tmp_path / "cfg"
     cfg.mkdir()
     memdir = tmp_path / "custom-memory"

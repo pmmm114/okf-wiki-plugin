@@ -1,11 +1,11 @@
 """study 진단 섹션 (#145 U4) — okf_doctor가 선택 위임하는 study 절반.
 
 core doctor(okf_doctor)는 이 모듈을 **try-import 심 1개**로 위임한다 — 있으면
-섹션을 이어붙이고, 없으면 core 섹션(위치·주입·홈)만으로 정상 동작한다("있으면
+섹션을 이어붙이고, 없으면 core 섹션(위치·주입·vault)만으로 정상 동작한다("있으면
 실행, 없으면 생략"). 이 심은 core⊥study import 게이트(#145 U2)의 유일한
 allowlist 항목이다. 판정·안내는 전부 코드 경로(#20), stdlib 전용.
 
-담당 섹션: 캡처 트레이스 · 홈 study 메모(캡처 준비 제안·런타임 잔존·scope 조합) ·
+담당 섹션: 캡처 트레이스 · vault study 메모(캡처 준비 제안·런타임 잔존·scope 조합) ·
 캡처 입구(자동 메모리·L0 후보·입구 생존) · 스토어 · inbox · 최근 이력 · 회복.
 """
 
@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import okf_home
+import okf_vault
 import study as study_cli
 import study_inbox
 import study_legacy
@@ -23,21 +23,21 @@ import study_store
 
 
 def capture_trace(project: str) -> list[str]:
-    block = study_scope.study_block(okf_home.load_config(project))
-    home, reason = okf_home.home_state()
+    block = study_scope.study_block(okf_vault.load_config(project))
+    vault, reason = okf_vault.vault_state()
     scope = study_scope.resolve_capture(project)
-    if block is not None and block.get("scope") == "home":
-        why = 'study 블록의 scope:"home" 위임'
+    if block is not None and study_scope.is_vault_scope(block.get("scope")):
+        why = 'study 블록의 scope:"vault" 위임'
     elif block is not None:
         why = "프로젝트 study 블록 존재(명시가 이긴다)"
-    elif scope["scope"] == "home":
-        why = "study 블록 없음 → 유효 홈 폴백"
+    elif scope["scope"] == "vault":
+        why = "study 블록 없음 → 유효 vault 폴백"
     elif reason is not None:
-        why = f"홈 포인터 무효({reason})"
-    elif home is not None:
-        why = "홈이 캡처 비활성(주입 전용 홈 또는 capture=off)"
+        why = f"Vault 포인터 무효({reason})"
+    elif vault is not None:
+        why = "vault가 캡처 비활성(주입 전용 vault 또는 capture=off)"
     else:
-        why = "study 블록 없음 + 홈 포인터 없음(옵트인 안 함)"
+        why = "study 블록 없음 + vault 포인터 없음(옵트인 안 함)"
     lines = [f"  스코프: {scope['scope']} (capture={scope['capture']}) ← {why}"]
     if scope["target"]:
         lines.append(f"  승격 대상: {scope['target']}")
@@ -46,34 +46,34 @@ def capture_trace(project: str) -> list[str]:
     return lines
 
 
-def home_notes(project: str) -> list[str]:
-    """유효 홈에 대한 study 관점 메모 — 홈 무효·부재면 [] (core 쪽이 이미 안내)."""
-    home, reason = okf_home.home_state()
-    if home is None or reason is not None:
+def vault_notes(project: str) -> list[str]:
+    """유효 vault에 대한 study 관점 메모 — vault 무효·부재면 [] (core 쪽이 이미 안내)."""
+    vault, reason = okf_vault.vault_state()
+    if vault is None or reason is not None:
         return []
     lines = []
-    cap_state = study_scope.home_capture_state(home)
+    cap_state = study_scope.vault_capture_state(vault)
     if cap_state == "absent":
         lines.append(
-            "  메모: 주입 전용 홈(study 블록 없음, 캡처 비활성) — 위치 무관 적재를 "
-            "켜려면 `/okf-init --home <홈>` 재실행(캡처 활성 제안)"
+            "  메모: 주입 전용 vault(study 블록 없음, 캡처 비활성) — 위치 무관 적재를 "
+            "켜려면 `/okf-init --vault <vault>` 재실행(캡처 활성 제안)"
         )
     elif cap_state == "off":
         lines.append(
-            "  메모: 홈 캡처 off(capture=off) — 켜려면 홈 study.capture를 review로 "
-            "(또는 `/okf-init --home <홈>` 재실행)"
+            "  메모: vault 캡처 off(capture=off) — 켜려면 vault study.capture를 review로 "
+            "(또는 `/okf-init --vault <vault>` 재실행)"
         )
-    if (Path(home) / ".okf-study").exists():
+    if (Path(vault) / ".okf-study").exists():
         lines.append(
-            "  부합: ⚠ 홈에 `.okf-study` 런타임 잔존 — 홈은 순수 목적지여야 한다. "
+            "  부합: ⚠ vault에 `.okf-study` 런타임 잔존 — vault는 순수 목적지여야 한다. "
             "`study migrate`로 유저 스코프 이동(#114)"
         )
-    block = study_scope.study_block(okf_home.load_config(project))
-    if block is not None and block.get("scope") == "home":
+    block = study_scope.study_block(okf_vault.load_config(project))
+    if block is not None and study_scope.is_vault_scope(block.get("scope")):
         if "capture" not in block:
-            lines.append('  메모: scope:"home"인데 capture 부재 — 위임이 비활성(무의미 조합)')
+            lines.append('  메모: scope:"vault"인데 capture 부재 — 위임이 비활성(무의미 조합)')
         if block.get("handlers"):
-            lines.append('  메모: scope:"home" 블록의 handlers는 무시됨(홈 핸들러 사용)')
+            lines.append('  메모: scope:"vault" 블록의 handlers는 무시됨(vault 핸들러 사용)')
     return lines
 
 
@@ -83,7 +83,7 @@ def _entrance_lines(project: str) -> list[str]:
     if os.environ.get("CLAUDE_CODE_DISABLE_AUTO_MEMORY") == "1":
         disabled.append("CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
     for path in study_scope.settings_paths(project):
-        data = okf_home.read_json(path)
+        data = okf_vault.read_json(path)
         if data is not None and data.get("autoMemoryEnabled") is False:
             disabled.append(f"autoMemoryEnabled:false @{path}")
     if disabled:
@@ -136,9 +136,11 @@ def _store_notes(project: str) -> list[str]:
         lines.append(
             "  ⚠ 유저 스코프에 레거시 markdown 스테이징 잔존 — `study migrate`로 study.db 이관"
         )
-    home, _reason = okf_home.home_state()
-    if home is not None and study_legacy.has_legacy(Path(home) / ".okf-study"):
-        lines.append("  ⚠ 홈에 레거시 markdown 스테이징 잔존 — `study migrate`로 유저 스코프 이관")
+    vault, _reason = okf_vault.vault_state()
+    if vault is not None and study_legacy.has_legacy(Path(vault) / ".okf-study"):
+        lines.append(
+            "  ⚠ vault에 레거시 markdown 스테이징 잔존 — `study migrate`로 유저 스코프 이관"
+        )
     return lines
 
 
@@ -147,10 +149,10 @@ def _inbox_lines(project: str) -> list[str]:
     scope = study_scope.resolve_capture(project)
     if scope["runtime_root"] and scope["scope"] == "project":
         lines.append(f"  project 대기: {_pending_summary(scope['runtime_root'])}")
-    home, _reason = okf_home.home_state()
-    if home is not None:
+    vault, _reason = okf_vault.vault_state()
+    if vault is not None:
         shared = str(study_scope.user_scope_runtime())
-        lines.append(f"  home(유저 스코프) 대기: {_pending_summary(shared)}")
+        lines.append(f"  vault(유저 스코프) 대기: {_pending_summary(shared)}")
     return lines or ["  (활성 inbox 없음)"]
 
 
@@ -166,10 +168,10 @@ def _journal_lines(project: str) -> list[str]:
 
 
 def _recovery_lines(project: str) -> list[str]:
-    home, reason = okf_home.home_state()
+    vault, reason = okf_vault.vault_state()
     if reason is not None:
         return [
-            "  홈 포인터가 무효다 — `/okf-init --home <경로>`로 수리한 뒤 "
+            "  Vault 포인터가 무효다 — `/okf-init --vault <경로>`로 수리한 뒤 "
             "`study scan`으로 미큐잉을 확인하라."
         ]
     scope = study_scope.resolve_capture(project)

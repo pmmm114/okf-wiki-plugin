@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-import okf_home
+import okf_vault
 import study
 import study_inbox
 import study_scope
@@ -69,7 +69,7 @@ def test_near_duplicates_empty_without_sqlite(monkeypatch, tmp_path):
 def test_study_near_cli(monkeypatch, tmp_path, capsys):
     # 실측: `study near` 서브커맨드가 근사중복 쌍을 JSON으로 낸다(#133 U6)
     monkeypatch.setenv("HOME", str(tmp_path / "h"))
-    monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
+    monkeypatch.delenv(okf_vault.VAULT_ENV, raising=False)
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     project = tmp_path / "repo"
     project.mkdir()
