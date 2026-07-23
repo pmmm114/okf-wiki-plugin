@@ -1,152 +1,97 @@
-"""마켓플레이스 버전 핀 게이트 (플러그인 버저닝 시스템).
+"""마켓플레이스 배포 형태 게이트 (플러그인 버저닝 시스템).
 
-`.claude-plugin/marketplace.json`의 플러그인 엔트리가 항상 유효한 배포 형태를 유지하도록
-CI에서 강제한다(docs/releasing.md 플러그인 채널). 무git·stdlib — **내부 정합만** 본다.
-"최신 태그와 일치하는가"는 git이 필요하므로 `marketplace_version.py`(릴리스 헬퍼)가 맡는다
-— `test_version_sync.py`(무git 게이트) ↔ `next_version.py`(git 도출)와 같은 계층 분리다.
+`.claude-plugin/marketplace.json`의 플러그인 엔트리를 이 repo에서 **유일하게 동작하는
+형태**로 고정한다: 상대경로 소스(`./...`) + 엔트리 version 없음. `pytest scripts`
+(CI `core` 잡)가 자동 수집하므로 위반 시 잡이 red가 된다.
 
-두 유효 형태:
-- **Phase P**(첫 릴리스 전): 상대경로 소스 + version 없음(SHA 추적).
-- **Phase R**(릴리스 핀): git-subdir 자기 참조 + `ref=vX.Y.Z` + `version=X.Y.Z`(둘 동기).
+## 왜 이 형태만 허용하나
 
-또한 버전 해석 순서(plugin.json → marketplace → SHA)의 전제인 "plugin.json엔 version 없음"
-불변식을 여기서 함께 못박는다 — 지금까진 관례·비-strict validate뿐 자동 게이트가 없었다.
+이 repo는 모노레포다 — 플러그인(`plugins/okf`)이 엔진을 **심링크**로 공유한다
+(`plugins/okf/core → ../../okf-core`, `bin/okf`가 이를 통해 엔진 실행). Claude Code 공식
+문서(plugin-marketplaces)에 근거해:
 
-`pytest scripts`(CI `core` 잡)가 이 파일을 자동 수집하므로 위반 시 잡이 red가 된다.
+- **상대경로 소스**만 심링크를 해소한다 — git 마켓플레이스는 상대경로일 때 **repo 전체를
+  클론**하므로 형제 디렉터리 `okf-core`가 함께 와서 심링크가 산다.
+- **git-subdir 소스는 금지** — 하위 디렉터리만 **sparse 클론**해 `okf-core`가 빠지고
+  심링크가 dangling → 플러그인이 깨진다.
+- **엔트리 version 금지** — 상대경로(SHA 추적) 소스에 정적 version을 박으면 소비처 자동
+  업데이트가 동결되고 라벨이 내용과 어긋난다. 릴리스 고정은 소비처가 마켓플레이스 add 시
+  `pmmm114/okf-wiki-plugin@vX.Y.Z`처럼 **ref로** 한다(공식 방식).
+
+또한 버전 해석 순서(plugin.json → marketplace 엔트리 → 커밋 SHA)의 전제인 "plugin.json엔
+version 없음" 불변식도 여기서 함께 못박는다 — 정본은 `docs/plugin-versioning.md`.
 """
 
 from __future__ import annotations
 
-import ast
 import json
-import sys
 from pathlib import Path
-
-import marketplace_version as mv
 
 _ROOT = Path(__file__).resolve().parent.parent
 _MARKETPLACE = _ROOT / ".claude-plugin" / "marketplace.json"
 _PLUGIN_JSON = _ROOT / "plugins" / "okf" / ".claude-plugin" / "plugin.json"
 
 
+def entry_problems(entry: dict) -> list[str]:
+    """한 플러그인 엔트리의 배포 형태 위반 목록(빈 리스트 = 정상). git 불필요."""
+    name = entry.get("name", "<이름없음>")
+    src = entry.get("source")
+    out: list[str] = []
+    if not isinstance(src, str):
+        out.append(
+            f"{name}: source는 상대경로 문자열이어야 함 — 엔진을 심링크로 공유하는 모노레포라 "
+            "전체-repo 클론(상대경로)만 심링크를 해소한다. git-subdir 등 객체 소스는 하위 "
+            "디렉터리만 sparse 클론해 심링크가 깨진다"
+        )
+    elif not src.startswith("./"):
+        out.append(f"{name}: 상대경로 소스는 './'로 시작해야 함 — {src!r}")
+    if "version" in entry:
+        out.append(
+            f"{name}: 엔트리에 version 금지 — 상대경로(SHA 추적) 소스에 정적 version을 박으면 "
+            "자동 업데이트가 동결된다. 릴리스 고정은 소비처가 add 시 @vX.Y.Z로 한다"
+        )
+    return out
+
+
 def _doc() -> dict:
     return json.loads(_MARKETPLACE.read_text(encoding="utf-8"))
 
 
-# --- 커밋된 파일 불변식 (실제 marketplace.json / plugin.json을 검사) ---
+# --- 커밋된 파일 불변식 ---
+
+
+def test_committed_marketplace_entries_valid_form():
+    probs = [p for e in _doc()["plugins"] for p in entry_problems(e)]
+    assert not probs, "marketplace 엔트리 형태 위반:\n" + "\n".join(probs)
 
 
 def test_plugin_json_has_no_version():
     pj = json.loads(_PLUGIN_JSON.read_text(encoding="utf-8"))
     assert "version" not in pj, (
         "plugin.json에 version 금지 — 해석 순서상 plugin.json이 marketplace 엔트리를 조용히 "
-        "덮어 버전 핀을 무력화한다(CLAUDE.md 불변식)."
+        "덮는다(CLAUDE.md 불변식)."
     )
-
-
-def test_committed_marketplace_entries_valid_form():
-    doc = _doc()
-    url = mv.self_url(doc)
-    probs = [p for e in doc["plugins"] for p in mv.problems(e, url)]
-    assert not probs, "marketplace 엔트리 형태 위반:\n" + "\n".join(probs)
 
 
 # --- 순수 함수 단위 테스트 (무git 픽스처) ---
 
 
-def test_classify_forms():
-    assert mv.classify({"source": "./plugins/okf"}) == "pre-release"
-    assert mv.classify({"source": {"source": "git-subdir"}}) == "pinned"
-    assert mv.classify({"source": {"source": "github"}}) == "unknown"
+def test_relative_no_version_ok():
+    assert entry_problems({"name": "okf", "source": "./plugins/okf"}) == []
 
 
-def test_prerelease_static_version_is_footgun():
-    # 상대경로 소스에 정적 version → 자동 업데이트 동결. 게이트가 막아야 하는 대표 실수.
-    probs = mv.problems({"name": "x", "source": "./x", "version": "0.1.0"}, "o/r")
-    assert any("자동 업데이트가" in p for p in probs)
-
-
-def test_prerelease_clean_form_ok():
-    assert mv.problems({"name": "x", "source": "./plugins/x"}, "o/r") == []
-
-
-def _pinned(url="o/r", ref="v0.1.0", ver="0.1.0"):
-    return {
-        "name": "x",
-        "source": {"source": "git-subdir", "url": url, "path": "plugins/x", "ref": ref},
-        "version": ver,
+def test_object_source_rejected_breaks_symlink():
+    entry = {
+        "name": "okf",
+        "source": {"source": "git-subdir", "url": "o/r", "path": "plugins/okf", "ref": "v0.5.1"},
     }
+    assert any("심링크" in p for p in entry_problems(entry))
 
 
-def test_pinned_clean_form_ok():
-    assert mv.problems(_pinned(), "o/r") == []
+def test_version_field_rejected_freezes_updates():
+    probs = entry_problems({"name": "okf", "source": "./x", "version": "0.5.1"})
+    assert any("자동 업데이트가 동결" in p for p in probs)
 
 
-def test_pinned_version_ref_must_match():
-    assert any("불일치" in p for p in mv.problems(_pinned(ref="v0.2.0", ver="0.1.0"), "o/r"))
-
-
-def test_pinned_ref_must_be_release_tag():
-    assert any("릴리스 태그" in p for p in mv.problems(_pinned(ref="main"), "o/r"))
-
-
-def test_pinned_url_must_be_self_reference():
-    # 제3자·소비처 repo를 소스로 박지 않는다(자기 참조만).
-    assert any("자기 참조" in p for p in mv.problems(_pinned(url="third/party"), "o/r"))
-
-
-def test_unknown_source_rejected():
-    assert any("알 수 없는" in p for p in mv.problems({"name": "x", "source": 123}, "o/r"))
-
-
-def test_pinned_entry_builder_roundtrips_through_gate():
-    entry = {"name": "okf", "description": "keep me", "source": "./plugins/okf"}
-    out = mv.pinned_entry(entry, "0.1.0", "o/r")
-    assert out["version"] == "0.1.0"
-    assert out["source"] == {
-        "source": "git-subdir",
-        "url": "o/r",
-        "path": "plugins/okf",
-        "ref": "v0.1.0",
-    }
-    assert out["description"] == "keep me"  # 다른 키 보존
-    assert mv.problems(out, "o/r") == []  # 도출 결과는 게이트를 통과해야
-
-
-# --- check(): 태그 상태별 단계 정합 (git 배관은 주입한 픽스처로 대체) ---
-
-
-def test_check_no_tags_requires_prerelease():
-    doc = {"name": "m", "owner": {"name": "o"}, "plugins": [{"name": "x", "source": "./x"}]}
-    assert mv.check(doc, tags=[]) == []  # 태그 0개 + Phase P → OK
-    pinned_doc = {"name": "m", "owner": {"name": "o"}, "plugins": [_pinned(url="o/m")]}
-    assert any("태그가 없는데 핀됨" in p for p in mv.check(pinned_doc, tags=[]))
-
-
-def test_check_with_tag_requires_latest_pin():
-    base = {"name": "m", "owner": {"name": "o"}}
-    # 태그 있는데 아직 Phase P → 핀 필요
-    pre = {**base, "plugins": [{"name": "x", "source": "./x"}]}
-    assert any("Phase R로 핀해야" in p for p in mv.check(pre, tags=["v0.1.0"]))
-    # 최신 태그로 핀 → OK
-    ok = {**base, "plugins": [_pinned(url="o/m", ref="v0.2.0", ver="0.2.0")]}
-    assert mv.check(ok, tags=["v0.1.0", "v0.2.0"]) == []
-    # 옛 태그에 핀(드리프트) → 실패
-    drift = {**base, "plugins": [_pinned(url="o/m", ref="v0.1.0", ver="0.1.0")]}
-    assert any("드리프트" in p for p in mv.check(drift, tags=["v0.1.0", "v0.2.0"]))
-
-
-# --- 무의존 계약 (next_version.py와 같은 AST 검사) ---
-
-
-def test_imports_stdlib_and_sibling_only():
-    src = (_ROOT / "scripts" / "marketplace_version.py").read_text(encoding="utf-8")
-    imported: set[str] = set()
-    for node in ast.walk(ast.parse(src)):
-        if isinstance(node, ast.Import):
-            imported.update(a.name.split(".")[0] for a in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module.split(".")[0])
-    allowed = set(sys.stdlib_module_names) | {"__future__", "release_notes"}
-    extra = imported - allowed
-    assert not extra, f"허용 밖 import: {extra}"
+def test_non_dotslash_relative_rejected():
+    assert any("'./'로 시작" in p for p in entry_problems({"name": "okf", "source": "plugins/okf"}))

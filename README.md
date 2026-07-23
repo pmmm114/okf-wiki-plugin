@@ -75,6 +75,13 @@ okf-wiki-plugin은 크게 네 조각이에요.
 /plugin install okf@okf-wiki-plugin
 ```
 
+핀 없이 붙이면 최신(main)을 따라가고 커밋마다 자동 업데이트돼요. 특정 릴리스에 고정하고
+싶으면 마켓플레이스를 태그로 붙이면 돼요(원하는 릴리스 태그로):
+
+```
+/plugin marketplace add pmmm114/okf-wiki-plugin@v0.5.1
+```
+
 ### 2. 번들 초기화
 
 지식을 담을 repo에서 실행해요. 여러 번 돌려도 안전하고, 이미 있는 파일은 안 건드려요.
