@@ -2,7 +2,7 @@
 
   okf validate <path> [--strict] [--format json]
   okf index    <path> [--write]
-  okf graph    <path> --json [--linked-to P]
+  okf graph    <path> --json [--linked-to P] [--edges-from KEY] [--chain C]
   okf context  <path> [--max-chars N] [--group-by KEY] [--filter KEY=VALUE]
   okf log      append <path> -m MSG
   okf init     <dir>
@@ -31,7 +31,7 @@ _USAGE = """\
 
   validate <path> [--strict] [--format json]  §9 컨포먼스 검사
   index    <path> [--write]                   §6 형식 index.md 재생성
-  graph    <path> --json [--linked-to P]      링크 그래프·역링크 조회
+  graph    <path> --json [--linked-to P] [--edges-from KEY] [--chain C]  링크·역링크·사슬
   context  <path> [--max-chars N] [--group-by KEY] [--filter KEY=VALUE]  주입용 압축 인덱스
   log      append <path> -m MSG               log.md 항목 추가(§7)
   init     <dir>                              §9 컨포먼트 최소 번들 스캐폴드

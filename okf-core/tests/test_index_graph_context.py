@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 
 from okf_core.context import build_context
-from okf_core.graph import build_graph, linked_to
+from okf_core.graph import build_graph, chain, linked_to
 from okf_core.index import write_indexes
 from okf_core.parser import parse
 from okf_core.validate import validate_bundle
@@ -139,3 +139,50 @@ def test_context_axis_is_section9_neutral_and_default_unchanged(tmp_path):
     default = build_context(bundle).split("\n")[1:-1]
     assert not any(ln.startswith("## ") for ln in default)
     assert default[0].startswith("info.md ")
+
+
+def _chain_bundle(tmp_path):
+    """토마토 정초 사슬: wisdom → knowledge → information (+ dangling 대상 1)."""
+    b = tmp_path / "chain"
+    b.mkdir()
+    (b / "info.md").write_text(
+        "---\ntype: Fact\nlayer: information\nresource: https://example.org/tomato\n"
+        "description: 토마토는 과일이다.\n---\n\n# info\n",
+        encoding="utf-8",
+    )
+    (b / "know.md").write_text(
+        "---\ntype: Model\nlayer: knowledge\ndescription: 분류 기준 차이.\n"
+        "derived_from:\n  - /info.md\n---\n\n# know\n",
+        encoding="utf-8",
+    )
+    (b / "wise.md").write_text(
+        "---\ntype: Convention\nlayer: wisdom\ndescription: 샐러드 지침.\n"
+        "derived_from:\n  - /know.md\n  - /info.md\n  - /missing.md\n---\n\n# wise\n",
+        encoding="utf-8",
+    )
+    return b
+
+
+def test_graph_default_shape_unchanged_without_edges_from(tmp_path):
+    # edges_from 무지정 시 typed_edges 키 없음 — 기본 계약 불변
+    assert "typed_edges" not in build_graph(_chain_bundle(tmp_path))
+
+
+def test_graph_typed_edges_from_frontmatter(tmp_path):
+    g = build_graph(_chain_bundle(tmp_path), edges_from="derived_from")
+    assert {(e["from"], e["to"], e["via"]) for e in g["typed_edges"]} == {
+        ("know.md", "info.md", "derived_from"),
+        ("wise.md", "know.md", "derived_from"),
+        ("wise.md", "info.md", "derived_from"),
+    }  # 실재 대상만 — /missing.md(dangling)는 엣지에서 제외
+    assert all(set(e) == {"from", "to", "via"} for e in g["typed_edges"])
+    assert g["edges"] == []  # 본문 링크 없음 — 타입 엣지와 본문 엣지는 별개
+    assert {n["file"] for n in g["nodes"]} == {"info.md", "know.md", "wise.md"}
+
+
+def test_graph_chain_traverses_provenance_downward(tmp_path):
+    g = build_graph(_chain_bundle(tmp_path), edges_from="derived_from")
+    # 판단(wisdom)에서 근거 사슬을 하향 전이 순회(BFS 정렬 결정론)
+    assert chain(g, "wise.md", via="derived_from") == ["info.md", "know.md"]
+    assert chain(g, "know.md", via="derived_from") == ["info.md"]
+    assert chain(g, "info.md", via="derived_from") == []  # 정보는 사슬의 뿌리
