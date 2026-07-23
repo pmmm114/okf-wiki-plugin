@@ -27,7 +27,7 @@
 {
   "study": {
     "capture": "review",
-    "handlers": [{ "name": "kb-pr", "command": "scripts/okf-open-pr.sh" }]
+    "handlers": [{ "name": "kb-pr", "command": "scripts/okf-open-pr.py" }]
   }
 }
 ```
@@ -101,9 +101,11 @@
 
 ## 6. 참조 핸들러 템플릿
 
-계약을 실증하는 예시가 [`examples/okf-open-pr.sh.example`](examples/okf-open-pr.sh.example)에
-있다. **그대로 쓰는 활성 핸들러가 아니라** 소비처가 자기 커밋 경로(예: `scripts/`)로
-복사·수정하는 골격이다. 목적지 repo는 하드코딩하지 말고 소비처가 채운다.
+계약을 실증하는 예시가 [`examples/okf-open-pr.py.example`](examples/okf-open-pr.py.example)에
+있다(**표준 라이브러리 Python 자체완결형** — `jq`·복잡한 셸 불요). **그대로 쓰는 활성
+핸들러가 아니라** 소비처가 자기 커밋 경로(예: `scripts/okf-open-pr.py`)로 복사·수정하는
+골격이다: 복사 후 `chmod +x`, **목적지 정책 상수(base·리뷰어·라벨)만** 채우면 된다.
+목적지 repo는 하드코딩하지 말고 소비처가 채운다.
 
 ## 7. Vault 프로젝트 폴백 — repo 밖에서도 적립 (Epic #91·#114)
 
