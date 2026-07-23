@@ -2,6 +2,15 @@
   "name": "okf-wiki-plugin",
   "owner": { "name": "pmmm114" },
   "plugins": [
-    { "name": "okf", "source": "./plugins/okf" }
+    {
+      "name": "okf",
+      "source": {
+        "source": "git-subdir",
+        "url": "pmmm114/okf-wiki-plugin",
+        "path": "plugins/okf",
+        "ref": "v0.5.1"
+      },
+      "version": "0.5.1"
+    }
   ]
 }
