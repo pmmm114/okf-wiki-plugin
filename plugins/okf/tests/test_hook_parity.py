@@ -61,7 +61,8 @@ exit "$(cat "$OKF_STUB_DIR/exit" 2>/dev/null || echo 0)"
 def henv(tmp_path):
     scripts = tmp_path / "plugin" / "scripts"
     scripts.mkdir(parents=True)
-    for name in [*SH.values(), "okf_hooks.py", "okf_home.py"]:
+    # okf_remote는 okf_hooks가 SessionStart URL 신선도로 import하는 core 모듈(#153).
+    for name in [*SH.values(), "okf_hooks.py", "okf_home.py", "okf_remote.py"]:
         shutil.copy2(PLUGIN / "scripts" / name, scripts / name)
     bin_dir = tmp_path / "plugin" / "bin"
     bin_dir.mkdir()

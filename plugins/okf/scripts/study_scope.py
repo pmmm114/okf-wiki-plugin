@@ -260,10 +260,17 @@ def _cli_set(path: str) -> dict:
     """포인터를 검증 후 기록하고(generic 위임) 캡처 준비 상태를 덧붙인다.
 
     capture_ready로 "주입 전용 홈"을 기계 판정 → 마법사가 캡처 활성 제안 여부를 결정.
+    URL 모드(#153)는 관리형 clone이 이미 있을 때만 capture_ready를 판정한다 — 미생성
+    clone은 설정을 읽을 수 없으므로 마법사가 clone(옵트인) 후 재조회한다.
     """
     result = okf_home.set_pointer(path)
-    if result.get("written"):
-        result["capture_ready"] = home_capture_state(result["home"])
+    if not result.get("written"):
+        return result
+    if result.get("mode") == "url":
+        if result.get("clone_exists"):
+            result["capture_ready"] = home_capture_state(result["clone_path"])
+        return result
+    result["capture_ready"] = home_capture_state(result["home"])
     return result
 
 
@@ -281,6 +288,18 @@ def _cli_enable_capture(home: str, level: str) -> dict:
             os.environ[okf_home.POINTER_ENV] = saved
     if valid is None:
         return {"enabled": False, "reason": reason}
+    # URL 모드(#153 U2-6): 관리형 clone의 커밋된 .okf-wiki.json을 여기서 편집하면
+    # origin과 diverge해 ff 신선도 갱신이 막힌다. 캡처 옵트인은 **원격 repo**에 커밋해야
+    # 한다 — clone은 순수 소비 미러로 둔다.
+    if okf_home.is_managed_clone(valid):
+        return {
+            "enabled": False,
+            "reason": "managed-clone",
+            "guidance": (
+                "URL 홈은 관리형 clone이라 여기서 study.capture를 켜면 origin과 diverge한다 "
+                "— 원격 repo에 study.capture(review/auto)를 커밋한 뒤 fetch로 반영하라"
+            ),
+        }
     result = enable_home_capture(valid, level)
     return {"enabled": True, "home": valid, **result}
 

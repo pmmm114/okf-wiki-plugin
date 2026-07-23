@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import stat
 import subprocess
+from pathlib import Path
 
 import pytest
 import study_dispatch
@@ -107,3 +108,26 @@ def test_dispatch_skips_path_escape(tmp_path):
     )
     assert res["ran"] == []
     assert "repo 트리 밖" in res["skipped"][0]["reason"]
+
+
+def test_dispatch_runs_handler_with_repo_cwd(tmp_path, monkeypatch):
+    # #153 U2-4: 핸들러 cwd = 승격 대상 repo 루트여야 URL 모드(cwd≠홈)에서 PR 플로우가
+    # 성립한다. 핸들러가 pwd·$OKF_PROJECT를 기록해 검증한다.
+    repo = _make_repo(tmp_path)
+    _write_exec(
+        repo / "scripts" / "cwd.sh",
+        '#!/usr/bin/env bash\ncat >/dev/null 2>&1 || true\npwd > "$OKF_PROJECT/cwd.out"\n'
+        'echo "$OKF_PROJECT" >> "$OKF_PROJECT/cwd.out"\n',
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "h")
+    # 호출자 cwd를 repo 밖으로 두어 cwd 미지정이면 어긋나게 만든다
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+    item = {"source": "manual", "project": str(repo), "concept": {"path": str(repo / "c")}}
+    res = study_dispatch.dispatch(repo, item, [{"name": "cwd", "command": "scripts/cwd.sh"}], _yes)
+    assert res["ran"] == ["cwd"]
+    lines = (repo / "cwd.out").read_text(encoding="utf-8").splitlines()
+    assert Path(lines[0]).resolve() == repo.resolve()  # 핸들러가 repo에서 실행됨
+    assert lines[1] == str(repo)  # OKF_PROJECT env 전달

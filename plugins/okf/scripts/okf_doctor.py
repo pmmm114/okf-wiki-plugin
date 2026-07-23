@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 import okf_home
+import okf_remote
 
 try:
     import study_doctor  # 있으면 실행, 없으면 생략 — #145 U4 선택 위임 심
@@ -43,29 +44,45 @@ def _inject_trace(project: str) -> list[str]:
     return lines
 
 
+def _bundle_notes(home: str) -> list[str]:
+    """홈 부합(#114 U3) — 번들 존재 진단(홈 repo엔 큐레이션 번들이 필요)."""
+    home_config = okf_home.load_config(home)
+    bundle_path = ".okf"
+    if isinstance(home_config, dict) and isinstance(home_config.get("bundlePath"), str):
+        bundle_path = home_config["bundlePath"]
+    if (Path(home) / bundle_path).is_dir():
+        return [
+            f"  부합: 번들 {bundle_path} 있음(`okf validate {bundle_path} --strict`로 건강 확인)"
+        ]
+    return [f"  부합: ⚠ 번들 {bundle_path} 없음 — 홈 repo엔 큐레이션 번들이 필요"]
+
+
 def _home_notes(project: str) -> list[str]:
-    """generic 홈 메모 — 포인터 상태 + 번들 부합. study 관점 메모는 심이 덧붙인다."""
+    """generic 홈 메모 — 포인터 상태 + 번들 부합. study 관점 메모는 심이 덧붙인다.
+
+    URL 모드(#153): 포인터가 URL이면 관리형 clone의 무네트워크 신선도(모드·clone
+    상태·마지막 fetch·behind·dirty)를 okf_remote에 위임한다 — doctor는 능동 fetch를
+    하지 않는다(U1-8). 로컬 경로 홈은 같은 origin의 관리형 clone 이원화를 표면화한다(U4-7).
+    """
     lines = []
     pointer = okf_home.read_pointer()
     home, reason = okf_home.home_state()
     if pointer is None:
         lines.append("  포인터: 없음(옵트인 안 함)")
         return lines
+    if okf_home.is_url(pointer):
+        lines.extend(okf_remote.doctor_home_notes(pointer))
+        if reason is None:  # 유효 관리형 clone이면 번들 부합까지
+            lines.extend(_bundle_notes(home))
+        return lines
     if reason is not None:
         lines.append(f"  포인터: {pointer} — 무효({reason})")
         return lines
     lines.append(f"  포인터: {home} (유효)")
-    # 홈 부합(#114 U3) — 번들 존재 진단(홈 repo엔 큐레이션 번들이 필요)
-    home_config = okf_home.load_config(home)
-    bundle_path = ".okf"
-    if isinstance(home_config, dict) and isinstance(home_config.get("bundlePath"), str):
-        bundle_path = home_config["bundlePath"]
-    if (Path(home) / bundle_path).is_dir():
-        lines.append(
-            f"  부합: 번들 {bundle_path} 있음(`okf validate {bundle_path} --strict`로 건강 확인)"
-        )
-    else:
-        lines.append(f"  부합: ⚠ 번들 {bundle_path} 없음 — 홈 repo엔 큐레이션 번들이 필요")
+    lines.extend(_bundle_notes(home))
+    twin = okf_remote.dualization_note(pointer, home)  # 로컬↔관리형 clone 이원화(U4-7)
+    if twin:
+        lines.append(twin)
     return lines
 
 

@@ -347,3 +347,40 @@ def test_cli_enable_capture_refuses_non_git(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["enabled"] is False and out["reason"] == okf_home.INVALID_NOT_GIT
     assert not (bad / ".okf-study").exists()  # 편집 없음
+
+
+# --- URL 모드 CLI (#153) ------------------------------------------------------
+
+
+def _managed_clone(url: str, config: dict) -> Path:
+    clone = okf_home.managed_clone_path(okf_home.canonicalize_url(url))
+    (clone / ".git").mkdir(parents=True)
+    (clone / ".okf-wiki.json").write_text(json.dumps(config), encoding="utf-8")
+    return clone
+
+
+def test_cli_set_url_defers_capture_ready_when_clone_missing(tmp_path, capsys):
+    # clone 미생성이면 설정을 못 읽으므로 capture_ready를 판정하지 않는다(마법사가 clone 후 재조회)
+    assert study_scope.main(["set", "git@example.com:o/r.git"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["written"] is True and out["mode"] == "url" and out["clone_exists"] is False
+    assert "capture_ready" not in out
+
+
+def test_cli_set_url_reports_capture_ready_when_clone_present(tmp_path, capsys):
+    url = "git@example.com:o/r.git"
+    _managed_clone(url, {"study": {"capture": "review"}})
+    assert study_scope.main(["set", url]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["mode"] == "url" and out["clone_exists"] is True and out["capture_ready"] == "active"
+
+
+def test_cli_enable_capture_refuses_managed_clone(tmp_path, capsys):
+    # #153 U2-6: URL 홈(관리형 clone)에 캡처를 켜면 origin과 diverge → 거부·안내
+    url = "git@example.com:o/r.git"
+    clone = _managed_clone(url, {})
+    assert study_scope.main(["enable-capture", url]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["enabled"] is False and out["reason"] == "managed-clone" and out["guidance"]
+    # 관리형 clone의 커밋된 설정은 건드리지 않는다(diverge 방지)
+    assert json.loads((clone / ".okf-wiki.json").read_text(encoding="utf-8")) == {}

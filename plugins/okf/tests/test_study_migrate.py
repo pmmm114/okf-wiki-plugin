@@ -89,6 +89,24 @@ def test_migrate_no_pointer_is_noop(monkeypatch, tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["migrated"] is False
 
 
+def test_migrate_skips_managed_clone_home(monkeypatch, tmp_path, capsys):
+    # #153 U2-5: URL 홈(관리형 clone)의 .okf-study는 목적지 repo가 커밋한 git-추적
+    # 자원이라 rmtree하면 안 된다 — migrate는 관리형 clone을 건드리지 않는다.
+    url = "git@example.com:o/r.git"
+    clone = okf_home.managed_clone_path(okf_home.canonicalize_url(url))
+    (clone / ".git").mkdir(parents=True)
+    (clone / ".okf-wiki.json").write_text(json.dumps({"study": {"capture": "review"}}), "utf-8")
+    committed = clone / ".okf-study"
+    committed.mkdir()
+    (committed / ".gitignore").write_text("*\n!.gitignore\n", encoding="utf-8")  # git-추적 파일
+    monkeypatch.setenv(okf_home.POINTER_ENV, url)
+
+    assert study.main(["migrate"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["migrated"] is False  # 관리형 clone은 이관 원천이 아니다
+    assert (committed / ".gitignore").exists()  # 커밋된 파일 보존(clone dirty 방지)
+
+
 # --- 게이트: 홈/폴백 런타임은 절대 홈 안이 아니다 -----------------------------
 
 
