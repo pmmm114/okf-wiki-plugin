@@ -18,7 +18,11 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+# scripts/는 core/(plugin-core)·study/(feature)로 물리 분리돼 있다(#145 U5) —
+# 런타임 spawn은 bin/okf-py가 PYTHONPATH로 같은 두 경로를 노출한다.
+_SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+sys.path.insert(0, str(_SCRIPTS / "study"))
+sys.path.insert(0, str(_SCRIPTS / "core"))
 
 # 스코프 해소에 관여하는 환경변수 — 홈 포인터 오버라이드 · 설정 디렉토리 ·
 # 프로젝트 폴백 · doctor 자동메모리 판정. 필요한 테스트는 명시적으로 다시 설정한다.

@@ -6,7 +6,7 @@
 fail-fast 경로는 stdout 0바이트 + exit 0, 성공 경로는 JSON 정확히 1개,
 exit 2 금지(훅에서 차단성 오류의 특수 의미 — argparse도 같은 이유로 미사용),
 예상 외 예외는 exit 1. stdlib 전용 — 소비 머신의 시스템 python3(하한 3.10)로
-직접 실행되며 엔진 호출은 `../bin/okf` 셔틀 서브프로세스로만 한다.
+직접 실행되며 엔진 호출은 `../../bin/okf` 셔틀 서브프로세스로만 한다.
 OKF_HOOKS_DEBUG가 비어있지 않으면 트레이스백을 stderr로 출력한다.
 """
 
@@ -132,13 +132,13 @@ def _bundle_dir(project, cfg):
 
 
 def _run_okf(args, suppress_stderr):
-    """`../bin/okf` 셔틀 실행. 비-제로 종료·OSError·타임아웃은 전부 실패(None) 동치.
+    """`../../bin/okf` 셔틀 실행. 비-제로 종료·OSError·타임아웃은 전부 실패(None) 동치.
 
     셔틀이 uv를 exec하지 않아 엔진은 손자 프로세스다 — 타임아웃 시 프로세스
     그룹째 회수하고(고아 방지), 유일하게 진단 생산자를 죽이는 경로이므로
     stderr 1줄을 남긴다(다른 실패 경로의 무음과 달리).
     """
-    okf = os.path.join(_here(), "..", "bin", "okf")
+    okf = os.path.join(_here(), "..", "..", "bin", "okf")
     stderr = subprocess.DEVNULL if suppress_stderr else None
     try:
         proc = subprocess.Popen(

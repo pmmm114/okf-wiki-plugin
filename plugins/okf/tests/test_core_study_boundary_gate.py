@@ -20,25 +20,40 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+# #145 U5 물리 분리 — 경계 정의가 접두사(okf_*)에서 디렉토리(scripts/core/)로
+# 승격됐다. core 디렉토리의 모든 파이썬 파일(하위 패키지 포함 — rglob)이 대상이고,
+# 금지 집합도 scripts/study/ 실파일에서 도출한다(접두사 관례가 깨져도 경계 유지).
+SCRIPTS_CORE = Path(__file__).resolve().parent.parent / "scripts" / "core"
+SCRIPTS_STUDY = Path(__file__).resolve().parent.parent / "scripts" / "study"
 
 # 선언된 위임 심 — (core 파일명, 허용 study 모듈). 이 집합 외는 전부 금지.
 ALLOWED_SEAMS = {("okf_doctor.py", "study_doctor")}
 
 
 def _core_files() -> list[Path]:
-    files = sorted(SCRIPTS.glob("okf_*.py"))
-    assert files, "okf_* 스크립트 미발견 — 게이트 대상 공집합(경로 확인)"
+    # rglob — core/가 하위 패키지로 정리돼도 게이트가 실명하지 않는다(셔틀
+    # PYTHONPATH가 scripts/core를 노출하므로 하위 패키지도 런타임 도달 가능)
+    files = sorted(SCRIPTS_CORE.rglob("*.py"))
+    assert files, "scripts/core/ 파이썬 파일 미발견 — 게이트 대상 공집합(경로 확인)"
     return files
 
 
-def _is_study(name: str) -> bool:
+def _study_modules() -> set[str]:
+    """금지 모듈명 집합 — scripts/study/ 실파일(stem)에서 도출(디렉토리가 정본)."""
+    stems = {p.stem for p in SCRIPTS_STUDY.rglob("*.py")}
+    assert stems, "scripts/study/ 파이썬 파일 미발견 — 금지 집합 공집합(경로 확인)"
+    return stems
+
+
+def _is_study(name: str, study_modules: set[str]) -> bool:
+    # 접두사 관례(study/study_*)는 벨트-앤-서스펜더로 유지 — 미존재 study_* 모듈
+    # 참조도 잡고, 디렉토리 도출 집합이 관례 밖 파일명(예: formatter.py)을 커버한다.
     top = name.split(".")[0]
-    return top == "study" or top.startswith("study_")
+    return top == "study" or top.startswith("study_") or top in study_modules
 
 
-def _study_imports(path: Path) -> set[str]:
-    """정적 import(함수 내부 지연 import 포함)에서 study 접두 최상위 모듈명 수집."""
+def _study_imports(path: Path, study_modules: set[str]) -> set[str]:
+    """정적 import(함수 내부 지연 import 포함)에서 금지 모듈명 수집."""
     names: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
@@ -49,14 +64,15 @@ def _study_imports(path: Path) -> set[str]:
             elif node.level:
                 # `from . import study_x` — 상대 import는 alias가 곧 모듈명이다
                 names.update(alias.name.split(".")[0] for alias in node.names)
-    return {name for name in names if _is_study(name)}
+    return {name for name in names if _is_study(name, study_modules)}
 
 
 def test_core_scripts_do_not_import_study():
+    study_modules = _study_modules()
     violations: list[str] = []
     seams_found: set[tuple[str, str]] = set()
     for path in _core_files():
-        for module in sorted(_study_imports(path)):
+        for module in sorted(_study_imports(path, study_modules)):
             if (path.name, module) in ALLOWED_SEAMS:
                 seams_found.add((path.name, module))
             else:
@@ -70,6 +86,7 @@ def test_core_scripts_do_not_import_study():
 
 def test_core_scripts_do_not_dynamic_import_study():
     # __import__/import_module의 문자열 상수 인자까지 차단(정적 게이트 우회 방지)
+    study_modules = _study_modules()
     violations: list[str] = []
     for path in _core_files():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -85,6 +102,6 @@ def test_core_scripts_do_not_dynamic_import_study():
                 continue
             for arg in [*node.args, *(kw.value for kw in node.keywords)]:
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                    if _is_study(arg.value):
+                    if _is_study(arg.value, study_modules):
                         violations.append(f"{path.name} → 동적 import {arg.value!r}")
     assert not violations, f"core⊥study 경계 위반(동적): {violations}"

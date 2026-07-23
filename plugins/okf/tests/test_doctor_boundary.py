@@ -14,16 +14,23 @@ import subprocess
 import sys
 from pathlib import Path
 
-SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+PLUGIN = Path(__file__).resolve().parent.parent
+SCRIPTS_CORE = PLUGIN / "scripts" / "core"
+SCRIPTS_STUDY = PLUGIN / "scripts" / "study"
 # okf_remote는 core 인프라(URL 모드 관리형 clone, #153) — core-only 배치에도 함께 온다.
 CORE_ONLY = ["okf_doctor.py", "okf_home.py", "okf_remote.py"]
+
+
+def _src(name: str) -> Path:
+    # core/study 물리 분리(#145 U5) — 파일명 접두사로 원본 디렉토리를 찾는다
+    return (SCRIPTS_STUDY if name.startswith("study") else SCRIPTS_CORE) / name
 
 
 def _run_doctor_with(tmp_path, files, *, with_home_pointer=False):
     scripts = tmp_path / "partial-deploy"
     scripts.mkdir()
     for name in files:
-        shutil.copy2(SCRIPTS / name, scripts / name)
+        shutil.copy2(_src(name), scripts / name)
     project = tmp_path / "proj"
     project.mkdir(exist_ok=True)
     env = {**os.environ, "HOME": str(tmp_path / "isolated-home")}
@@ -79,7 +86,7 @@ def test_doctor_url_pointer_shows_managed_clone_notes(tmp_path):
     scripts = tmp_path / "url-deploy"
     scripts.mkdir()
     for name in CORE_ONLY:
-        shutil.copy2(SCRIPTS / name, scripts / name)
+        shutil.copy2(_src(name), scripts / name)
     project = tmp_path / "proj2"
     project.mkdir()
     env = {**os.environ, "HOME": str(tmp_path / "isolated-home2")}
@@ -97,14 +104,15 @@ def test_doctor_url_pointer_shows_managed_clone_notes(tmp_path):
 
 
 def test_doctor_full_sections_with_study_present(tmp_path):
-    # 정상 배치(전체 scripts/)에서는 심이 로드되어 study 섹션이 전부 출력된다
+    # 정상 배치에서는 심이 로드되어 study 섹션이 전부 출력된다 — 실배선과 동일하게
+    # bin/okf-py 셔틀 경유(셔틀이 core/·study/를 PYTHONPATH로 노출, #145 U5)
     project = tmp_path / "proj"
     project.mkdir()
-    env = {**os.environ, "HOME": str(tmp_path / "isolated-home")}
+    env = {**os.environ, "HOME": str(tmp_path / "isolated-home"), "OKF_PYTHON": sys.executable}
     env.pop("OKF_HOME_PROJECT", None)
     env.pop("CLAUDE_CONFIG_DIR", None)
     res = subprocess.run(
-        [sys.executable, str(SCRIPTS / "okf_doctor.py"), str(project)],
+        [str(PLUGIN / "bin" / "okf-py"), str(SCRIPTS_CORE / "okf_doctor.py"), str(project)],
         capture_output=True,
         env=env,
         timeout=60,
