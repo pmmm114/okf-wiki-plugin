@@ -19,8 +19,10 @@ import sys
 import okf_home
 import okf_remote
 
-# URL 모드(#153) SessionStart fetch 상한 — 30초 context 호출과 합쳐 60초 훅 예산 내.
-_REMOTE_FETCH_TIMEOUT = 10.0
+# URL 모드(#153) SessionStart fetch 상한 — fetch-only는 주입 신선도에 기여하지 않으므로
+# (워킹트리 미변경) 짧게 잡는다. 실패는 backoff로 dedup되어 반복 스톨을 막는다(D3·D-design).
+# 30초 context 호출과 합쳐도 60초 훅 예산 안. 사용자 주도 /study refresh는 별도 긴 상한.
+_REMOTE_FETCH_TIMEOUT = 5.0
 
 
 def _okf_timeout():

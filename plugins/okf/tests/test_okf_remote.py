@@ -8,6 +8,7 @@ SessionStart fetch-only·clean-gate ff·오프라인 저하·미생성 옵트인
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -24,7 +25,8 @@ def _origin(tmp_path, config: dict | None = None):
     """기본 브랜치 main + 커밋된 .okf-wiki.json·번들을 담은 로컬 원격을 만든다."""
     src = tmp_path / "origin-src"
     src.mkdir()
-    _git(src, "init", "-b", "main")
+    _git(src, "init")
+    _git(src, "symbolic-ref", "HEAD", "refs/heads/main")  # -b 대신 버전-무관(git<2.28 호환)
     _git(src, "config", "user.email", "t@example.com")
     _git(src, "config", "user.name", "t")
     (src / ".okf-wiki.json").write_text(
@@ -46,7 +48,12 @@ def _isolate(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "isolated-home"))
     monkeypatch.delenv(okf_home.POINTER_ENV, raising=False)
     monkeypatch.delenv("OKF_REMOTE_OFFLINE", raising=False)
-    monkeypatch.setenv("OKF_REMOTE_FETCH_TTL", "0")  # TTL dedup 끔(기본은 명시 테스트에서)
+    # ambient GIT_ALLOW_PROTOCOL이 file을 배제하면 file:// 테스트가 깨진다 — _git_env의
+    # setdefault 기본값(file 포함)이 적용되도록 제거해 결정론화(D6).
+    monkeypatch.delenv("GIT_ALLOW_PROTOCOL", raising=False)
+    # 신선도 dedup(ttl·backoff)을 기본 꺼 실제 fetch를 강제 — 각 창은 명시 테스트에서 켠다.
+    monkeypatch.setenv("OKF_REMOTE_FETCH_TTL", "0")
+    monkeypatch.setenv("OKF_REMOTE_FETCH_BACKOFF", "0")
 
 
 # --- clone (옵트인·멱등·원자성) ----------------------------------------------
@@ -141,6 +148,38 @@ def test_session_fetch_offline_env_skips(monkeypatch, tmp_path):
 def test_session_fetch_noop_for_local_pointer(monkeypatch, tmp_path):
     monkeypatch.setenv(okf_home.POINTER_ENV, str(tmp_path / "local"))
     assert okf_remote.session_fetch()["skipped"] == "URL 포인터 아님"
+
+
+def test_session_fetch_failure_backs_off(monkeypatch, tmp_path):
+    # D3: 오프라인/실패 fetch는 last_attempt를 스탬프해 다음 SessionStart를 backoff로 skip
+    # → 매 시작마다 재시도 스톨하지 않는다.
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_home.POINTER_ENV, _url(src))
+    clone_path = okf_remote.clone()["clone_path"]
+    okf_remote._sync_meta_path(clone_path).write_text("{}", encoding="utf-8")  # 스탬프 초기화
+    import shutil
+
+    shutil.rmtree(src)  # 원격 소멸 → fetch 실패(오프라인 재현)
+    monkeypatch.setenv("OKF_REMOTE_FETCH_BACKOFF", "9999")
+    # 첫 시도: 실패하지만 last_attempt를 남긴다
+    assert okf_remote.session_fetch()["fetched"] is False
+    # 둘째 시도: backoff 창 안이라 네트워크를 다시 타지 않고 skip
+    assert okf_remote.session_fetch().get("skipped") == "backoff"
+
+
+@pytest.mark.skipif(okf_remote.fcntl is None, reason="POSIX flock 필요")
+def test_refresh_skips_when_clone_locked(monkeypatch, tmp_path):
+    # D4: 다른 세션이 clone 갱신 중(락 점유)이면 refresh는 'locked'로 저하한다(worktree 경합 방지).
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_home.POINTER_ENV, _url(src))
+    clone_path = okf_remote.clone()["clone_path"]
+    lock_fd = os.open(str(Path(clone_path) / ".git" / "okf-remote.lock"), os.O_CREAT | os.O_RDWR)
+    okf_remote.fcntl.flock(lock_fd, okf_remote.fcntl.LOCK_EX)  # 다른 세션 점유 재현
+    try:
+        result = okf_remote.refresh()
+        assert result["refreshed"] is False and result["reason"] == "locked"
+    finally:
+        os.close(lock_fd)
 
 
 # --- refresh (clean-gate ff-only) --------------------------------------------

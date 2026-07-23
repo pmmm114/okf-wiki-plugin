@@ -180,8 +180,15 @@ def test_canonicalize_collapses_notations_and_strips_credentials():
 
 
 def test_canonicalize_rejects_disallowed_transport():
-    for bad in ("ext::sh -c evil", "svn://example.com/o/r", "/abs/path", "not a url"):
+    for bad in ("ext::sh -c evil", "transport::addr", "svn://example.com/o/r", "/abs/path"):
         assert okf_home.canonicalize_url(bad) is None
+
+
+def test_canonicalize_accepts_ipv6_literal_host():
+    # D1 회귀: `::` 가드가 IPv6 리터럴을 오거부하면 안 된다(transport-helper만 거부).
+    assert okf_home.canonicalize_url("https://[::1]:8443/o/r") == "https://[::1]:8443/o/r"
+    assert okf_home.canonicalize_url("ssh://git@[2001:db8::1]/o/r") == "ssh://[2001:db8::1]/o/r"
+    assert okf_home.is_url("https://[::1]/o/r") and okf_home.clone_url("https://[::1]/o/r")
 
 
 def test_clone_url_preserves_transport_strips_http_credentials():

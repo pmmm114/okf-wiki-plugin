@@ -27,11 +27,18 @@ import signal
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
+
+try:
+    import fcntl  # POSIX advisory lock — 다중 세션 clone 경합 직렬화(D4)
+except ImportError:  # pragma: no cover - 비-POSIX(윈도우 등)에선 락 없이 best-effort 진행
+    fcntl = None
 
 import okf_home
 
-_DEFAULT_FETCH_TTL = 900.0  # 초 — SessionStart 재발화(resume/compact) 간 fetch dedup
+_DEFAULT_FETCH_TTL = 900.0  # 초 — 마지막 성공 fetch 후 재fetch 억제(신선 캐시 dedup)
+_DEFAULT_FAIL_BACKOFF = 60.0  # 초 — 마지막 실패 attempt 후 재시도 억제(오프라인 반복 스톨 방지)
 _CLONE_TIMEOUT = 120.0
 _FETCH_TIMEOUT = 20.0
 _LOCAL_GIT_TIMEOUT = 10.0
@@ -92,16 +99,49 @@ def _read_sync(clone_path: str | Path) -> dict:
     return (okf_home.read_json(path) or {}) if path is not None else {}
 
 
-def _stamp_fetch(clone_path: str | Path) -> None:
+def _stamp(clone_path: str | Path, **fields) -> None:
+    """clone 신선도 메타(.git/okf-sync.json)에 필드를 병합 기록한다(best-effort).
+
+    ``last_fetch``(마지막 **성공** fetch)와 ``last_attempt``(마지막 **시도**, 성공·실패
+    무관)를 분리 기록한다 — 실패 attempt도 스탬프해 오프라인 반복 fetch 스톨을 막는다(D3).
+    """
     path = _sync_meta_path(clone_path)
     if path is None:
         return
     data = _read_sync(clone_path)
-    data["last_fetch"] = time.time()
+    data.update(fields)
     try:
         path.write_text(json.dumps(data), encoding="utf-8")
     except OSError:
         pass
+
+
+@contextmanager
+def _clone_lock(clone_path: str | Path):
+    """관리형 clone의 worktree 조작 구간 advisory lock(비차단) — 다중 세션 경합 직렬화(D4).
+
+    yield는 획득 여부(bool). fcntl 부재(비-POSIX)·``.git`` 부재·락 파일 생성 불가면
+    무락으로 진행(True). 획득 실패(다른 세션 점유)면 False — 호출자가 '생략'으로 저하한다.
+    파일 디스크립터 닫기가 flock을 해제한다.
+    """
+    gitdir = Path(clone_path) / ".git"
+    if fcntl is None or not gitdir.is_dir():
+        yield True
+        return
+    try:
+        fd = os.open(str(gitdir / "okf-remote.lock"), os.O_CREAT | os.O_RDWR, 0o644)
+    except OSError:
+        yield True  # 락 파일 생성 불가 — best-effort 무락 진행
+        return
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except OSError:
+            acquired = False
+        yield acquired
+    finally:
+        os.close(fd)
 
 
 # --- 로컬 git 상태 (무네트워크 — 이미 fetch된 ref만) ---------------------------
@@ -198,12 +238,20 @@ def clone(url: str | None = None, timeout: float = _CLONE_TIMEOUT) -> dict:
     try:
         os.replace(tmp, dest)  # 원자적 rename(같은 파일시스템)
     except OSError:
-        # 경합: 다른 세션이 먼저 물질화했으면 그걸 채택하고 임시본은 폐기
+        # 경합: 다른 세션이 먼저 물질화했으면 그걸 채택하고 임시본은 폐기(이 프로세스는
+        # clone 안 했으므로 cloned:False로 정확히 보고 — D5).
         shutil.rmtree(tmp, ignore_errors=True)
-        if not dest.exists():
-            return {"cloned": False, "reason": "clone rename 실패", "clone_path": str(dest)}
+        if okf_home.valid_home(dest):
+            return {
+                "cloned": False,
+                "reason": "이미 존재(경합 — 재사용)",
+                "clone_path": str(dest),
+                "valid": True,
+            }
+        return {"cloned": False, "reason": "clone rename 실패", "clone_path": str(dest)}
     valid = okf_home.valid_home(dest)
-    _stamp_fetch(dest)
+    now = time.time()
+    _stamp(dest, last_fetch=now, last_attempt=now)
     warning = None if valid else "clone됨 — .okf-wiki.json 부재(원격에 큐레이션 번들 필요)"
     return {"cloned": True, "clone_path": str(dest), "valid": valid, "warning": warning}
 
@@ -212,25 +260,29 @@ def clone(url: str | None = None, timeout: float = _CLONE_TIMEOUT) -> dict:
 
 
 def _fetch(clone_path: str | Path, timeout: float = _FETCH_TIMEOUT) -> dict:
+    now = time.time()
     rc, _out, err = _run_git(["fetch", "--quiet"], cwd=str(clone_path), timeout=timeout)
     if rc == 0:
-        _stamp_fetch(clone_path)
+        _stamp(clone_path, last_fetch=now, last_attempt=now)
         return {"fetched": True}
+    _stamp(clone_path, last_attempt=now)  # 실패도 스탬프 — 오프라인 매-SessionStart 스톨 방지(D3)
     return {"fetched": False, "reason": "fetch 실패(오프라인/인증)", "detail": err.strip()[-200:]}
 
 
-def _fetch_ttl() -> float:
+def _env_float(name: str, default: float) -> float:
     try:
-        return float(os.environ["OKF_REMOTE_FETCH_TTL"])
+        return float(os.environ[name])
     except (KeyError, ValueError):
-        return _DEFAULT_FETCH_TTL
+        return default
 
 
 def session_fetch(ttl: float | None = None, timeout: float = _FETCH_TIMEOUT) -> dict:
-    """SessionStart용 fetch-only. URL 모드·유효 clone·TTL 경과일 때만 네트워크.
+    """SessionStart용 fetch-only. URL 모드·유효 clone·신선도 창 경과일 때만 네트워크.
 
     미생성 clone은 여기서 만들지 않는다(옵트인, U1-4) — 미생성/오프라인/미URL은 전부
-    무동작(skipped)이다. worktree는 절대 건드리지 않는다(fetch-only, U3-2).
+    무동작(skipped)이다. worktree는 절대 건드리지 않는다(fetch-only, U3-2). dedup은 2단:
+    마지막 **성공**이 TTL 안이면 skip(신선 캐시), 아니면 마지막 **시도**가 backoff 안이면
+    skip(오프라인 반복 스톨 억제, D3) — 둘 다 아니면 시도한다.
     """
     if os.environ.get("OKF_REMOTE_OFFLINE"):
         return {"skipped": "offline env"}
@@ -241,10 +293,16 @@ def session_fetch(ttl: float | None = None, timeout: float = _FETCH_TIMEOUT) -> 
     if not okf_home.valid_home(clone_path):
         return {"skipped": "clone 미생성"}
     if ttl is None:
-        ttl = _fetch_ttl()
-    last = _read_sync(clone_path).get("last_fetch")
-    if ttl > 0 and isinstance(last, (int, float)) and (time.time() - last) < ttl:
+        ttl = _env_float("OKF_REMOTE_FETCH_TTL", _DEFAULT_FETCH_TTL)
+    now = time.time()
+    meta = _read_sync(clone_path)
+    last_fetch = meta.get("last_fetch")
+    if ttl > 0 and isinstance(last_fetch, (int, float)) and (now - last_fetch) < ttl:
         return {"skipped": "ttl"}
+    backoff = _env_float("OKF_REMOTE_FETCH_BACKOFF", _DEFAULT_FAIL_BACKOFF)
+    last_attempt = meta.get("last_attempt")
+    if backoff > 0 and isinstance(last_attempt, (int, float)) and (now - last_attempt) < backoff:
+        return {"skipped": "backoff"}
     return _fetch(clone_path, timeout=timeout)
 
 
@@ -264,33 +322,46 @@ def refresh(timeout: float = _FETCH_TIMEOUT) -> dict:
     _stored, _canonical, clone_path = resolved
     if not okf_home.valid_home(clone_path):
         return {"refreshed": False, "reason": "clone 미생성"}
-    dirty = _is_dirty(clone_path)
-    if dirty:
+    # worktree 조작 구간은 다른 세션의 refresh와 직렬화한다(D4) — 획득 실패면 저하.
+    with _clone_lock(clone_path) as acquired:
+        if not acquired:
+            return {
+                "refreshed": False,
+                "reason": "locked",
+                "warning": "다른 세션이 clone을 갱신 중 — 생략(캐시로 진행)",
+            }
+        if _is_dirty(clone_path):
+            return {
+                "refreshed": False,
+                "reason": "dirty",
+                "warning": "clone에 미커밋 승격 잔재 — 디스패치(커밋)/폐기 후 동기화하라",
+            }
+        if os.environ.get("OKF_REMOTE_OFFLINE"):
+            return {
+                "refreshed": False,
+                "reason": "offline env",
+                "warning": "오프라인 — 캐시로 진행",
+            }
+        now = time.time()
+        rc, _out, _err = _run_git(["fetch", "--quiet"], cwd=str(clone_path), timeout=timeout)
+        if rc != 0:
+            _stamp(clone_path, last_attempt=now)
+            return {
+                "refreshed": False,
+                "reason": "fetch 실패",
+                "warning": "신선도 갱신 실패 — 캐시로 진행",
+            }
+        _stamp(clone_path, last_fetch=now, last_attempt=now)
+        rc, _out, _err = _run_git(
+            ["merge", "--ff-only", "@{upstream}"], cwd=str(clone_path), timeout=timeout
+        )
+        if rc == 0:
+            return {"refreshed": True}
         return {
             "refreshed": False,
-            "reason": "dirty",
-            "warning": "관리형 clone에 미커밋 승격 잔재 — 디스패치(커밋) 또는 폐기 후 동기화하라",
+            "reason": "diverged",
+            "warning": "로컬 커밋으로 ff 불가 — 관리형 clone 수동 정리 필요",
         }
-    if os.environ.get("OKF_REMOTE_OFFLINE"):
-        return {"refreshed": False, "reason": "offline env", "warning": "오프라인 — 캐시로 진행"}
-    rc, _out, _err = _run_git(["fetch", "--quiet"], cwd=str(clone_path), timeout=timeout)
-    if rc != 0:
-        return {
-            "refreshed": False,
-            "reason": "fetch 실패",
-            "warning": "신선도 갱신 실패 — 캐시로 진행",
-        }
-    _stamp_fetch(clone_path)
-    rc, _out, _err = _run_git(
-        ["merge", "--ff-only", "@{upstream}"], cwd=str(clone_path), timeout=timeout
-    )
-    if rc == 0:
-        return {"refreshed": True}
-    return {
-        "refreshed": False,
-        "reason": "diverged",
-        "warning": "로컬 커밋으로 ff 불가 — 관리형 clone 수동 정리 필요",
-    }
 
 
 # --- doctor (무네트워크 신선도 표시 — U1-8) -----------------------------------

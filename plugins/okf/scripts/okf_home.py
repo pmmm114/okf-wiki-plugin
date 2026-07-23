@@ -90,6 +90,9 @@ _MANAGED_REL = ".claude/okf/remotes"
 _SCHEME_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.-]*)://")
 # scp-like: user@host:path (콜론 앞에 슬래시 없음) — git의 ssh 단축표기.
 _SCP_RE = re.compile(r"^[^/@:]+@[^/@:]+:")
+# transport-helper 거부: 선두 `scheme::`(ext::·transport::address 등 — 명령 실행/로컬
+# 도달 위험, #153 C5-1). `//` 없는 `::`만 잡아 IPv6 리터럴(`https://[::1]/...`)은 통과.
+_HELPER_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*::")
 # 허용 transport — 명령 실행(ext::)·미지의 스킴은 배제(#153 C5-1). file은 테스트·
 # 로컬 미러용으로 허용(사용자가 소유한 포인터라 로컬 경로 모드와 동급 위험).
 _ALLOWED_SCHEMES = frozenset({"https", "http", "ssh", "git", "file"})
@@ -106,7 +109,7 @@ def is_url(value: str | None) -> bool:
 def _split_scheme(value: str) -> tuple[str, str] | None:
     """(scheme, rest) 분해 — scp-like는 ssh로 승격. 미허용·비URL은 None."""
     value = value.strip().strip('"').strip("'")
-    if not value or "::" in value:  # ext:: 등 remote 헬퍼(명령 실행) 거부
+    if not value or _HELPER_RE.match(value):  # ext:: 등 transport-helper(명령 실행) 거부
         return None
     m = _SCHEME_RE.match(value)
     if m:
