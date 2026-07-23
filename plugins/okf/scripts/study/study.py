@@ -208,7 +208,10 @@ def cmd_migrate(args) -> int:
         moved["sources"].append("user-scope-markdown")
 
     # (a) 홈 <home>/.okf-study → 유저 스코프. markdown·study.db·trust 모두 흡수 후 rmtree.
-    if home is not None:
+    # URL 모드(#153 U2-5): 관리형 clone은 건너뛴다 — clone의 .okf-study는 목적지 repo가
+    # 커밋한 git-추적 자원이라 rmtree하면 clone이 dirty(추적 파일 삭제)가 되고, 애초에
+    # URL 모드는 신설이라 이관할 pre-0.4 레거시 런타임이 없다.
+    if home is not None and not okf_home.is_managed_clone(home):
         src = Path(home) / ".okf-study"
         if src.exists():
             _import_into(

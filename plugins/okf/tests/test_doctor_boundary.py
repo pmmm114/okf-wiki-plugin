@@ -17,7 +17,8 @@ from pathlib import Path
 PLUGIN = Path(__file__).resolve().parent.parent
 SCRIPTS_CORE = PLUGIN / "scripts" / "core"
 SCRIPTS_STUDY = PLUGIN / "scripts" / "study"
-CORE_ONLY = ["okf_doctor.py", "okf_home.py"]
+# okf_remote는 core 인프라(URL 모드 관리형 clone, #153) — core-only 배치에도 함께 온다.
+CORE_ONLY = ["okf_doctor.py", "okf_home.py", "okf_remote.py"]
 
 
 def _src(name: str) -> Path:
@@ -78,6 +79,28 @@ def test_doctor_partial_deployment_names_missing_module(tmp_path):
     assert "[위치]" in out and "[캡처]" not in out  # core-only 저하는 유지
     err = res.stderr.decode("utf-8")
     assert "모듈 결손(study" in err  # study_doctor의 첫 결손 연쇄 import 이름 노출
+
+
+def test_doctor_url_pointer_shows_managed_clone_notes(tmp_path):
+    # #153: URL 포인터면 [홈] 섹션에 관리형 clone 상태(모드·미생성)를 무네트워크로 표기한다.
+    scripts = tmp_path / "url-deploy"
+    scripts.mkdir()
+    for name in CORE_ONLY:
+        shutil.copy2(_src(name), scripts / name)
+    project = tmp_path / "proj2"
+    project.mkdir()
+    env = {**os.environ, "HOME": str(tmp_path / "isolated-home2")}
+    env.pop("CLAUDE_CONFIG_DIR", None)
+    env["OKF_HOME_PROJECT"] = "git@example.com:o/r.git"  # clone 미생성 URL 포인터
+    out = subprocess.run(
+        [sys.executable, str(scripts / "okf_doctor.py"), str(project)],
+        capture_output=True,
+        env=env,
+        timeout=60,
+    )
+    assert out.returncode == 0, out.stderr
+    text = out.stdout.decode("utf-8")
+    assert "URL(관리형 clone)" in text and "미생성" in text
 
 
 def test_doctor_full_sections_with_study_present(tmp_path):

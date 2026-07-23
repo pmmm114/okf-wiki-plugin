@@ -17,6 +17,12 @@ import subprocess
 import sys
 
 import okf_home
+import okf_remote
+
+# URL 모드(#153) SessionStart fetch 상한 — fetch-only는 주입 신선도에 기여하지 않으므로
+# (워킹트리 미변경) 짧게 잡는다. 실패는 backoff로 dedup되어 반복 스톨을 막는다(D3·D-design).
+# 30초 context 호출과 합쳐도 60초 훅 예산 안. 사용자 주도 /study refresh는 별도 긴 상한.
+_REMOTE_FETCH_TIMEOUT = 5.0
 
 
 def _okf_timeout():
@@ -177,8 +183,22 @@ def _watch_paths(bundle):
     return sorted(paths)
 
 
+def _remote_freshness():
+    """URL 모드 포인터의 신선도 갱신 — SessionStart **단일 지점** fetch-only(#153 U1-5).
+
+    origin ref만 최신화하고 worktree는 건드리지 않는다(ff는 /study 진입에서, U3-2).
+    bounded·TTL dedup·무URL/오프라인/미생성은 무동작. 실패(오프라인·인증)는 캐시로
+    저하하고 무음 — 이 훅은 신선도로 세션을 깨지 않는다. 예외는 전부 삼킨다.
+    """
+    try:
+        okf_remote.session_fetch(timeout=_REMOTE_FETCH_TIMEOUT)
+    except Exception:
+        pass
+
+
 def hook_session_start():
     project = _project_dir()
+    _remote_freshness()  # #153: URL 모드면 fetch-only(무URL·오프라인은 무동작)
     # 홈 폴백(#91 V3): 프로젝트 설정 존재가 판별자, 없으면 유효 홈으로. SessionStart는
     # 무효 포인터 경고의 방출 지점이다(§3) — PostToolUse 계열은 무음 유지.
     resolved = okf_home.resolve_inject(project)

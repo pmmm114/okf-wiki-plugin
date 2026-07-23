@@ -58,6 +58,9 @@ def _handler_env(item: dict) -> dict:
     env["OKF_CONCEPT_TYPE"] = str(concept.get("type", ""))
     env["OKF_CONCEPT_TOPIC"] = str(concept.get("topic", ""))
     env["OKF_CONCEPT_PATH"] = str(concept.get("path", ""))
+    # 승격 대상 repo 루트 — cwd와 함께 명시(#153 U2-4). URL 모드에선 관리형 clone이라
+    # cwd≠호출자이고, 핸들러가 stdin 파싱 없이 base repo를 알 수 있게 한다.
+    env["OKF_PROJECT"] = str(item.get("project", ""))
     return env
 
 
@@ -99,6 +102,7 @@ def dispatch(
                 text=True,
                 env=env,
                 capture_output=True,
+                cwd=str(Path(project).resolve()),  # 핸들러 cwd = 승격 대상 repo 루트(#153 U2-4)
             )
         except OSError as exc:  # 실행 불가도 격리
             failed.append({"name": name, "reason": str(exc)})

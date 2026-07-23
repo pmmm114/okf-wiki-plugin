@@ -96,6 +96,38 @@ def test_session_start_no_pointer_regression(monkeypatch, tmp_path, capfd):
     assert _emitted(capfd) is None  # 옵트인 안 함 = 현행과 동일한 완전 무음
 
 
+def test_session_start_injects_from_managed_clone(monkeypatch, tmp_path, capfd):
+    # #153: URL 포인터 + 물질화된 관리형 clone → 하류(주입)는 로컬 경로와 동일 파이프라인.
+    url = "git@example.com:o/r.git"
+    clone = okf_home.managed_clone_path(okf_home.canonicalize_url(url))
+    (clone / ".git").mkdir(parents=True)
+    (clone / ".okf-wiki.json").write_text(json.dumps({"bundlePath": ".okf"}), encoding="utf-8")
+    (clone / ".okf").mkdir()
+    (clone / ".okf" / "index.md").write_text("# index\n", encoding="utf-8")
+    monkeypatch.setenv(okf_home.POINTER_ENV, url)
+    monkeypatch.setenv("OKF_REMOTE_OFFLINE", "1")  # SessionStart fetch는 무동작(git 미필요)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(scratch))
+    monkeypatch.setattr(okf_hooks, "_run_okf", lambda args, suppress_stderr: "URL-CTX")
+    assert okf_hooks.hook_session_start() == 0
+    hso = _emitted(capfd)["hookSpecificOutput"]
+    assert hso["additionalContext"] == "URL-CTX"
+    assert hso["watchPaths"] == [str(clone / ".okf" / "index.md")]
+
+
+def test_session_start_url_missing_clone_warns(monkeypatch, tmp_path, capfd):
+    # URL 포인터인데 clone 미생성 → SessionStart가 전용 사유로 1줄 경고(무네트워크)
+    monkeypatch.setenv(okf_home.POINTER_ENV, "git@example.com:o/r.git")
+    monkeypatch.setenv("OKF_REMOTE_OFFLINE", "1")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(scratch))
+    assert okf_hooks.hook_session_start() == 0
+    ctx = _emitted(capfd)["hookSpecificOutput"]["additionalContext"]
+    assert "홈 포인터 무효" in ctx and "관리형 clone 미생성" in ctx
+
+
 # --- okf_home CLI (set/status) ---------------------------------------------
 
 
