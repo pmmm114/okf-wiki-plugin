@@ -453,7 +453,7 @@ pip install ./okf-core && okf validate .okf --strict   # 또는 pip (repo 루트
 | [docs/branching.md](docs/branching.md) | 브랜치·커밋·머지·벤더 반영 전략 |
 | [docs/releasing.md](docs/releasing.md) | 배포·버전관리(스코프 마일스톤·커밋-도출 SemVer·컷 절차) |
 | [CLAUDE.md](CLAUDE.md) | 에이전트 작업 규칙(불변식·게이트) |
-| [.okf/](.okf/) | 엔진 자기 번들(아키텍처·벤더 정책·컨포먼스 결정) |
+| [.okf/](.okf/index.md) | 엔진 자기 번들(아키텍처·벤더 정책·컨포먼스 결정) |
 | [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | 벤더 반입물 출처·라이선스 고지 |
 
 ## 라이선스
