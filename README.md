@@ -166,6 +166,7 @@ deploy/release.md [concept] — 릴리스 컷 명령과 승인 게이트.
 ### 다음 단계
 
 - git이 아닌 폴더에서 쓰거나 vault repo에 모으고 싶다면 → [study 도입 가이드](docs/adopting-study.md)
+- 비-repo에서 원격 저장고에 지식 쓰기(PR)까지 전체 흐름이 궁금하면 → [원격 지식 저장고 가이드](docs/remote-vault.md)
 - 메모리를 후보로 쌓아 두고 골라서 승격하고 싶다면 → [단기 기억과 장기 기억](#단기-기억과-장기-기억-study)
 - 가져다 쓰는 repo에 CI랑 pre-commit 검사를 걸고 싶다면 → [소비 repo 가이드](docs/consuming.md)
 
@@ -258,7 +259,8 @@ flowchart TD
 안에 있고, 그렇지 않으면 vault repo로 모아요. git이 아닌 폴더에서도 vault로 보낼 수 있어요.
 
 정확한 해소 규칙은 [CONFIG.md](plugins/okf/skills/okf/reference/CONFIG.md)에, vault로
-모으는 방법은 [study 도입 가이드](docs/adopting-study.md)에 자세히 있어요.
+모으는 방법은 [study 도입 가이드](docs/adopting-study.md)에, 원격 저장고에 지식 쓰기(PR)까지
+전체 흐름은 [원격 지식 저장고 가이드](docs/remote-vault.md)에 자세히 있어요.
 
 ## 일상 명령
 
@@ -289,6 +291,7 @@ flowchart TD
 | 문서 | 무슨 내용인지 |
 | --- | --- |
 | [study 도입 가이드](docs/adopting-study.md) | 설치부터 핸들러 계약, trust, vault로 모으기까지 |
+| [원격 지식 저장고 가이드](docs/remote-vault.md) | 비-repo에서 원격 vault repo에 지식 쓰기(PR)까지 — 그림·체크리스트·딸깍 스캐폴드 |
 | [CONFIG.md](plugins/okf/skills/okf/reference/CONFIG.md) | `.okf-wiki.json` 설정 항목 전체와 스코프 해소 규칙 |
 | [인식층과 근거 사슬](plugins/okf/skills/okf/reference/LAYERS.md) | `layer` 축(정보, 지식, 지혜)과 근거 사슬 규칙의 정본 |
 | [소비 repo 가이드](docs/consuming.md) | 가져다 쓰는 repo에서 CI와 pre-commit으로 검증하기 |

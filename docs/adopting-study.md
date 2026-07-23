@@ -112,6 +112,10 @@
 
 슬로건: **"자기 파이프라인이 있으면 거기로, 없으면 vault로."**
 
+> 처음 훑는다면 [원격 지식 저장고 가이드](remote-vault.md)가 이 절을 그림·체크리스트·
+> 트러블슈팅으로 풀어 둔 초보자용 진입점이다(딸깍 스캐폴드 포함). 여기서는 study 도입
+> 맥락의 요점만 둔다.
+
 기본 study는 소비 repo 안에서만 동작한다. vault 폴백을 켜면 **코드 repo가 아닌 어떤
 위치에서도**(스크래치 폴더·무설정 repo 포함) 캡처·주입이 사용자가 지정한 **vault
 repo**(예: 소비처 KB 클론)로 흐른다.
@@ -150,25 +154,17 @@ vault repo는 `.okf/`가 이미 있는 지식 repo면 된다. `study.capture`가
 플러그인이 유저 스코프에 **관리형 clone**(`~/.claude/okf/remotes/<slug>`)을 두고,
 이후 주입·캡처·승격·디스패치는 로컬 경로 vault와 **동일 파이프라인**을 탄다.
 
-- **생성 = 옵트인**: `/okf-init --vault <url>`이 URL을 포인터에 기록하고, **동의를 받아**
-  관리형 clone을 만든다(플러그인이 임의로 clone하지 않는다). 미생성 상태에선 포인터는
-  유효 설정으로 남고 doctor·SessionStart가 "clone 미생성 — 생성하라"를 안내한다.
-- **transport**: `https`·`ssh`·`git`·`file`만 허용. `user:token@` 크레덴셜은 포인터에
-  적재하지 않고(git credential helper·ssh-agent에 위임) `ext::` 같은 명령 실행 transport는
-  보안상 거부한다.
-- **신선도**: SessionStart가 **fetch-only**로 origin ref만 최신화(worktree 불변, bounded·
-  TTL dedup). 워킹트리 갱신(ff-only)은 `/study` 진입에서 clean-gate 통과 시에만 한다 —
-  미커밋 승격 잔재가 있으면 갱신을 생략하고 경고한다(강제 머지가 clone을 wedge시키므로).
-  오프라인·인증 실패는 **캐시로 저하**(주입은 clone 캐시로 계속, PR만 보류)하고 1줄 경고한다.
-  `OKF_REMOTE_OFFLINE=1`로 fetch를 강제 중단할 수 있다.
-- **캡처 옵트인**: URL vault는 관리형 clone이라 `enable-capture`가 clone의 커밋 설정을
-  편집하지 않는다(origin diverge 방지). **원격 repo에 `study.capture`를 커밋**하면 다음
-  세션 fetch로 반영된다.
-- **PR 핸들러**: 관리형 clone 안의 **커밋된 핸들러**를 실행한다. 핸들러는 `git worktree`로
-  임시 워크트리를 만들어 push하고(§4·§6 격리 요건), trust 계약은 무변경(해시=repo,
-  파일=유저 스코프). push 권한·`gh` 인증 전제는 로컬 경로 vault와 같다.
-- **진단**: `/okf-doctor`가 URL 모드에서 clone 상태·마지막 fetch·behind·dirty·이원화를
-  **무네트워크**로 표시한다.
+- **생성 = 옵트인**: `/okf-init --vault <url>`이 URL만 포인터에 기록하고, **동의를 받아**
+  관리형 clone을 만든다(임의 clone 안 함). writable 셋업(핸들러+capture)이 없으면 같은
+  마법사가 **딸깍 스캐폴드**를 제안한다 — `origin`에 PR을 여는 무참조 핸들러 + 배선을 한 번에.
+- **transport**: `https`·`ssh`·`git`·`file`만. `user:token@`는 포인터에 적재하지 않고
+  (helper·ssh-agent 위임) `ext::` 등 명령 실행 transport는 거부.
+- **신선도**: SessionStart **fetch-only** + `/study` 진입 **ff-only**(clean-gate). 오프라인·
+  인증 실패는 캐시로 저하(주입 계속, PR만 보류) + 1줄 경고. `OKF_REMOTE_OFFLINE=1`로 중단.
+- **PR 핸들러**: 관리형 clone 안 **커밋된 핸들러**를 `git worktree` 격리로 실행(§4·§6),
+  trust는 무변경(해시=repo, 파일=유저 스코프). push·`gh` 인증 전제는 로컬 경로 vault와 같다.
+
+각 항목의 상세·이유·따라 하기·트러블슈팅은 [원격 지식 저장고 가이드](remote-vault.md)가 정본이다.
 
 ### 위치별 동작
 
