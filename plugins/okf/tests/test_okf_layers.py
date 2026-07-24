@@ -30,6 +30,14 @@ def test_load_layers_spec_from_single_source():
     assert spec["rules"]["derivation_strictly_downward"] is True
 
 
+def test_layers_md_has_single_json_block():
+    # 로더는 파일의 마지막 json 블록을 정본으로 읽는다(blocks[-1]) — 산문 절(§8·§9 등)에
+    # json 펜스가 추가되면 spec이 오염되므로 LAYERS.md의 json 블록은 정확히 1개여야 한다
+    with open(okf_layers._LAYERS_MD, encoding="utf-8") as f:
+        blocks = okf_layers._JSON_BLOCK.findall(f.read())
+    assert len(blocks) == 1
+
+
 def test_parse_layer_map_from_grouped_context():
     ctx = (
         "<okf-context>\n"

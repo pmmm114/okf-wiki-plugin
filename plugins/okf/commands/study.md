@@ -50,7 +50,8 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
    개념 파일을 작성한다 — `type` 필수, `description` 1문장, 백링크 ≥1, 답-우선 본문,
    **주제 하위디렉토리** 배치.
    - **인식층 판정(필수)**: 후보의 인식 고도를 판정해 `layer`(정보/지식/지혜)를 부여한다
-     — 카테고리 = `type` + 주제 디렉토리 + `layer`. 어휘·휴리스틱은 스킬 `reference/LAYERS.md`.
+     — 카테고리 = `type` + 주제 디렉토리 + `layer`. 어휘·판정 기준(하향식 루브릭:
+     처방→연결→대조, 불확실하면 미기재)은 스킬 `reference/LAYERS.md`(§1·§8).
    - **존재 대조(멱등)**: 층을 정했으면 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py"
      "${CLAUDE_PLUGIN_ROOT}/scripts/study/study.py" near-bundle <bundle> --snippet <후보>
      --layer <layer>`로 같은 층 근사중복을 확인한다(SimHash 자문). 같은 정보면 새로 만들지
@@ -60,6 +61,8 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
      <bundle> --candidates-for <layer> --json`로 후보를 질의한다(정초 엄격 하향: 지식→정보,
      지혜→지식·정보). 근거 사실이 후보에 함께 있으면 정보를 먼저 승격하고, 번들에 없으면
      `derived_from`을 남겨 접지 린트가 "미작성 지식 신호"로 잡게 둔다(출처·근거 날조 금지).
+     하위층 개념이 쌓여 상위층 신설(층간 승격)이 필요해 보이면 LAYERS.md §9의 승격
+     절차를 따른다(자문 — 재라벨이 아니라 적립).
 
 5. **로그·색인·검증**: `okf log append <dir> -m "<요약> (layer <layer>, captured <후보 date>)" --kind Promotion`
    → `okf index <bundle> --write` → `okf validate <bundle> --strict`(error·warn 0까지)
