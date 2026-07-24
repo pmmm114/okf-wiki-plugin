@@ -224,7 +224,9 @@ flowchart TD
 - `okf graph --chain <개념> --edges-from derived_from`으로 근거 사슬을 따라갈 수 있어요.
 - `.okf-wiki.json`의 `context.groupBy`를 켜면 세션에 주입되는 컨텍스트도 층으로 구분돼요.
 
-어휘와 정초 규칙의 정본은 [인식층 문서](plugins/okf/skills/okf/reference/LAYERS.md)에 있어요.
+어휘와 정초 규칙의 정본은 [인식층 문서](plugins/okf/skills/okf/reference/LAYERS.md)에
+있어요. 층을 가르는 판정 기준과, 쌓인 아래층 위에 위층을 세우는 승격 방법도 같은
+문서(§8·§9)에 정리돼 있어요.
 
 ## 단기 기억과 장기 기억 (`study`)
 
@@ -293,7 +295,7 @@ flowchart TD
 | [study 도입 가이드](docs/adopting-study.md) | 설치부터 핸들러 계약, trust, vault로 모으기까지 |
 | [원격 지식 저장고 가이드](docs/remote-vault.md) | 비-repo에서 원격 vault repo에 지식 쓰기(PR)까지 — 그림·체크리스트·딸깍 스캐폴드 |
 | [CONFIG.md](plugins/okf/skills/okf/reference/CONFIG.md) | `.okf-wiki.json` 설정 항목 전체와 스코프 해소 규칙 |
-| [인식층과 근거 사슬](plugins/okf/skills/okf/reference/LAYERS.md) | `layer` 축(정보, 지식, 지혜)과 근거 사슬 규칙의 정본 |
+| [인식층과 근거 사슬](plugins/okf/skills/okf/reference/LAYERS.md) | `layer` 축(정보, 지식, 지혜)과 근거 사슬, 층 판정 기준·승격 방법론의 정본 |
 | [소비 repo 가이드](docs/consuming.md) | 가져다 쓰는 repo에서 CI와 pre-commit으로 검증하기 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 컨포먼스와 회귀 계약, 엔진 CLI, 로컬에서 재현하기 |
 | [OKF v0.1 스펙](okf-core/vendor/spec/SPEC.md) | 스펙 원문(고치지 않고 가져옴) |
