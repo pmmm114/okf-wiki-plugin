@@ -67,11 +67,12 @@
   {
     "source": "manual",
     "project": "/abs/repo",
-    "concept": { "path": ".okf/<...>.md", "type": "<type>", "topic": "<주제-디렉토리>" }
+    "concept": { "path": ".okf/<...>.md", "type": "<type>", "topic": "<주제-디렉토리>", "layer": "<정보|지식|지혜>" }
   }
   ```
 - **입력(env var)** — 편의 접근: `OKF_TRIGGER`(manual|memory)·`OKF_CONCEPT_PATH`·
-  `OKF_CONCEPT_TYPE`·`OKF_CONCEPT_TOPIC`·`OKF_PROJECT`(승격 대상 repo 루트).
+  `OKF_CONCEPT_TYPE`·`OKF_CONCEPT_TOPIC`·`OKF_CONCEPT_LAYER`(인식층 정보/지식/지혜)·
+  `OKF_PROJECT`(승격 대상 repo 루트).
 - **실행 cwd** — 핸들러는 **승격 대상 repo 루트**(`OKF_PROJECT`·stdin `.project`와 동일)를
   cwd로 실행된다(#153 U2-4). URL vault에선 이 repo가 관리형 clone이라 호출자 cwd와 다르므로,
   핸들러는 cwd/`OKF_PROJECT`를 기준으로 git 작업을 한다(호출자 위치를 가정하지 말 것).

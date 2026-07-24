@@ -2,7 +2,8 @@
 
 검증된 개념을 담은 study 아이템을 소비처가 주입한 핸들러 배열로 흘려보낸다.
 각 핸들러는 stdin으로 아이템(JSON)을 받고, 트리거·개념 정보를 env var로도 받는다:
-``OKF_TRIGGER``(memory|manual)·``OKF_CONCEPT_TYPE``·``OKF_CONCEPT_TOPIC``·``OKF_CONCEPT_PATH``.
+``OKF_TRIGGER``(memory|manual)·``OKF_CONCEPT_TYPE``·``OKF_CONCEPT_TOPIC``·``OKF_CONCEPT_PATH``·
+``OKF_CONCEPT_LAYER``(인식층 정보/지식/지혜, #189 U5).
 
 실행 전 두 관문을 통과해야 한다:
 
@@ -58,6 +59,7 @@ def _handler_env(item: dict) -> dict:
     env["OKF_CONCEPT_TYPE"] = str(concept.get("type", ""))
     env["OKF_CONCEPT_TOPIC"] = str(concept.get("topic", ""))
     env["OKF_CONCEPT_PATH"] = str(concept.get("path", ""))
+    env["OKF_CONCEPT_LAYER"] = str(concept.get("layer", ""))  # 인식층(정보/지식/지혜, #189 U5)
     # 승격 대상 repo 루트 — cwd와 함께 명시(#153 U2-4). URL 모드에선 관리형 clone이라
     # cwd≠호출자이고, 핸들러가 stdin 파싱 없이 base repo를 알 수 있게 한다.
     env["OKF_PROJECT"] = str(item.get("project", ""))

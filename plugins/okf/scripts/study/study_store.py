@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS candidate (
     ingested_at   TEXT,
     recurrence    INTEGER NOT NULL DEFAULT 1,
     supersedes    TEXT,
-    simhash       TEXT
+    simhash       TEXT,
+    layer         TEXT
 );
 CREATE TABLE IF NOT EXISTS candidate_line (
     candidate_id TEXT NOT NULL,
@@ -70,6 +71,7 @@ _ADDED_COLUMNS = {
         "recurrence": "INTEGER NOT NULL DEFAULT 1",
         "supersedes": "TEXT",
         "simhash": "TEXT",
+        "layer": "TEXT",
     },
     "resolution": {"invalidated_at": "TEXT"},
 }
@@ -186,7 +188,8 @@ def candidate_meta(runtime: str | Path, ident: str) -> dict:
         return {}
     with _connect(runtime) as conn:
         row = conn.execute(
-            "SELECT captured_at, ingested_at, recurrence, supersedes FROM candidate WHERE id=?",
+            "SELECT captured_at, ingested_at, recurrence, supersedes, layer "
+            "FROM candidate WHERE id=?",
             (ident,),
         ).fetchone()
     if row is None:
@@ -196,6 +199,7 @@ def candidate_meta(runtime: str | Path, ident: str) -> dict:
         "ingested_at": row[1],
         "recurrence": row[2],
         "supersedes": row[3],
+        "layer": row[4],
     }
 
 
@@ -203,6 +207,12 @@ def set_supersedes(runtime: str | Path, ident: str, target: str | None) -> None:
     """후보가 갱신하는 기존 개념 id를 기록한다(#132 supersedes 링크)."""
     with _connect(runtime) as conn:
         conn.execute("UPDATE candidate SET supersedes=? WHERE id=?", (target, ident))
+
+
+def set_layer(runtime: str | Path, ident: str, layer: str | None) -> None:
+    """후보의 인식층(정보/지식/지혜)을 기록한다(Epic #189 U5 — 승격 판정 결과 영속)."""
+    with _connect(runtime) as conn:
+        conn.execute("UPDATE candidate SET layer=? WHERE id=?", (layer, ident))
 
 
 def list_fingerprints(runtime: str | Path) -> list[tuple[str, str | None]]:

@@ -143,3 +143,17 @@ def test_same_layer_near_is_advisory():
 def test_same_layer_near_empty_when_no_same_layer_concepts():
     # 그 층에 개념이 없으면 근사중복 없음(다른 층은 애초에 대조 대상이 아님)
     assert study.same_layer_near("anything ascii tokens", [], 3) == []
+
+
+# --- 인식층 계약 관통 (Epic #189 U5) ----------------------------------------
+
+
+def test_resolve_records_layer_in_journal(tmp_path, capsys):
+    # 승격 시 --layer가 promote 이벤트에 provenance로 남는다 — 후보 드레인 후에도 저널에 유지
+    ident = study_inbox.append(_rt(tmp_path), "concept", "M.md")
+    study.main(
+        ["resolve", str(tmp_path), "--id", ident, "--status", "promoted", "--layer", "wisdom"]
+    )
+    assert _out(capsys)["layer"] == "wisdom"
+    promoted = [e for e in study_inbox.read_journal(_rt(tmp_path)) if e["action"] == "promoted"]
+    assert promoted and promoted[0]["layer"] == "wisdom"

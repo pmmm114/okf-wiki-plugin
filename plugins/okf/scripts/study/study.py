@@ -4,9 +4,9 @@
 어떤 개념으로 만들지)은 모델의 몫이고, 여기서는 목록·원장·드레인·디스패치만 한다.
 
   study list     <project>                              후보를 JSON으로 출력
-  study resolve  <project> --id ID --status S [--ref R] 원장 기록 + inbox 드레인
+  study resolve  <project> --id ID --status S [--ref R] [--layer L]  원장 기록 + inbox 드레인
   study clear    <project>                              현재 후보 전부 discard
-  study dispatch <project> --source S --concept-path P --concept-type T --concept-topic X
+  study dispatch <project> --source S --concept-{path,type,topic,layer} <vals>
                                                          핸들러 실행(경로·git·trust 게이트)
   study scan     <project> [--enqueue]                   미큐잉 후보 결정론 탐지(+재적재)
   study log      <project> [--limit N]                    이벤트 저널(capture/promote/discard)
@@ -127,10 +127,15 @@ def cmd_resolve(args) -> int:
     _promote, runtime = _scope(args.project)
     dropped: list[str] = []
     if runtime:
-        study_inbox.record(runtime, args.id, args.status, args.ref)
+        if args.layer:
+            study_inbox.set_layer(runtime, args.id, args.layer)  # 후보에 인식층 영속(#189 U5)
+        study_inbox.record(runtime, args.id, args.status, args.ref, layer=args.layer)
         dropped = study_inbox.drop(runtime, [args.id])
     print(
-        json.dumps({"id": args.id, "status": args.status, "dropped": dropped}, ensure_ascii=False)
+        json.dumps(
+            {"id": args.id, "status": args.status, "layer": args.layer, "dropped": dropped},
+            ensure_ascii=False,
+        )
     )
     return 0
 
@@ -286,6 +291,7 @@ def cmd_dispatch(args) -> int:
             "path": args.concept_path,
             "type": args.concept_type,
             "topic": args.concept_topic,
+            "layer": args.concept_layer,
         },
     }
     check = study_trust.make_trust_check(repo, handlers, capture, rt)
@@ -310,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     res.add_argument("--id", required=True)
     res.add_argument("--status", required=True, choices=["promoted", "discarded"])
     res.add_argument("--ref")
+    res.add_argument("--layer", help="인식층(정보/지식/지혜) — 저널·후보에 provenance로 새김")
 
     clr = sub.add_parser("clear", help="후보 전부 discard")
     clr.add_argument("project", nargs="?", default=".")
@@ -320,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     dsp.add_argument("--concept-path", default="")
     dsp.add_argument("--concept-type", default="")
     dsp.add_argument("--concept-topic", default="")
+    dsp.add_argument("--concept-layer", default="")
 
     scn = sub.add_parser("scan", help="미큐잉 후보 탐지(+--enqueue 재적재)")
     scn.add_argument("project", nargs="?", default=".")
