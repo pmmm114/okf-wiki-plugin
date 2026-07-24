@@ -31,12 +31,13 @@ CONFIG_NAME = ".okf-wiki.json"
 # 열어 특정 목적지 repo명을 하드코딩하지 않는다(무참조). git worktree 격리로 관리형 clone
 # 체크아웃을 건드리지 않고, push 성공 후 원 워킹트리의 승격 잔재를 되돌려 clean으로 남긴다
 # — 이후 ff 신선도 갱신을 막지 않는다. 바깥 따옴표는 '''…''', 핸들러 docstring은 """…"""로
-# 분리해 충돌을 피한다.
+# 분리해 충돌을 피한다. 이 텍스트가 docs/examples/okf-open-pr.py.example의 정본이다(예시는
+# 여기서 생성 — test_handler_template_matches_docs_example가 바이트 동기화를 잠근다).
 HANDLER_TEMPLATE = '''#!/usr/bin/env python3
 """참조 study 핸들러 — 승격 개념을 브랜치에 담아 origin에 PR을 연다(목적지 무참조).
 
 소비처가 자기 커밋 경로(예: scripts/okf-open-pr.py)로 두고 쓴다. 목적지는 origin
-(vault 자기 원격)이라 특정 repo명을 하드코딩하지 않는다 — 리뷰어·라벨 정책만 채운다.
+(vault 자기 원격)이라 특정 repo명을 하드코딩하지 않는다 — 아래 정책 상수만 채운다.
 
 계약(플러그인 → 핸들러):
   stdin : study 아이템 JSON { source, project, concept:{path,type,topic} }
@@ -55,6 +56,13 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+# --- 목적지 정책: 소비처가 채우는 유일한 부분 (전부 무참조 기본값) ---------------
+BASE = ""            # 비우면 origin/HEAD에서 자동 도출
+REVIEWERS = []       # 예: ["octocat", "org/team"] — 빈 리스트면 미지정
+LABELS = []          # 예: ["study", "knowledge"]
+DRAFT = False        # 초안 PR로 열려면 True
+# ----------------------------------------------------------------------------
 
 
 def _git(args, cwd, check=True):
@@ -81,10 +89,12 @@ def main():
     ctype = os.environ.get("OKF_CONCEPT_TYPE") or "concept"
     slug = Path(concept).stem
     branch = f"study/{topic}/{slug}"
-    base = _default_base(repo)
+    base = BASE or _default_base(repo)
 
     # 승격이 남긴 미커밋 변경(개념+log.md+index.md 등) — 파일명을 가정하지 않는다.
-    lines = _git(["status", "--porcelain"], repo).stdout.splitlines()
+    # -u(untracked=all): 새 개념이 신규 디렉터리 안이면 git이 디렉터리 하나로 접는데,
+    # 그러면 아래 is_file 가드에 걸려 개념을 통째로 놓친다 — 파일별로 펴서 받는다.
+    lines = _git(["status", "--porcelain", "-u"], repo).stdout.splitlines()
     tracked, untracked = [], []
     for line in lines:
         if not line.strip():
@@ -115,12 +125,14 @@ def main():
             except OSError:
                 pass
         if shutil.which("gh"):
-            # 리뷰어·라벨은 소비처 정책: --reviewer <...> --label <...>를 여기서 덧붙인다.
-            subprocess.run(
-                ["gh", "pr", "create", "--fill", "--base", base, "--head", branch],
-                cwd=wt,
-                check=True,
-            )
+            cmd = ["gh", "pr", "create", "--fill", "--base", base, "--head", branch]
+            for reviewer in REVIEWERS:
+                cmd += ["--reviewer", reviewer]
+            for label in LABELS:
+                cmd += ["--label", label]
+            if DRAFT:
+                cmd.append("--draft")
+            subprocess.run(cmd, cwd=wt, check=True)
         else:
             print(f"push 완료: {branch} → origin. PR은 gh 설치 후 또는 API로 연다.")
     finally:

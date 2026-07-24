@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import stat
+from pathlib import Path
 
 import okf_vault
 import pytest
@@ -40,6 +41,18 @@ def test_handler_template_contract_and_no_destination():
     lowered = t.lower()
     for banned in ("github.com/", "gitlab.com/", "http://", "https://github"):
         assert banned not in lowered, f"핸들러에 하드코딩 목적지 흔적: {banned}"
+
+
+def test_handler_template_matches_docs_example():
+    """임베드 템플릿과 docs 예시가 드리프트하지 않도록 잠근다(단일 정본).
+
+    HANDLER_TEMPLATE이 정본이고 docs/examples/okf-open-pr.py.example은 그 산출 사본이다
+    (예시는 템플릿에서 생성). 한쪽만 고치면 이 테스트가 깨져 동기화를 강제한다.
+    """
+    example = Path(__file__).resolve().parents[3] / "docs" / "examples" / "okf-open-pr.py.example"
+    if not example.is_file():  # 레포 외(설치형 플러그인) 배치면 잠글 대상이 없다 — 스킵
+        pytest.skip("docs 예시 부재(레포 외 배치)")
+    assert example.read_text(encoding="utf-8") == ssh.HANDLER_TEMPLATE
 
 
 # --- writable_state (마법사 기계 판정) ---------------------------------------
