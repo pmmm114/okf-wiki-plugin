@@ -1,38 +1,20 @@
 #!/usr/bin/env python3
-"""참조 study 핸들러 템플릿 (예시 — 활성 핸들러 아님).
+"""참조 study 핸들러 — 승격 개념을 브랜치에 담아 origin에 PR을 연다(목적지 무참조).
 
-소비처가 이 파일을 자기 **커밋 경로**(예: ``scripts/okf-open-pr.py``)로 복사·수정해
-쓴다. 승격된 개념 하나를 받아 임시 워크트리에서 브랜치에 커밋하고 PR을 여는
-자체완결형 골격이다. **표준 라이브러리만** 쓴다(서드파티·``jq``·복잡한 셸 불요).
-
-복사 후:
-  1. 파일을 커밋 경로로 옮기고 ``chmod +x``.
-  2. 아래 "목적지 정책" 상수만 자기 값으로 채운다.
-  3. ``.okf-wiki.json``의 ``study.handlers[].command``를 이 경로로 지목.
-  4. ``/study --trust``로 로컬 승인(스크립트 내용 해시).
+소비처가 자기 커밋 경로(예: scripts/okf-open-pr.py)로 두고 쓴다. 목적지는 origin
+(vault 자기 원격)이라 특정 repo명을 하드코딩하지 않는다 — 아래 정책 상수만 채운다.
 
 계약(플러그인 → 핸들러):
-  stdin : study 아이템 JSON ``{ source, project, concept:{ path, type, topic } }``
-  env   : ``OKF_TRIGGER``(manual|memory)·``OKF_CONCEPT_PATH``·``OKF_CONCEPT_TYPE``
-          ·``OKF_CONCEPT_TOPIC``·``OKF_PROJECT``(승격 대상 repo 루트 = cwd) — stdin의
-          편의 사본. 이 예시는 stdin을 정본으로 읽고 빈 값만 env로 보강한다.
-  cwd   : 승격 대상 repo 루트. URL vault에선 관리형 clone이라 호출자 위치와 다르다 —
-          **cwd/``OKF_PROJECT``를 기준**으로 git 작업하고 호출자 위치를 가정하지 말 것.
-  exit  : 0 성공 / 비0 실패(디스패처가 격리 — 한 핸들러 실패가 나머지를 막지 않는다).
+  stdin : study 아이템 JSON { source, project, concept:{path,type,topic} }
+  env   : OKF_CONCEPT_PATH · OKF_CONCEPT_TYPE · OKF_CONCEPT_TOPIC · OKF_PROJECT(대상 repo 루트)
+  cwd   : 승격 대상 repo 루트(URL vault면 관리형 clone). 호출자 위치를 가정하지 않는다.
+  exit  : 0 성공 / 비0 실패(디스패처가 격리)
 
-위치 요건 : 이 파일은 repo 트리 안 + **git 추적** 경로여야 실행된다(trust 내용 해시 게이트).
-격리 요건 : 관리형 clone은 유저 스코프 단일 자원이라, 핸들러가 그 체크아웃 브랜치를
-            바꾸거나 미커밋 잔재를 남기면 이후 신선도 갱신(ff)이 막힌다. 그래서
-            **임시 ``git worktree``**에서만 브랜치·커밋·push하고 워크트리를 제거한다 —
-            clone의 체크아웃은 절대 건드리지 않는다.
-
-이 파일 자체는 **목적지를 모른다**(엔진·플러그인과 같은 무참조 원리) — 목적지 repo·
-리뷰어·라벨은 하드코딩하지 말고, 복사본에서 아래 상수만 채운다.
+관리형 clone 안전: 임시 worktree에서만 커밋·push하고, push 성공 후 원 워킹트리의 승격
+잔재를 되돌려 clean으로 남긴다 — 관리형 clone의 체크아웃을 건드리지 않는다.
 """
-
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -40,108 +22,110 @@ import sys
 import tempfile
 from pathlib import Path
 
-# --- 목적지 정책: 소비처가 복사본에서 채우는 유일한 부분 ---------------------
-# 여기 기본값은 전부 목적지-중립(무참조)이다. 자기 repo의 정책으로 바꾼다.
-BASE_BRANCH = "main"          # PR 대상 base 브랜치
-REMOTE = "origin"             # push 대상 remote
-REVIEWERS: list[str] = []     # 예: ["octocat", "org/reviewers"] (빈 리스트면 미지정)
-LABELS: list[str] = []        # 예: ["study", "knowledge"]        (빈 리스트면 미지정)
-DRAFT = False                 # 초안 PR로 열려면 True
-# ---------------------------------------------------------------------------
+# --- 목적지 정책: 소비처가 채우는 유일한 부분 (전부 무참조 기본값) ---------------
+BASE = ""            # 비우면 origin/HEAD에서 자동 도출
+REVIEWERS = []       # 예: ["octocat", "org/team"] — 빈 리스트면 미지정
+LABELS = []          # 예: ["study", "knowledge"]
+DRAFT = False        # 초안 PR로 열려면 True
+# ----------------------------------------------------------------------------
 
 
-def git(*args: str, cwd: Path, check: bool = True) -> subprocess.CompletedProcess:
-    """cwd에서 git을 실행하는 얇은 래퍼. 실패 시 stderr를 담아 예외로 올린다."""
-    proc = subprocess.run(
-        ["git", *args], cwd=str(cwd), capture_output=True, text=True
-    )
-    if check and proc.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args)} 실패: {proc.stderr.strip()}")
-    return proc
+def _git(args, cwd, check=True):
+    return subprocess.run(["git", *args], cwd=cwd, text=True, capture_output=True, check=check)
 
 
-def read_item() -> dict:
-    """stdin(JSON)을 정본으로 읽고, 빠진 값만 env var로 보강한다(계약)."""
-    raw = sys.stdin.read()
-    item = json.loads(raw) if raw.strip() else {}
-    concept = item.setdefault("concept", {})
-    item.setdefault("project", os.environ.get("OKF_PROJECT", ""))
-    concept.setdefault("path", os.environ.get("OKF_CONCEPT_PATH", ""))
-    concept.setdefault("type", os.environ.get("OKF_CONCEPT_TYPE", ""))
-    concept.setdefault("topic", os.environ.get("OKF_CONCEPT_TOPIC", ""))
-    if not concept.get("path"):
-        raise ValueError("concept.path 없음 — stdin 아이템·OKF_CONCEPT_PATH 둘 다 비었다")
-    return item
-
-
-def bundle_path(repo: Path) -> str:
-    """``.okf-wiki.json``의 ``bundlePath``(기본 ``.okf``). 승격 산출물이 쌓이는 곳."""
+def _default_base(repo):
+    """origin의 기본 브랜치(refs/remotes/origin/HEAD) — 못 구하면 main."""
     try:
-        cfg = json.loads((repo / ".okf-wiki.json").read_text(encoding="utf-8"))
-        return cfg.get("bundlePath", ".okf")
-    except (OSError, json.JSONDecodeError):
-        return ".okf"
+        out = _git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], repo).stdout.strip()
+    except subprocess.CalledProcessError:
+        return "main"
+    return out.split("/", 1)[1] if "/" in out else (out or "main")
 
 
-def open_pr(cwd: Path, branch: str, ctype: str, slug: str) -> None:
-    """gh(GitHub CLI)로 PR을 연다. 목적지 정책은 위 상수에서 온다.
-
-    REST API로 열고 싶으면 이 함수만 바꾸면 된다(계약·격리는 무변경).
+def _status(repo):
+    """미커밋 변경을 [(xy, path), ...]로 낸다. -z: NUL 구분·**무인용**이라 한글·공백 경로도
+    그대로 받는다(git 기본 core.quotePath가 비ASCII를 따옴표+백슬래시 이스케이프하는 함정 회피).
+    -u: 신규 디렉터리를 파일별로 편다. rename/copy(R·C)는 뒤따르는 원경로 필드를 소비한다.
     """
-    if shutil.which("gh") is None:
-        raise RuntimeError(
-            "gh(GitHub CLI)를 찾지 못함 — 브랜치 push는 끝났다. "
-            "이 함수를 API 호출로 교체하거나 gh를 설치·인증하라."
-        )
-    cmd = [
-        "gh", "pr", "create",
-        "--base", BASE_BRANCH, "--head", branch,
-        "--title", f"study: {ctype} {slug}", "--fill",
-    ]
-    for reviewer in REVIEWERS:
-        cmd += ["--reviewer", reviewer]
-    for label in LABELS:
-        cmd += ["--label", label]
-    if DRAFT:
-        cmd.append("--draft")
-    # gh는 -C가 없다 — cwd(=워크트리)의 remote를 본다.
-    subprocess.run(cmd, cwd=str(cwd), check=True)
+    out = _git(["status", "--porcelain", "-z", "-u"], repo).stdout
+    fields = out.split(chr(0))
+    items, i = [], 0
+    while i < len(fields):
+        entry = fields[i]
+        i += 1
+        if not entry:
+            continue
+        items.append((entry[:2], entry[3:]))
+        if entry[0] in ("R", "C") or entry[1] in ("R", "C"):
+            i += 1  # rename/copy: 다음 NUL 필드(원경로)를 소비
+    return items
 
 
-def main() -> int:
-    item = read_item()
-    repo = Path(item.get("project") or os.getcwd()).resolve()  # = cwd. git 작업의 기준.
-    concept = item["concept"]
-    ctype = concept.get("type") or "concept"
-    topic = concept.get("topic") or "uncategorized"
-
-    # 저장 시점 정보만으로 결정론적 브랜치명을 만든다(random 없이 — 재실행 시 재현).
-    # 같은 개념을 재승격하면 브랜치가 겹칠 수 있다 — 필요하면 접미사 정책을 더한다.
-    slug = Path(concept["path"]).stem
+def main():
+    sys.stdin.read()  # study 아이템 JSON(계약) — 여기선 env만으로 충분
+    concept = os.environ.get("OKF_CONCEPT_PATH")
+    if not concept:
+        print("OKF_CONCEPT_PATH 필요", file=sys.stderr)
+        return 2
+    repo = os.environ.get("OKF_PROJECT") or os.getcwd()
+    topic = os.environ.get("OKF_CONCEPT_TOPIC") or "uncategorized"
+    ctype = os.environ.get("OKF_CONCEPT_TYPE") or "concept"
+    slug = Path(concept).stem
     branch = f"study/{topic}/{slug}"
-    bundle = bundle_path(repo)
+    base = BASE or _default_base(repo)
 
-    # 격리: 임시 워크트리에서만 커밋·push한다(clone 체크아웃 불변).
-    worktree = Path(tempfile.mkdtemp(prefix="okf-study-"))
+    # 승격이 남긴 미커밋 변경(개념+log.md+index.md 등) — 파일명을 가정하지 않는다.
+    entries = _status(repo)  # [(xy, path), ...] — 한글·공백 경로 안전(-z), 신규 디렉터리 전개(-u)
+    if not entries:
+        print("승격 산출물 없음(변경 0)", file=sys.stderr)
+        return 0  # 할 일 없음은 실패가 아니다
+
+    wt = tempfile.mkdtemp(prefix="okf-pr-")
+    pushed = False
     try:
-        git("worktree", "add", "--quiet", "-b", branch, str(worktree), "HEAD", cwd=repo)
-        # 승격 산출물(개념 + log.md + index.md)은 repo 워킹트리에 미커밋 상태다.
-        # 번들 하위트리를 워크트리로 반영해 커밋 대상으로 만든다(변경분만 diff로 잡힌다).
-        shutil.copytree(repo / bundle, worktree / bundle, dirs_exist_ok=True)
-        git("add", "-A", "--", bundle, cwd=worktree)
-        git("commit", "--quiet", "-m", f"study: promote {ctype} {slug}", cwd=worktree)
-        git("push", "--quiet", "-u", REMOTE, branch, cwd=worktree)
-        open_pr(worktree, branch, ctype, slug)
+        # --force -B: 재승격·이전 실패로 같은 이름 브랜치가 남아도 리셋한다(-b는 충돌해 죽는다).
+        _git(["worktree", "add", "--quiet", "--force", "-B", branch, wt, "HEAD"], repo)
+        for xy, rel in entries:
+            src, dst = Path(repo) / rel, Path(wt) / rel
+            if src.is_file():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+            elif xy != "??" and not src.exists():
+                dst.unlink(missing_ok=True)  # 삭제 반영
+        _git(["add", "-A"], wt)
+        _git(["commit", "--quiet", "-m", f"study: promote {ctype} {slug}"], wt)
+        _git(["push", "--quiet", "-u", "origin", branch], wt)
+        pushed = True
+        if shutil.which("gh"):
+            cmd = ["gh", "pr", "create", "--fill", "--base", base, "--head", branch]
+            for reviewer in REVIEWERS:
+                cmd += ["--reviewer", reviewer]
+            for label in LABELS:
+                cmd += ["--label", label]
+            if DRAFT:
+                cmd.append("--draft")
+            subprocess.run(cmd, cwd=wt, check=True)
+        else:
+            print(f"push 완료: {branch} → origin. PR은 gh 설치 후 또는 API로 연다.")
     finally:
-        # 워크트리 정리 — clone에 잔재를 남기지 않는다.
-        git("worktree", "remove", "--force", str(worktree), cwd=repo, check=False)
-        shutil.rmtree(worktree, ignore_errors=True)
+        _git(["worktree", "remove", "--force", wt], repo, check=False)
+        shutil.rmtree(wt, ignore_errors=True)
+        # clone 워킹트리 clean 복원은 **push 성공 뒤에만** — 그때만 산출물이 origin
+        # 브랜치에 안전하다. push 전 실패(오프라인·인증)면 원본을 그대로 둬 승격이 로컬
+        # 번들에 남고(주입 계속·§7), --force -B 덕에 다음 /study가 그대로 재시도한다.
+        # 경로별 checkout(한 개 실패가 나머지를 막지 않게) + 미추적은 unlink.
+        if pushed:
+            for xy, rel in entries:
+                if xy == "??":
+                    try:
+                        (Path(repo) / rel).unlink()
+                    except OSError:
+                        pass
+                else:
+                    _git(["checkout", "--", rel], repo, check=False)
     return 0
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except Exception as exc:  # noqa: BLE001 — 디스패처가 비0 exit를 실패로 격리한다(계약)
-        print(f"okf-open-pr(example): {exc}", file=sys.stderr)
-        raise SystemExit(1)
+    raise SystemExit(main())
