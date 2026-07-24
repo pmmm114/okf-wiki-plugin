@@ -78,6 +78,25 @@ def _default_base(repo):
     return out.split("/", 1)[1] if "/" in out else (out or "main")
 
 
+def _status(repo):
+    """미커밋 변경을 [(xy, path), ...]로 낸다. -z: NUL 구분·**무인용**이라 한글·공백 경로도
+    그대로 받는다(git 기본 core.quotePath가 비ASCII를 따옴표+백슬래시 이스케이프하는 함정 회피).
+    -u: 신규 디렉터리를 파일별로 편다. rename/copy(R·C)는 뒤따르는 원경로 필드를 소비한다.
+    """
+    out = _git(["status", "--porcelain", "-z", "-u"], repo).stdout
+    fields = out.split(chr(0))
+    items, i = [], 0
+    while i < len(fields):
+        entry = fields[i]
+        i += 1
+        if not entry:
+            continue
+        items.append((entry[:2], entry[3:]))
+        if entry[0] in ("R", "C") or entry[1] in ("R", "C"):
+            i += 1  # rename/copy: 다음 NUL 필드(원경로)를 소비
+    return items
+
+
 def main():
     sys.stdin.read()  # study 아이템 JSON(계약) — 여기선 env만으로 충분
     concept = os.environ.get("OKF_CONCEPT_PATH")
@@ -92,38 +111,27 @@ def main():
     base = BASE or _default_base(repo)
 
     # 승격이 남긴 미커밋 변경(개념+log.md+index.md 등) — 파일명을 가정하지 않는다.
-    # -u(untracked=all): 새 개념이 신규 디렉터리 안이면 git이 디렉터리 하나로 접는데,
-    # 그러면 아래 is_file 가드에 걸려 개념을 통째로 놓친다 — 파일별로 펴서 받는다.
-    lines = _git(["status", "--porcelain", "-u"], repo).stdout.splitlines()
-    tracked, untracked = [], []
-    for line in lines:
-        if not line.strip():
-            continue
-        (untracked if line[:2] == "??" else tracked).append(line[3:])
-    changed = tracked + untracked
-    if not changed:
+    entries = _status(repo)  # [(xy, path), ...] — 한글·공백 경로 안전(-z), 신규 디렉터리 전개(-u)
+    if not entries:
         print("승격 산출물 없음(변경 0)", file=sys.stderr)
-        return 1
+        return 0  # 할 일 없음은 실패가 아니다
 
     wt = tempfile.mkdtemp(prefix="okf-pr-")
+    pushed = False
     try:
-        _git(["worktree", "add", "--quiet", "-b", branch, wt, "HEAD"], repo)
-        for rel in changed:
+        # --force -B: 재승격·이전 실패로 같은 이름 브랜치가 남아도 리셋한다(-b는 충돌해 죽는다).
+        _git(["worktree", "add", "--quiet", "--force", "-B", branch, wt, "HEAD"], repo)
+        for xy, rel in entries:
             src, dst = Path(repo) / rel, Path(wt) / rel
             if src.is_file():
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
+            elif xy != "??" and not src.exists():
+                dst.unlink(missing_ok=True)  # 삭제 반영
         _git(["add", "-A"], wt)
         _git(["commit", "--quiet", "-m", f"study: promote {ctype} {slug}"], wt)
         _git(["push", "--quiet", "-u", "origin", branch], wt)
-        # 승격 잔재는 이제 PR 브랜치(origin)에 있으니 원 clone 워킹트리를 clean으로 되돌린다.
-        if tracked:
-            _git(["checkout", "--", *tracked], repo, check=False)
-        for rel in untracked:
-            try:
-                (Path(repo) / rel).unlink()
-            except OSError:
-                pass
+        pushed = True
         if shutil.which("gh"):
             cmd = ["gh", "pr", "create", "--fill", "--base", base, "--head", branch]
             for reviewer in REVIEWERS:
@@ -138,6 +146,19 @@ def main():
     finally:
         _git(["worktree", "remove", "--force", wt], repo, check=False)
         shutil.rmtree(wt, ignore_errors=True)
+        # clone 워킹트리 clean 복원은 **push 성공 뒤에만** — 그때만 산출물이 origin
+        # 브랜치에 안전하다. push 전 실패(오프라인·인증)면 원본을 그대로 둬 승격이 로컬
+        # 번들에 남고(주입 계속·§7), --force -B 덕에 다음 /study가 그대로 재시도한다.
+        # 경로별 checkout(한 개 실패가 나머지를 막지 않게) + 미추적은 unlink.
+        if pushed:
+            for xy, rel in entries:
+                if xy == "??":
+                    try:
+                        (Path(repo) / rel).unlink()
+                    except OSError:
+                        pass
+                else:
+                    _git(["checkout", "--", rel], repo, check=False)
     return 0
 
 
@@ -249,6 +270,9 @@ def scaffold(
     vault = Path(vault)
     if not okf_vault.valid_vault(vault):
         return {"ok": False, "reason": "유효 vault 아님(.okf-wiki.json·git 필요)"}
+    # 쓰기 전에 config 파싱을 먼저 검증한다(valid_vault는 존재만 보고 파싱은 안 함) —
+    # 깨진 config면 여기서 raise해 핸들러 파일이 orphan으로 남는 걸 막는다(원자성).
+    _read_config(vault)
     done = [ensure_handler(vault, command)]
     done += ensure_wiring(vault, name, command, level)
     managed = okf_vault.is_managed_clone(vault)

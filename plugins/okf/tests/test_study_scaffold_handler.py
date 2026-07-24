@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import okf_vault
@@ -202,3 +206,86 @@ def test_cli_scaffold_json(tmp_path, capsys):
     assert ssh.main(["scaffold", str(vault)]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is True and out["command"] == ssh.DEFAULT_COMMAND
+
+
+def test_scaffold_malformed_config_writes_no_handler(tmp_path):
+    """깨진 .okf-wiki.json이면 scaffold는 write 전에 raise하고 핸들러 orphan을 안 남긴다.
+
+    valid_vault는 존재만 보고 파싱은 안 하므로, present-but-corrupt config는 게이트를
+    통과한다. scaffold가 ensure_handler(파일 write)보다 _read_config(파싱)를 먼저 하지
+    않으면 '실패 보고했는데 트리는 변경됨' orphan이 남는다.
+    """
+    vault = _make_vault(tmp_path / "kb")
+    (vault / ".okf-wiki.json").write_text("{ not json", encoding="utf-8")
+    with pytest.raises(ValueError):
+        ssh.scaffold(vault)
+    assert not (vault / ssh.DEFAULT_COMMAND).exists()  # orphan 없음
+
+
+# --- 핸들러 실행 회귀(BLOCKER): 한글 경로 개념이 유실 없이 PR 브랜치로 -----------
+
+
+def _git(*args, cwd):
+    return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, check=True)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git 필요")
+def test_handler_carries_korean_path_concept_end_to_end(tmp_path):
+    """핸들러를 실제 실행해 **한글 주제 디렉터리** 개념이 PR 브랜치로 올라가는지 잠근다.
+
+    회귀 방지: `git status --porcelain`은 비ASCII 경로를 따옴표+백슬래시 이스케이프로
+    내므로 -z(무인용) 없이 파싱하면 개념이 조용히 누락되고 clone이 dirty로 남았다.
+    이 repo는 한글 주제 디렉터리가 표준이라 흔한 케이스 — 실행 계약을 통째로 검증한다.
+    """
+    origin, seed, clone, stub = (tmp_path / n for n in ("o.git", "seed", "clone", "bin"))
+    stub.mkdir()
+    _git("init", "--bare", "--quiet", str(origin), cwd=tmp_path)
+    _git("init", "--quiet", str(seed), cwd=tmp_path)
+    _git("config", "user.email", "t@e", cwd=seed)
+    _git("config", "user.name", "t", cwd=seed)
+    _git("remote", "add", "origin", str(origin), cwd=seed)
+    (seed / ".okf").mkdir()
+    (seed / ".okf-wiki.json").write_text('{"bundlePath": ".okf"}', encoding="utf-8")
+    (seed / ".okf/index.md").write_text("# index\n", encoding="utf-8")
+    _git("add", "-A", cwd=seed)
+    _git("commit", "--quiet", "-m", "init", cwd=seed)
+    _git("branch", "-M", "trunk", cwd=seed)
+    _git("push", "--quiet", "-u", "origin", "trunk", cwd=seed)
+    _git("symbolic-ref", "HEAD", "refs/heads/trunk", cwd=origin)  # bare 기본 브랜치 = trunk
+    _git("clone", "--quiet", str(origin), str(clone), cwd=tmp_path)
+    _git("config", "user.email", "t@e", cwd=clone)
+    _git("config", "user.name", "t", cwd=clone)
+
+    # 승격 산출물: 한글 주제 디렉터리의 새 개념(미커밋) + 수정된 index
+    (clone / ".okf/한글주제").mkdir(parents=True)
+    (clone / ".okf/한글주제/my-idea.md").write_text("# 개념\n본문\n", encoding="utf-8")
+    (clone / ".okf/index.md").write_text("# index\n- my-idea\n", encoding="utf-8")
+
+    (stub / "gh").write_text("#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n", encoding="utf-8")
+    (stub / "gh").chmod(0o755)
+
+    handler = clone / "scripts" / "okf-open-pr.py"
+    handler.parent.mkdir()
+    handler.write_text(ssh.HANDLER_TEMPLATE, encoding="utf-8")  # 스캐폴드가 까는 그 텍스트
+    env = dict(
+        os.environ,
+        PATH=f"{stub}{os.pathsep}{os.environ.get('PATH', '')}",
+        OKF_PROJECT=str(clone),
+        OKF_CONCEPT_PATH=".okf/한글주제/my-idea.md",
+        OKF_CONCEPT_TYPE="concept",
+        OKF_CONCEPT_TOPIC="한글주제",
+    )
+    result = subprocess.run(
+        [sys.executable, str(handler)],
+        input="{}",
+        text=True,
+        env=env,
+        cwd=str(clone),
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+    # 한글 경로 개념이 PR 브랜치에 실제 커밋됐고(누락 없음), clone은 clean(잔재 없음).
+    committed = _git("show", "study/한글주제/my-idea:.okf/한글주제/my-idea.md", cwd=origin).stdout
+    assert "개념" in committed
+    assert _git("status", "--porcelain", cwd=clone).stdout == ""
