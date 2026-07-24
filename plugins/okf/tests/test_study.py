@@ -114,3 +114,46 @@ def test_log_outputs_journal(tmp_path, capsys):
     out = _out(capsys)
     assert len(out) == 1
     assert out[0]["action"] == "capture" and out[0]["id"] == ident
+
+
+# --- 같은 층 번들 근사중복 (Epic #189 U3) -----------------------------------
+
+
+def test_line_path_gist_parses_context_line():
+    assert study._line_path_gist("a/b.md [Fact] — orders table schema") == (
+        "a/b.md",
+        "orders table schema",
+    )
+    assert study._line_path_gist("a/b.md [Note]") == ("a/b.md", "")
+
+
+def test_same_layer_near_is_advisory():
+    # 같은 층 개념 중 토큰이 겹치는 것만 자문 표면화(자동병합·게이팅 없음)
+    snippet = "orders table customer_id column"
+    lines = [
+        "existing.md [Fact] — orders table customer_id column",  # 동일 토큰 → dist 0
+        "unrelated.md [Fact] — zzzqqq alpha beta gamma delta",  # 다른 토큰
+    ]
+    hits = study.same_layer_near(snippet, lines, 0)
+    assert [h["path"] for h in hits] == ["existing.md"]
+    assert hits[0]["distance"] == 0
+    assert hits[0]["gist"] == "orders table customer_id column"
+
+
+def test_same_layer_near_empty_when_no_same_layer_concepts():
+    # 그 층에 개념이 없으면 근사중복 없음(다른 층은 애초에 대조 대상이 아님)
+    assert study.same_layer_near("anything ascii tokens", [], 3) == []
+
+
+# --- 인식층 계약 관통 (Epic #189 U5) ----------------------------------------
+
+
+def test_resolve_records_layer_in_journal(tmp_path, capsys):
+    # 승격 시 --layer가 promote 이벤트에 provenance로 남는다 — 후보 드레인 후에도 저널에 유지
+    ident = study_inbox.append(_rt(tmp_path), "concept", "M.md")
+    study.main(
+        ["resolve", str(tmp_path), "--id", ident, "--status", "promoted", "--layer", "wisdom"]
+    )
+    assert _out(capsys)["layer"] == "wisdom"
+    promoted = [e for e in study_inbox.read_journal(_rt(tmp_path)) if e["action"] == "promoted"]
+    assert promoted and promoted[0]["layer"] == "wisdom"

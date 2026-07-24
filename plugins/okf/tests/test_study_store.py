@@ -143,3 +143,20 @@ def test_migration_adds_columns_to_old_db(tmp_path):
         is True
     )
     assert study_store.candidate_meta(tmp_path, "new")["captured_at"] == "t"
+    assert study_store.candidate_meta(tmp_path, "old")["layer"] is None  # #189 U5 layer ALTER 이관
+
+
+def test_layer_column_set_and_read(tmp_path):
+    # 승격 판정 인식층을 후보에 영속(#189 U5) — candidate_meta로 조회, list 계약은 불변
+    ident = study_inbox.append(tmp_path, "concept body", "M.md")
+    assert study_inbox.candidate_meta(tmp_path, ident)["layer"] is None
+    study_inbox.set_layer(tmp_path, ident, "knowledge")
+    assert study_inbox.candidate_meta(tmp_path, ident)["layer"] == "knowledge"
+    # list_candidates 출력 shape는 layer 추가 전과 동일(계약 불변)
+    assert set(study_inbox.list_candidates(tmp_path)[0]) == {
+        "id",
+        "date",
+        "snippet",
+        "source",
+        "recurrence",
+    }

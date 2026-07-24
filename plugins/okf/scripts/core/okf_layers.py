@@ -12,8 +12,13 @@ frontmatter를 직접 파싱하지 않는다): ``okf graph --edges-from <derived
 - 접지(상위): 지식·지혜 개념은 근거(derived_from)를 가져야 한다.
 - 접지(정보): 정보 개념은 출처(resource)를 가져야 한다.
 
-CLI: ``okf_layers.py <bundle> [--strict]``. 기본은 자문(발견해도 exit 0),
---strict면 발견 시 exit 1. 엔진 실행은 bin/okf 셔틀 경유(stdlib 전용).
+접지 후보 질의(Epic #189 U2) — 승격 개념이 ``derived_from``으로 접지할 **하위층 기존
+개념**을 층별로 제시한다(정초 엄격 하향: 지식→정보, 지혜→지식·정보). 승격의 판정
+단계가 소비해, 같은 정보를 다시 만들지 않고 기존 개념에 맵핑하도록 돕는다.
+
+CLI: ``okf_layers.py <bundle> [--strict]``(접지 린트) · ``--candidates-for <layer>
+[--json]``(접지 후보). 기본은 자문(발견해도 exit 0), --strict면 발견 시 exit 1.
+엔진 실행은 bin/okf 셔틀 경유(stdlib 전용).
 """
 
 from __future__ import annotations
@@ -61,6 +66,41 @@ def parse_layer_map(context_output: str) -> dict:
             if path:
                 layer_map[path] = current
     return layer_map
+
+
+def parse_layer_sections(context_output: str) -> dict[str, list[str]]:
+    """``okf context --group-by <field>`` 출력을 {층: [개념 줄]}로 파싱한다.
+
+    ``parse_layer_map``과 같은 섹션 스캐너지만, 경로만 뽑지 않고 **개념 줄 전체**
+    (``<경로> [<type>] — <핵심>``)를 층별로 보존한다 — 승격 판정에 후보로 제시하기
+    위함이다. 미분류 섹션·래퍼는 제외한다.
+    """
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in context_output.split("\n"):
+        if line.startswith("## "):
+            head = line[3:].strip()
+            current = None if head == _UNCLASSIFIED else head
+        elif line and line not in (_CTX_OPEN, _CTX_CLOSE) and current is not None:
+            sections.setdefault(current, []).append(line)
+    return sections
+
+
+def lower_layers(target_layer: str, spec: dict) -> list[str]:
+    """``target_layer``보다 **엄격히 낮은** 층 목록(order 순). 정초는 엄격 하향이라
+    지식→[정보], 지혜→[정보, 지식], 정보→[](뿌리). 미지의 층은 ValueError."""
+    order = spec["order"]
+    rank = {value: index for index, value in enumerate(order)}
+    if target_layer not in rank:
+        raise ValueError(f"미지의 층: {target_layer!r} (허용: {order})")
+    target_rank = rank[target_layer]
+    return [layer for layer in order if rank[layer] < target_rank]
+
+
+def select_candidates(sections: dict, target_layer: str, spec: dict) -> dict:
+    """이미 파싱된 층 섹션(``parse_layer_sections``)에서 target보다 낮은 층만 골라
+    반환한다 — 순수 함수(서브프로세스 없음). 상위·동일 층은 접지 후보에서 제외."""
+    return {layer: sections.get(layer, []) for layer in lower_layers(target_layer, spec)}
 
 
 def check(spec: dict, layer_map: dict, graph: dict) -> list[tuple[str, str]]:
@@ -117,6 +157,25 @@ def gather(bundle: str, spec: dict) -> tuple[dict, dict]:
     return parse_layer_map(ctx), graph
 
 
+def bundle_layer_sections(bundle: str, spec: dict | None = None) -> dict:
+    """번들 개념을 {층: [개념 줄]}로 반환한다 — ``okf context --group-by <field>``를
+    재사용(bin/okf 셔틀). 접지 후보(하위층, U2)·근사중복 대조(같은 층, U3)가 공유하는
+    번들 층 원천이다.
+    """
+    spec = spec or load_layers_spec()
+    ctx = _okf(["context", bundle, "--group-by", spec["field"], "--max-chars", str(10**9)])
+    return parse_layer_sections(ctx)
+
+
+def grounding_candidates(bundle: str, target_layer: str, spec: dict | None = None) -> dict:
+    """``target_layer`` 개념이 ``derived_from``으로 접지할 **하위층 기존 개념**을 층별로
+    반환한다(승격 판정용). ``bundle_layer_sections``에서 정초 엄격 하향으로 걸러 —
+    지식은 정보를, 지혜는 지식·정보를 후보로 본다. 정보(뿌리)면 빈 dict.
+    """
+    spec = spec or load_layers_spec()
+    return select_candidates(bundle_layer_sections(bundle, spec), target_layer, spec)
+
+
 def lint(bundle: str) -> list[tuple[str, str]]:
     spec = load_layers_spec()
     layer_map, graph = gather(bundle, spec)
@@ -127,10 +186,34 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="okf_layers", description="인식층 정초·출처 접지 린트")
     ap.add_argument("bundle", help="번들 디렉터리 경로")
     ap.add_argument("--strict", action="store_true", help="발견 시 exit 1(기본은 자문 exit 0)")
+    ap.add_argument(
+        "--candidates-for",
+        metavar="LAYER",
+        help="이 층 개념이 접지할 하위층 후보를 출력(승격 접지용, 린트 대신)",
+    )
+    ap.add_argument("--json", action="store_true", help="후보를 JSON으로(--candidates-for와 함께)")
     args = ap.parse_args(argv)
     if not os.path.isdir(args.bundle):
         print(f"오류: 번들 디렉터리가 아님: {args.bundle}", file=sys.stderr)
         return 2
+
+    if args.candidates_for is not None:
+        try:
+            cands = grounding_candidates(args.bundle, args.candidates_for)
+        except ValueError as exc:
+            print(f"오류: {exc}", file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(cands, ensure_ascii=False, indent=2))
+        elif not any(cands.values()):
+            print(f"({args.candidates_for}보다 낮은 층에 기존 개념 없음 — 접지 후보 없음)")
+        else:
+            for layer, lines in cands.items():
+                print(f"## {layer}")
+                for line in lines:
+                    print(line)
+        return 0
+
     findings = lint(args.bundle)
     for path, msg in findings:
         print(f"warn {path}  {msg}")

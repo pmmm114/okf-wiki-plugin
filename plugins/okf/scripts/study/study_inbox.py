@@ -127,6 +127,13 @@ def set_supersedes(runtime: str | Path, ident: str, target: str | None) -> None:
     study_store.set_supersedes(runtime, ident, target)
 
 
+def set_layer(runtime: str | Path, ident: str, layer: str | None) -> None:
+    """후보의 인식층(정보/지식/지혜)을 기록한다(Epic #189 U5 — 승격 판정 결과)."""
+    if not study_store.available():
+        return
+    study_store.set_layer(runtime, ident, layer)
+
+
 def invalidate(runtime: str | Path, ident: str) -> None:
     """원장 항목을 무효화(보존) — 갱신·초과된 판정을 지우지 않고 시각만 새긴다(#132)."""
     if not study_store.available():
@@ -241,12 +248,15 @@ def is_resolved(runtime: str | Path, ident: str) -> bool:
     return shared is not None and study_store.has_resolution(shared, ident)
 
 
-def record(runtime: str | Path, ident: str, status: str, ref: str | None = None) -> None:
+def record(
+    runtime: str | Path, ident: str, status: str, ref: str | None = None, layer: str | None = None
+) -> None:
     """id를 promoted/discarded로 원장에 기록한다(이미 있으면 무시).
 
     기록은 후보가 잡힌 스코프의 런타임 원장이 정본이고, vault 옵트인 시 공유(유저 스코프)
     원장에도 write-through한다. 교차 승격(#91 §4)은 이 함수로 원 스코프에 기록하되
-    ``ref``에 vault 개념 경로를 담는 규약이다.
+    ``ref``에 vault 개념 경로를 담는 규약이다. ``layer``(정보/지식/지혜)가 주어지면 promote
+    이벤트에 함께 새겨 후보 드레인 후에도 저널에 인식층 provenance가 남는다(#189 U5).
     """
     if status not in ("promoted", "discarded"):
         raise ValueError(f"알 수 없는 status: {status}")
@@ -256,7 +266,7 @@ def record(runtime: str | Path, ident: str, status: str, ref: str | None = None)
     # 으로 재캡처돼도 줄-단위로 dedup되어 재부상하지 않는다(ledger 연속성).
     children = [h for h in study_store.candidate_lines(runtime, ident) if h != ident]
     study_store.insert_resolution(runtime, ident, status, ref)
-    journal_append(runtime, status, ident, ref=ref)  # 순서·시각 이력(#114 U5) — 블록만
+    journal_append(runtime, status, ident, ref=ref, layer=layer)  # 순서·시각·층 이력(#114·#189 U5)
     for child in children:
         study_store.insert_resolution(runtime, child, status, None)
     shared = _global_ledger_root(runtime)

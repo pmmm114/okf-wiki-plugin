@@ -52,7 +52,8 @@ def test_dispatch_runs_tracked_isolates_failure_and_sets_env(tmp_path):
     _write_exec(
         repo / "scripts" / "ok.sh",
         "#!/usr/bin/env bash\ncat >/dev/null 2>&1 || true\n"
-        'echo "$OKF_TRIGGER $OKF_CONCEPT_TYPE $OKF_CONCEPT_TOPIC" > "$OKF_CONCEPT_PATH.env"\n',
+        'echo "$OKF_TRIGGER $OKF_CONCEPT_TYPE $OKF_CONCEPT_TOPIC $OKF_CONCEPT_LAYER"'
+        ' > "$OKF_CONCEPT_PATH.env"\n',
     )
     _write_exec(
         repo / "scripts" / "fail.sh", "#!/usr/bin/env bash\ncat >/dev/null 2>&1 || true\nexit 1\n"
@@ -62,7 +63,12 @@ def test_dispatch_runs_tracked_isolates_failure_and_sets_env(tmp_path):
 
     item = {
         "source": "manual",
-        "concept": {"type": "concept", "topic": "engine", "path": str(repo / "out")},
+        "concept": {
+            "type": "concept",
+            "topic": "engine",
+            "layer": "wisdom",
+            "path": str(repo / "out"),
+        },
     }
     handlers = [
         {"name": "ok", "command": "scripts/ok.sh"},
@@ -72,7 +78,7 @@ def test_dispatch_runs_tracked_isolates_failure_and_sets_env(tmp_path):
 
     assert res["ran"] == ["ok"]
     assert [f["name"] for f in res["failed"]] == ["fail"]  # 실패 격리
-    assert (repo / "out.env").read_text(encoding="utf-8").strip() == "manual concept engine"
+    assert (repo / "out.env").read_text(encoding="utf-8").strip() == "manual concept engine wisdom"
 
 
 def test_dispatch_skips_untracked(tmp_path):
