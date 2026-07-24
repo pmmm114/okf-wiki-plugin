@@ -11,6 +11,7 @@
   study scan     <project> [--enqueue]                   미큐잉 후보 결정론 탐지(+재적재)
   study log      <project> [--limit N]                    이벤트 저널(capture/promote/discard)
   study near     <project> [--threshold N]                근사중복 자문(SimHash 해밍거리)
+  study near-bundle <bundle> --snippet S --layer L [--threshold N]  후보↔같은 층 번들 근사중복(자문)
   study migrate  [<project>]                              vault .okf-study → 유저 스코프 멱등 이동
 
 ``dispatch``는 trust 미승인 핸들러가 있으면 결과에 안내를 붙인다(가시적 저하) —
@@ -29,6 +30,7 @@ import json
 import os
 from pathlib import Path
 
+import okf_layers
 import okf_vault
 import study_blocks
 import study_dispatch
@@ -160,6 +162,39 @@ def cmd_near(args) -> int:
             if dups:
                 pairs[cand["id"]] = dups
     print(json.dumps(pairs, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _line_path_gist(line: str) -> tuple[str, str]:
+    """``okf context`` 개념 줄 ``<경로> [<type>] — <핵심>``을 (경로, 핵심)으로 쪼갠다."""
+    path = line.split(" [", 1)[0].strip()
+    gist = line.split(" — ", 1)[1].strip() if " — " in line else ""
+    return path, gist
+
+
+def same_layer_near(snippet: str, layer_lines: list[str], threshold: int) -> list[dict]:
+    """``snippet``을 **같은 층** 번들 개념 줄들과 SimHash 해밍거리로 대조해 임계 이내를
+    반환한다(자문 전용 — 자동병합·게이팅 없음, #133 철학). 반환: 거리 오름차순
+    ``[{path, gist, distance}]``. SimHash는 근사라 오탐·누락이 있어 판정은 사람·모델이
+    한다(재확인·supersede·별개). 토큰은 study_simhash 규약(ascii 영숫자)을 따른다.
+    """
+    target = study_simhash.fingerprint(snippet)
+    hits: list[dict] = []
+    for line in layer_lines:
+        path, gist = _line_path_gist(line)
+        fp = study_simhash.fingerprint(gist or path)
+        distance = study_simhash.hamming(target, fp)
+        if distance <= threshold:
+            hits.append({"path": path, "gist": gist, "distance": distance})
+    return sorted(hits, key=lambda h: (h["distance"], h["path"]))
+
+
+def cmd_near_bundle(args) -> int:
+    # 같은 층 번들 근사중복 자문(Epic #189 U3) — "동일 정보면 다시 습득 안 함"의 신호.
+    # exact 내용해시 하드 게이트(재부상 차단)는 불변, 여기선 semantic 자문만 더한다.
+    sections = okf_layers.bundle_layer_sections(args.bundle)
+    hits = same_layer_near(args.snippet, sections.get(args.layer, []), args.threshold)
+    print(json.dumps({"layer": args.layer, "near": hits}, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -298,6 +333,12 @@ def main(argv: list[str] | None = None) -> int:
     nr.add_argument("project", nargs="?", default=".")
     nr.add_argument("--threshold", type=int, default=study_simhash.DEFAULT_THRESHOLD)
 
+    nb = sub.add_parser("near-bundle", help="후보 스니펫↔같은 층 번들 개념 근사중복(자문)")
+    nb.add_argument("bundle", help="번들 디렉터리 경로")
+    nb.add_argument("--snippet", required=True, help="대조할 후보 스니펫")
+    nb.add_argument("--layer", required=True, help="후보의 인식층(같은 층만 대조)")
+    nb.add_argument("--threshold", type=int, default=study_simhash.DEFAULT_THRESHOLD)
+
     mig = sub.add_parser("migrate", help="기존 vault .okf-study 런타임 → 유저 스코프 멱등 이동")
     mig.add_argument("project", nargs="?", default=".")
 
@@ -310,6 +351,7 @@ def main(argv: list[str] | None = None) -> int:
         "scan": cmd_scan,
         "log": cmd_log,
         "near": cmd_near,
+        "near-bundle": cmd_near_bundle,
         "migrate": cmd_migrate,
     }
     return handlers[args.cmd](args)

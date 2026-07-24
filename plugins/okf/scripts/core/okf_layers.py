@@ -157,15 +157,23 @@ def gather(bundle: str, spec: dict) -> tuple[dict, dict]:
     return parse_layer_map(ctx), graph
 
 
-def grounding_candidates(bundle: str, target_layer: str, spec: dict | None = None) -> dict:
-    """``target_layer`` 개념이 ``derived_from``으로 접지할 **하위층 기존 개념**을 층별로
-    반환한다(승격 판정용). ``okf context --group-by <field>``를 재사용(bin/okf 셔틀) —
-    지식은 정보를, 지혜는 지식·정보를 후보로 본다. 정초 엄격 하향을 인코딩해 상위·동일
-    층은 제외한다. 정보(뿌리)면 빈 dict.
+def bundle_layer_sections(bundle: str, spec: dict | None = None) -> dict:
+    """번들 개념을 {층: [개념 줄]}로 반환한다 — ``okf context --group-by <field>``를
+    재사용(bin/okf 셔틀). 접지 후보(하위층, U2)·근사중복 대조(같은 층, U3)가 공유하는
+    번들 층 원천이다.
     """
     spec = spec or load_layers_spec()
     ctx = _okf(["context", bundle, "--group-by", spec["field"], "--max-chars", str(10**9)])
-    return select_candidates(parse_layer_sections(ctx), target_layer, spec)
+    return parse_layer_sections(ctx)
+
+
+def grounding_candidates(bundle: str, target_layer: str, spec: dict | None = None) -> dict:
+    """``target_layer`` 개념이 ``derived_from``으로 접지할 **하위층 기존 개념**을 층별로
+    반환한다(승격 판정용). ``bundle_layer_sections``에서 정초 엄격 하향으로 걸러 —
+    지식은 정보를, 지혜는 지식·정보를 후보로 본다. 정보(뿌리)면 빈 dict.
+    """
+    spec = spec or load_layers_spec()
+    return select_candidates(bundle_layer_sections(bundle, spec), target_layer, spec)
 
 
 def lint(bundle: str) -> list[tuple[str, str]]:
