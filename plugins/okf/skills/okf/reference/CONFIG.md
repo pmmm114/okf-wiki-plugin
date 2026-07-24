@@ -32,7 +32,7 @@
 {
   "study": {
     "capture": "off",
-    "handlers": [{ "name": "wiki-pr", "command": "scripts/okf-open-pr.sh" }]
+    "handlers": [{ "name": "wiki-pr", "command": "scripts/okf-open-pr.py" }]
   }
 }
 ```
