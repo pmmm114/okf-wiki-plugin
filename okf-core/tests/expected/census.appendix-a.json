@@ -1,0 +1,185 @@
+{
+  "bundle": {
+    "concepts": 3,
+    "reserved": 3,
+    "failing": 0,
+    "dirs": 3,
+    "links": 6,
+    "axes": [
+      "type"
+    ]
+  },
+  "fields": [
+    {
+      "field": "description",
+      "present": 3,
+      "concepts": 3,
+      "values": 3,
+      "kinds": {
+        "str": 3
+      }
+    },
+    {
+      "field": "resource",
+      "present": 3,
+      "concepts": 3,
+      "values": 3,
+      "kinds": {
+        "str": 3
+      }
+    },
+    {
+      "field": "tags",
+      "present": 3,
+      "concepts": 3,
+      "values": 3,
+      "kinds": {
+        "list": 3
+      }
+    },
+    {
+      "field": "timestamp",
+      "present": 3,
+      "concepts": 3,
+      "values": 0,
+      "kinds": {
+        "other": 3
+      }
+    },
+    {
+      "field": "title",
+      "present": 3,
+      "concepts": 3,
+      "values": 3,
+      "kinds": {
+        "str": 3
+      }
+    },
+    {
+      "field": "type",
+      "present": 3,
+      "concepts": 3,
+      "values": 2,
+      "kinds": {
+        "str": 3
+      }
+    }
+  ],
+  "axes": [
+    {
+      "axis": "type",
+      "present": 3,
+      "missing": 0,
+      "valueless": 0,
+      "values": [
+        {
+          "value": "BigQuery Dataset",
+          "count": 1,
+          "dirs": {
+            "datasets": 1
+          }
+        },
+        {
+          "value": "BigQuery Table",
+          "count": 2,
+          "dirs": {
+            "tables": 2
+          }
+        }
+      ]
+    }
+  ],
+  "dirs": [
+    {
+      "path": ".",
+      "depth": 0,
+      "concepts": 0,
+      "subtree": 3,
+      "links": {
+        "internal": 0,
+        "outbound": 0,
+        "inbound": 0,
+        "to": {}
+      },
+      "axes": {
+        "type": {}
+      },
+      "items": []
+    },
+    {
+      "path": "datasets",
+      "depth": 1,
+      "concepts": 1,
+      "subtree": 1,
+      "links": {
+        "internal": 0,
+        "outbound": 2,
+        "inbound": 2,
+        "to": {
+          "tables": 2
+        }
+      },
+      "axes": {
+        "type": {
+          "BigQuery Dataset": 1
+        }
+      },
+      "items": [
+        {
+          "path": "datasets/sales.md",
+          "axes": {
+            "type": [
+              "BigQuery Dataset"
+            ]
+          },
+          "summary": "All sales-related tables for the retail business.",
+          "summary_from": "frontmatter",
+          "refs": 2
+        }
+      ]
+    },
+    {
+      "path": "tables",
+      "depth": 1,
+      "concepts": 2,
+      "subtree": 2,
+      "links": {
+        "internal": 2,
+        "outbound": 2,
+        "inbound": 2,
+        "to": {
+          "datasets": 2
+        }
+      },
+      "axes": {
+        "type": {
+          "BigQuery Table": 2
+        }
+      },
+      "items": [
+        {
+          "path": "tables/customers.md",
+          "axes": {
+            "type": [
+              "BigQuery Table"
+            ]
+          },
+          "summary": "One row per registered customer.",
+          "summary_from": "frontmatter",
+          "refs": 2
+        },
+        {
+          "path": "tables/orders.md",
+          "axes": {
+            "type": [
+              "BigQuery Table"
+            ]
+          },
+          "summary": "One row per completed customer order.",
+          "summary_from": "frontmatter",
+          "refs": 2
+        }
+      ]
+    }
+  ]
+}
