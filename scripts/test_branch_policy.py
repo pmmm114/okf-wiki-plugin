@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 import branch_policy as bp
@@ -262,6 +263,26 @@ def _repo(tmp_path):
         "ci: 게이트 추가\n\nClaude-Session: https://claude.ai/code/session_abc123\n",
     )
     return git, base, git("rev-parse", "HEAD").stdout.strip()
+
+
+def test_repo_fixture_stays_in_tmp(tmp_path):
+    """픽스처 repo는 반드시 tmp 안에 선다 — 실측된 실제 사고의 회귀 게이트.
+
+    git은 환경에 ``GIT_DIR``이 있으면 ``cwd``와 ``-C``를 **무시한다**. git 훅은 그
+    변수를 설정한 채 자식을 띄우므로, pre-push의 `pytest scripts`가 그 환경을
+    물려받으면 이 픽스처의 ``git init``·``config``·``commit``이 tmp가 아니라
+    **훅을 띄운 실제 repo**에 실행된다(관측 신호: `warning: re-init: ignored
+    --initial-branch=main`). 실제 피해는 `.git/config`에 픽스처 identity·
+    `core.bare=true` 주입과 커밋 author 오염이었다. 격리는 `conftest.py`가 한다.
+    """
+    _repo(tmp_path)
+    assert (tmp_path / ".git").is_dir(), "픽스처가 tmp 밖에 repo를 만들었다 — GIT_* 누수"
+
+
+def test_git_env_is_isolated():
+    """`conftest.py`의 격리가 실제로 걸려 있다 — 위 게이트의 전제."""
+    leaked = sorted(k for k in os.environ if k.startswith("GIT_"))
+    assert not leaked, f"GIT_* 환경변수 누수: {leaked}"
 
 
 def test_commit_messages_reads_range(tmp_path, monkeypatch):
