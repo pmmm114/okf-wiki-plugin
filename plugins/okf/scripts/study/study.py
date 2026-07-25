@@ -13,6 +13,7 @@
   study near     <project> [--threshold N]                근사중복 자문(SimHash 해밍거리)
   study near-bundle <bundle> --snippet S --layer L [--threshold N]  후보↔같은 층 번들 근사중복(자문)
   study migrate  [<project>]                              vault .okf-study → 유저 스코프 멱등 이동
+  study prune    [<project>]                              기적재 노이즈 후보 정리(원장 무기록 drop)
 
 ``dispatch``는 trust 미승인 핸들러가 있으면 결과에 안내를 붙인다(가시적 저하) —
 개념은 이미 스킬이 로컬 번들에 승격·검증했고, 여기서 핸들러만 보류된다.
@@ -154,6 +155,25 @@ def cmd_clear(args) -> int:
 def cmd_scan(args) -> int:
     _promote, runtime = _scope(args.project)
     print(json.dumps(scan_memory(args.project, runtime, enqueue=args.enqueue), ensure_ascii=False))
+    return 0
+
+
+def cmd_prune(args) -> int:
+    # 기적재 노이즈 정리(#256) — **원장 기록 없는 drop**: 재유입은 추출 필터가 차단하므로
+    # discard(영구 원장 + 공유 원장 write-through)는 노이즈 id 오염이 된다. 저널은
+    # per-id 대신 집계 1건 — doctor의 최근-이력 뷰를 수백 행으로 덮지 않는다.
+    _promote, runtime = _scope(args.project)
+    removed: list[str] = []
+    if runtime:
+        noise = [
+            c["id"]
+            for c in study_inbox.list_candidates(runtime)
+            if study_blocks.is_noise_snippet(c["snippet"])
+        ]
+        removed = study_inbox.drop(runtime, noise)
+        if removed:
+            study_inbox.journal_append(runtime, "prune", "-", count=len(removed))
+    print(json.dumps({"pruned": removed}, ensure_ascii=False))
     return 0
 
 
@@ -354,6 +374,9 @@ def main(argv: list[str] | None = None) -> int:
     mig = sub.add_parser("migrate", help="기존 vault .okf-study 런타임 → 유저 스코프 멱등 이동")
     mig.add_argument("project", nargs="?", default=".")
 
+    prn = sub.add_parser("prune", help="기적재 노이즈 후보 정리 — 원장 무기록 drop(#256)")
+    prn.add_argument("project", nargs="?", default=".")
+
     args = ap.parse_args(argv)
     handlers = {
         "list": cmd_list,
@@ -365,6 +388,7 @@ def main(argv: list[str] | None = None) -> int:
         "near": cmd_near,
         "near-bundle": cmd_near_bundle,
         "migrate": cmd_migrate,
+        "prune": cmd_prune,
     }
     return handlers[args.cmd](args)
 
