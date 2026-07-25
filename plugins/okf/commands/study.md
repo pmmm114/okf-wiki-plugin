@@ -97,6 +97,13 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
    `study.py resolve <project> --id <id> --status promoted --ref <경로> --layer <layer>`.
    버릴 후보는 `--status discarded`. `--layer`로 4단계 판정 인식층을 저널·후보에
    provenance로 새긴다(후보 드레인 후에도 `study.py log`에 층이 남는다).
+   - **파일 단위 일괄(#258)**: 한 파일 그룹을 통째로 버릴 땐
+     `study.py resolve <project> --source <경로> --status discarded` — 경로는 2단계
+     그룹의 `source` 값 그대로 쓴다(저장값 정확 일치 매칭이라 rename·삭제된 옛 경로의
+     잔존 후보 정리에도 쓴다. 매칭 0건이면 현존 source 목록과 함께 실패한다).
+     여러 후보를 **한 개념으로 병합 승격**했다면 다중 `--id`(반복) + 단일 `--ref`로
+     일괄 promoted 처리한다 — 단일 `--ref`는 "N후보 → 1개념 병합"의 의미다. 개념별
+     개별 승격은 종전대로 후보당 resolve가 기본이다.
    - **교차 승격 규약(#91 §4)**: 프로젝트 inbox의 후보를 vault 번들로 승격했다면
      `resolve`는 **후보가 잡힌 스코프**(그 프로젝트)에 대해 실행하고 `--ref`에
      vault 개념 경로를 준다 — 기록은 원 스코프 원장이 정본, 유효 vault가 있으면 vault

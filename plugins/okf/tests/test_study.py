@@ -48,9 +48,65 @@ def test_resolve_records_and_drops(tmp_path, capsys):
     study.main(
         ["resolve", str(tmp_path), "--id", ident, "--status", "promoted", "--ref", ".okf/x.md"]
     )
-    assert _out(capsys)["dropped"] == [ident]
+    out = _out(capsys)
+    assert out["dropped"] == [ident]
+    assert out["id"] == ident  # 단일-호출 출력의 "id" 키는 하위호환 계약(DA #262)
     assert study_inbox.is_resolved(_rt(tmp_path), ident)
     assert study_inbox.list_candidates(_rt(tmp_path)) == []
+
+
+def test_resolve_by_source_batch(tmp_path, capsys):
+    # U4(#258): 파일 그룹 일괄 드레인 — 파일 하나 처리에 후보 수만큼 resolve를
+    # 반복 호출하던 격차(실증 A5: 중앙값 5~8회) 해소. 원장·저널은 id별 계약 유지.
+    i1 = study_inbox.append(_rt(tmp_path), "a", "/mem/one.md")
+    i2 = study_inbox.append(_rt(tmp_path), "b", "/mem/one.md")
+    i3 = study_inbox.append(_rt(tmp_path), "c", "/mem/two.md")
+    study.main(["resolve", str(tmp_path), "--source", "/mem/one.md", "--status", "discarded"])
+    out = _out(capsys)
+    assert set(out["ids"]) == {i1, i2} and set(out["dropped"]) == {i1, i2}
+    assert out["id"] is None  # 배치 출력의 "id"는 null — 단일 호출만 값(하위호환)
+    assert study_inbox.is_resolved(_rt(tmp_path), i1)
+    assert study_inbox.is_resolved(_rt(tmp_path), i2)
+    assert [c["id"] for c in study_inbox.list_candidates(_rt(tmp_path))] == [i3]
+
+
+def test_resolve_by_source_applies_same_sanitize(tmp_path, capsys):
+    # 저장 source는 _sanitize 통과본 — CLI 인자도 동일 정규화 후 정확 일치로 매칭
+    ident = study_inbox.append(_rt(tmp_path), "a", "/mem/my  notes.md")
+    study.main(["resolve", str(tmp_path), "--source", "/mem/my  notes.md", "--status", "discarded"])
+    assert _out(capsys)["dropped"] == [ident]
+
+
+def test_resolve_by_source_no_match_fails_visibly(tmp_path, capsys):
+    # 매칭 0건은 무음 성공이 아니라 가시적 실패 — 현존 source 목록을 보여 오타를 드러낸다
+    study_inbox.append(_rt(tmp_path), "a", "/mem/one.md")
+    rc = study.main(["resolve", str(tmp_path), "--source", "/mem/gone.md", "--status", "discarded"])
+    out = _out(capsys)
+    assert rc == 1 and out["sources"] == ["/mem/one.md"]
+    assert study_inbox.list_candidates(_rt(tmp_path))  # 아무것도 드레인되지 않았다
+
+
+def test_resolve_multiple_ids_merge_promotion(tmp_path, capsys):
+    # 다중 --id + 단일 --ref = "N후보 → 1개념 병합 승격" — id별 원장·저널 기록은 유지
+    i1 = study_inbox.append(_rt(tmp_path), "a", "/mem/one.md")
+    i2 = study_inbox.append(_rt(tmp_path), "b", "/mem/one.md")
+    study.main(
+        ["resolve", str(tmp_path), "--id", i1, "--id", i2, "--status", "promoted"]
+        + ["--ref", ".okf/x.md", "--layer", "information"]
+    )
+    out = _out(capsys)
+    assert set(out["ids"]) == {i1, i2}
+    assert study_inbox.is_resolved(_rt(tmp_path), i1)
+    assert study_inbox.is_resolved(_rt(tmp_path), i2)
+    promoted = [e for e in study_inbox.read_journal(_rt(tmp_path)) if e["action"] == "promoted"]
+    assert len(promoted) == 2 and all(e.get("ref") == ".okf/x.md" for e in promoted)
+
+
+def test_resolve_id_and_source_mutually_exclusive(tmp_path):
+    with pytest.raises(SystemExit):
+        study.main(
+            ["resolve", str(tmp_path), "--id", "x", "--source", "/m.md", "--status", "promoted"]
+        )
 
 
 def test_clear_discards_all(tmp_path, capsys):
