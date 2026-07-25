@@ -17,7 +17,7 @@ APPENDIX_A = FIXTURES / "appendix-a"
 SRC = Path(__file__).resolve().parents[1] / "src" / "okf_core"
 
 
-def test_pipeline_parses_each_file_once(monkeypatch):
+def _counting_parse(monkeypatch) -> dict:
     real = parser_mod.parse
     calls = {"n": 0}
 
@@ -26,8 +26,22 @@ def test_pipeline_parses_each_file_once(monkeypatch):
         return real(source)
 
     monkeypatch.setattr(parser_mod, "parse", counting)
+    return calls
+
+
+def test_pipeline_parses_each_file_once(monkeypatch):
+    calls = _counting_parse(monkeypatch)
     findings = validate_bundle(APPENDIX_A, strict=True)  # §9 + 정책 전 파이프 통과
     assert findings == []
+    assert calls["n"] == len(list(APPENDIX_A.rglob("*.md"))) == 6
+
+
+def test_census_parses_each_file_once(monkeypatch):
+    """관측도 같은 규율 — 트리·축교차·링크를 한 번의 walk_bundle 위에서 낸다."""
+    from okf_core.census import build_census
+
+    calls = _counting_parse(monkeypatch)
+    build_census(APPENDIX_A)
     assert calls["n"] == len(list(APPENDIX_A.rglob("*.md"))) == 6
 
 
@@ -44,8 +58,9 @@ def test_no_rule_constants_in_validate_or_policy_code():
     forbidden += [f"'{name}'" for name in rules["reserved_files"]]
     forbidden += [f'"{key}"' for key in rules["required_frontmatter"]]
     forbidden += [f"'{key}'" for key in rules["required_frontmatter"]]
-    # bundle은 판정 술어(개념 우주·예약 구분)를 소유하므로 같은 규율을 받는다.
-    for module in ("validate.py", "policy.py", "bundle.py"):
+    # bundle은 판정 술어(개념 우주·예약 구분)를, census는 기본 축을 규칙에서 읽으므로
+    # 같은 규율을 받는다 — census가 축 이름을 리터럴로 가지면 taxonomy-neutral이 깨진다.
+    for module in ("validate.py", "policy.py", "bundle.py", "census.py"):
         text = (SRC / module).read_text(encoding="utf-8")
         for literal in forbidden:
             assert literal not in text, f"{module}에 규칙 상수 {literal} 하드코딩"
