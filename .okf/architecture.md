@@ -20,8 +20,10 @@ tags: [engine, architecture]
 * parser — frontmatter·본문·인라인 링크 추출(펜스 내부 제외)
 * validate — §9 3규칙만 error, 거부 금지 항목은 warn(§5.3·§9)
 * policy — 권장 필드 warn 뼈대(판정 상수는 규칙 데이터에서)
+* bundle — 규칙 세대·개념 우주·디렉터리 트리의 공유 술어(소비자별 갈림 방지)
 * index / graph / context — §6 재생성, 링크 그래프, 주입용 압축 인덱스
-* cli — 서브커맨드 6종(validate·index·graph·context·log·init)을 각 모듈 main으로 위임
+* census — 배치·분류 판정에 먹일 관측(축×디렉터리 교차·개념 전량), 판정은 안 함
+* cli — 서브커맨드 7종(validate·index·graph·context·census·log·init)을 각 모듈 main으로 위임
 
 판정 상수는 코드가 아니라 `rules/v0_1.json`에 있고, 엔진은 특정 소비자를
 모른다(무참조 grep 불변식). 엔진이 구현하는 §9 사실의 원천은

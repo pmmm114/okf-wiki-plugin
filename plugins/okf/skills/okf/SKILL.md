@@ -55,7 +55,7 @@ repo에 `.okf/` 번들(또는 `.okf-wiki.json`이 가리키는 번들)이 있고
 ## 5. 실행 위임
 
 검증·색인·그래프·컨텍스트·로그 조작은 전부 `okf` 맨 명령에 위임한다:
-`okf validate | index | graph | context | log append | init`. 이 스킬 안에 자체
+`okf validate | index | graph | context | census | log append | init`. 이 스킬 안에 자체
 스크립트를 두지 않는다.
 
 ## 6. 승격(study) 플로우

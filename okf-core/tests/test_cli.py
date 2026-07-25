@@ -44,6 +44,14 @@ def test_context_subcommand(capsys):
     assert out.startswith("<okf-context>") and len(out) <= 501  # print 개행 1자
 
 
+def test_census_subcommand(capsys):
+    assert main(["census", str(APPENDIX_A), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert set(payload) == {"bundle", "fields", "axes", "dirs"}
+    # 판정이 없으므로 §9 탈락 번들에서도 0
+    assert main(["census", str(FIXTURES / "violations")]) == 0
+
+
 def test_log_append_subcommand(tmp_path, capsys):
     assert main(["log", "append", str(tmp_path), "-m", "첫 항목"]) == 0
     assert main(["log", "append", str(tmp_path), "-m", "둘째 항목"]) == 0
@@ -56,7 +64,7 @@ def test_log_append_subcommand(tmp_path, capsys):
 def test_help_exists(capsys):
     assert main([]) == 0
     top = capsys.readouterr().out
-    for cmd in ("validate", "index", "graph", "context", "log", "init"):
+    for cmd in ("validate", "index", "graph", "context", "census", "log", "init"):
         assert cmd in top
     with pytest.raises(SystemExit) as exc:
         main(["validate", "--help"])
