@@ -62,5 +62,18 @@ argument-hint: "[<topic> | --layer <layer> | --bundle <path>]"
 
 6. **⑤ 결과 처리**: 반려는 사유별로 — 게이트·검증 실패는 제안을 수정해 4단계
    재선별로, 근사중복 갱신 판정분은 스킬 §3 유지 플로우로(신설 아님 — 이 커맨드
-   밖). `lint_warns`의 의도적 dangle은 "미작성 지식 신호"로 안내한다. 승격/반려/
-   미제안 사유를 요약하고 종료한다.
+   밖). `lint_warns`의 의도적 dangle은 "미작성 지식 신호"로 안내한다.
+
+7. **⑥ 디스패치(원격 반영)**: 이 커맨드도 `/study`와 **같은 곳**(번들)에 쓰므로,
+   그 번들이 관리형 clone이면 승격분이 로컬 잔재로 남아 신선도 갱신을 막는다(#216 V4).
+   승격 개념마다 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py"
+   "${CLAUDE_PLUGIN_ROOT}/scripts/study/study.py" dispatch <bundle의 repo 루트>
+   --source manual --concept-path <경로> --concept-type <type> --concept-topic <topic>
+   --concept-layer <layer>`를 실행한다.
+   - 핸들러가 배선돼 있지 않으면 "핸들러 없음"으로 조기 종료된다 — 그때는 승격분이
+     로컬에만 남는다는 사실과 `/okf-init --vault` 배선 경로를 안내한다(무동의 파괴 금지 —
+     임의로 지우지 않는다).
+   - `reclaimed`가 오면 원격 반영이 확인된 잔재를 정리한 것이다. 경로 수만 보인다.
+   - 로컬 경로 vault·비-clone 번들이면 이 단계는 무동작이다(디스패치가 스스로 판정).
+
+8. **요약**: 승격/반려/미제안 사유와 디스패치 결과를 요약하고 종료한다.

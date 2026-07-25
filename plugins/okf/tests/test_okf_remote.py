@@ -468,6 +468,43 @@ def test_doctor_withholds_seal_verdict_when_fetch_is_stale(monkeypatch, tmp_path
     assert "자동 정리" not in joined
 
 
+def test_doctor_points_to_wiring_when_no_handler(monkeypatch, tmp_path):
+    """핸들러 미배선 vault에서 '디스패치로 반영하라'는 **실행 불가능한 지시**다(#228).
+
+    `/okf-promote`나 미배선 vault의 승격이 딱 이 상태를 만든다 — 원격 반영 경로 자체가
+    없으므로 배선을 안내해야 사용자가 실제로 할 수 있는 일이 생긴다.
+    """
+    src = _origin(tmp_path)  # 기본 config엔 study.handlers 없음
+    url = _url(src)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, url)
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    (clone_path / ".okf" / "u.md").write_text("# never pushed\n", encoding="utf-8")
+    okf_remote.session_fetch()
+    joined = "\n".join(okf_remote.doctor_vault_notes(url))
+    assert "핸들러 미배선" in joined
+    assert "디스패치(PR)로 반영" not in joined  # 못 하는 일을 시키지 않는다
+    assert "유실" in joined  # 폐기 위험 경고는 유지
+
+
+def test_doctor_points_to_dispatch_when_handler_wired(monkeypatch, tmp_path):
+    """핸들러가 배선돼 있으면 디스패치가 실제 경로이므로 그대로 안내한다."""
+    src = _origin(
+        tmp_path,
+        config={
+            "bundlePath": ".okf",
+            "study": {"handlers": [{"name": "h", "command": "scripts/h.py"}]},
+        },
+    )
+    url = _url(src)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, url)
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    (clone_path / ".okf" / "u.md").write_text("# never pushed\n", encoding="utf-8")
+    okf_remote.session_fetch()
+    joined = "\n".join(okf_remote.doctor_vault_notes(url))
+    assert "디스패치(PR)로 반영" in joined
+    assert "핸들러 미배선" not in joined
+
+
 def test_doctor_says_nothing_about_residue_when_clean(monkeypatch, tmp_path):
     """잔재가 없으면 잔재 줄을 아예 내지 않는다(침묵 정책)."""
     src = _origin(tmp_path)
