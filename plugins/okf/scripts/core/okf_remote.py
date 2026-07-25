@@ -274,6 +274,27 @@ def discard_paths(clone_path: str | Path, entries) -> bool:
     return not any(rel in left for _xy, rel in entries)
 
 
+def reclaim_sealed(clone_path: str | Path) -> list[str]:
+    """봉인된 잔재를 회수하고 폐기된 경로를 정렬해 반환한다(없으면 빈 목록).
+
+    열거 → 후보 선별 → 봉인 판정 → 폐기를 한 벌로 묶는다. ff가 거부됐을 때(refresh)와
+    핸들러 실행 뒤(디스패치)가 **같은 판정**을 쓰게 하는 단일 지점이다 — 두 곳이 각자
+    판정하면 한쪽만 고쳐지는 드리프트가 생긴다.
+
+    삭제·rename·copy는 후보에서 뺀다. 워킹트리에 대조할 내용이 없거나 경로 쌍이라
+    봉인 판정이 성립하지 않는다(보수적 제외 — 판정 불가는 보존).
+    """
+    entries = list_residue(clone_path)
+    if not entries:
+        return []
+    candidates = [(xy, rel) for xy, rel in entries if xy[0] not in ("R", "C") and "D" not in xy]
+    sealed = sealed_paths(clone_path, [rel for _xy, rel in candidates])
+    if not sealed:
+        return []
+    discard_paths(clone_path, [(xy, rel) for xy, rel in candidates if rel in sealed])
+    return sorted(sealed)
+
+
 def _ahead_behind(clone_path: str | Path) -> tuple[int | None, int | None]:
     """(ahead, behind) — 로컬 HEAD vs @{upstream}, 이미 fetch된 ref 기준(무네트워크)."""
     rc, out, _err = _run_git(
@@ -443,28 +464,17 @@ def _recover_and_ff(clone_path: str | Path, timeout: float) -> dict:
     가능하므로 정체를 푼다. 봉인되지 않았으면 **아무것도 지우지 않는다** — 오탐 폐기는
     비가역 지식 유실이지만, 미폐기는 알려진 정체를 재현할 뿐이고 진단 경로가 남는다.
     """
-    entries = list_residue(clone_path)
-    if not entries:
-        return {
-            "refreshed": False,
-            "reason": "ff 거부",
-            "warning": "잔재 없이 ff가 거부됐다 — 관리형 clone 수동 점검 필요",
-        }
-    # 삭제·rename·copy는 폐기 대상에서 뺀다 — 워킹트리에 대조할 내용이 없거나
-    # 경로 쌍이라 봉인 판정이 성립하지 않는다(보수적 제외).
-    candidates = [(xy, rel) for xy, rel in entries if xy[0] not in ("R", "C") and "D" not in xy]
-    sealed = sealed_paths(clone_path, [rel for _xy, rel in candidates])
     unsealed_warning = "원격에 없는 잔재가 ff를 막고 있다 — 디스패치(PR)로 반영하거나 직접 정리하라"
-    if not sealed:
+    discarded = reclaim_sealed(clone_path)
+    if not discarded:
         return {"refreshed": False, "reason": "미봉인 잔재", "warning": unsealed_warning}
-    discard_paths(clone_path, [(xy, rel) for xy, rel in candidates if rel in sealed])
     if _ff(clone_path, timeout) == 0:
-        return {"refreshed": True, "discarded": sorted(sealed)}
+        return {"refreshed": True, "discarded": discarded}
     return {
         "refreshed": False,
         "reason": "미봉인 잔재",
         "warning": unsealed_warning,
-        "discarded": sorted(sealed),
+        "discarded": discarded,
     }
 
 

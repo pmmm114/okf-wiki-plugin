@@ -24,6 +24,9 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+import okf_remote
+import okf_vault
+
 
 class CommandError(ValueError):
     """핸들러 command가 경로/추적 검사를 통과하지 못함."""
@@ -66,6 +69,27 @@ def _handler_env(item: dict) -> dict:
     return env
 
 
+def _reclaim_sealed_residue(project: str | Path) -> list[str] | None:
+    """관리형 clone에서 **내구성이 증명된** 잔재를 회수한다. 대상이 아니면 None(#216 V2).
+
+    판정 근거는 핸들러의 exit code가 **아니라** 봉인(내용이 원격추적 ref에 담김)이다.
+    exit code는 push 영수증이 될 수 없다 — 계약상 0은 "성공"일 뿐이고(정본 템플릿조차
+    '변경 0'이면 push 없이 0을 낸다), trust 미승인은 ``skipped``라 ``failed``가 비어
+    '성공'과 구분되지 않는다. 봉인을 보면 그 함정들이 **자동으로** 안전해진다: push되지
+    않은 것은 봉인될 수 없으므로 폐기 후보에 오르지 않는다.
+
+    관리형 clone 밖에서는 아무것도 하지 않는다 — ``scope=project``면 여기 오는 경로가
+    사용자의 실작업 repo이고, 거기서의 폐기는 미커밋 작업의 파괴다. 락은 refresh와
+    공유한다(별도 프로세스라 락 없이는 ff와 경합한다).
+    """
+    if not okf_vault.is_managed_clone(project):
+        return None
+    with okf_remote.clone_lock(project) as acquired:
+        if not acquired:  # 다른 세션이 worktree를 만지는 중 — 다음 기회로 미룬다
+            return None
+        return okf_remote.reclaim_sealed(project)
+
+
 def dispatch(
     project: str | Path,
     item: dict,
@@ -76,6 +100,10 @@ def dispatch(
 
     ``trust_check(name, resolved_path)``는 S4가 넘기는 로컬 승인 판정이다.
     호출자는 반드시 실제 판정을 넘겨야 하며, 실패 격리를 위해 개별 예외를 흡수한다.
+
+    관리형 clone이면 전 핸들러 실행 **후** 봉인 잔재를 회수하고 ``reclaimed``를 덧붙인다
+    (#216 V2) — 잔재 누적이 신선도 갱신을 막지 않게 하는 보상 계층이다. 회수는 아이템
+    단위가 아니라 봉인 단위라, 아직 디스패치되지 않은 다른 개념을 건드리지 않는다.
     """
     payload = json.dumps(item, ensure_ascii=False)
     env = _handler_env(item)
@@ -113,4 +141,8 @@ def dispatch(
             ran.append(name)
         else:
             failed.append({"name": name, "code": result.returncode})
-    return {"ran": ran, "failed": failed, "skipped": skipped}
+    outcome = {"ran": ran, "failed": failed, "skipped": skipped}
+    reclaimed = _reclaim_sealed_residue(project)
+    if reclaimed is not None:
+        outcome["reclaimed"] = reclaimed
+    return outcome
