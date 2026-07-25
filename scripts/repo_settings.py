@@ -52,6 +52,16 @@ DESIRED_SETTINGS: dict[str, tuple[object, str]] = {
 REQUIRED_CHECK_CONTEXT = "core"
 EXPECTED_RULE_TYPES = {"deletion", "non_fast_forward", "pull_request", "required_status_checks"}
 
+# Epic 통합 브랜치(epic/<n>) 룰셋 — 유닛 PR이 red로/직접 통합 브랜치에 들어가지 못하게.
+# 룰셋 생성·수정은 다른 룰셋과 마찬가지로 사람이 한다(위 모듈 주석). 여기선 드리프트만 본다.
+EPIC_REF_MARK = "epic/"  # 룰셋 conditions가 epic 통합 브랜치를 겨냥하는지 알아보는 표식
+EPIC_EXPECTED_RULE_TYPES = {
+    "deletion",
+    "non_fast_forward",
+    "pull_request",
+    "required_status_checks",
+}
+
 _REMOTE = re.compile(
     r"(?:git@[^:]+:|https?://[^/]+/)(?P<owner>[^/]+)/(?P<repo>[^/.]+)(?:\.git)?/?$"
 )
@@ -101,6 +111,42 @@ def ruleset_drift(rules: list[dict]) -> list[str]:
     return problems
 
 
+def _targets_epic(ruleset: dict) -> bool:
+    """룰셋 conditions가 epic 통합 브랜치(epic/<n>)를 겨냥하는가."""
+    includes = ruleset.get("conditions", {}).get("ref_name", {}).get("include", [])
+    return any(EPIC_REF_MARK in str(inc) for inc in includes)
+
+
+def epic_ruleset_drift(rulesets: list[dict]) -> list[str]:
+    """Epic 통합 브랜치(epic/<n>) 룰셋의 어긋난 점. 룰셋이 아예 없으면 그 자체가 드리프트다."""
+    epic = next((r for r in rulesets if _targets_epic(r)), None)
+    if epic is None:
+        return [
+            "epic/* 브랜치 룰셋이 없습니다 — 유닛 PR이 red로·직접 통합 브랜치에 들어갈 수 있습니다"
+        ]
+
+    by_type = {r.get("type"): r for r in epic.get("rules", [])}
+    problems: list[str] = []
+
+    missing = EPIC_EXPECTED_RULE_TYPES - set(by_type)
+    if missing:
+        problems.append(f"epic/* 룰셋에 없는 규칙: {', '.join(sorted(missing))}")
+
+    params = by_type.get("required_status_checks", {}).get("parameters", {})
+    contexts = [c.get("context") for c in params.get("required_status_checks", [])]
+    if REQUIRED_CHECK_CONTEXT not in contexts:
+        problems.append(
+            f"epic/* 룰셋 required check에 {REQUIRED_CHECK_CONTEXT!r}가 없습니다 — "
+            f"유닛이 red로 통합 브랜치에 머지됩니다"
+        )
+    if not params.get("strict_required_status_checks_policy"):
+        problems.append(
+            "epic/* 룰셋에 strict(최신 동기) 정책이 없습니다 — 통합 브랜치가 드리프트합니다"
+        )
+
+    return problems
+
+
 # --- gh 호출 ------------------------------------------------------------------
 
 
@@ -121,7 +167,7 @@ def _resolve_repo(explicit: str | None) -> str | None:
     return parse_remote(res.stdout) if res.returncode == 0 else None
 
 
-def _fetch(repo: str) -> tuple[dict, list[dict]] | None:
+def _fetch(repo: str) -> tuple[dict, list[dict], list[dict]] | None:
     code, out, err = _gh(["api", f"repos/{repo}"])
     if code != 0:
         print(f"repo 설정을 읽지 못했습니다: {err.strip()}", file=sys.stderr)
@@ -134,6 +180,7 @@ def _fetch(repo: str) -> tuple[dict, list[dict]] | None:
         return None
 
     rules: list[dict] = []
+    rulesets: list[dict] = []
     for rs in json.loads(out):
         if rs.get("target") != "branch":
             continue
@@ -141,13 +188,16 @@ def _fetch(repo: str) -> tuple[dict, list[dict]] | None:
         if code != 0:
             print(f"룰셋 {rs['id']}를 읽지 못했습니다: {err.strip()}", file=sys.stderr)
             return None
-        rules.extend(json.loads(detail).get("rules", []))
-    return settings, rules
+        detail_obj = json.loads(detail)
+        rules.extend(detail_obj.get("rules", []))
+        rulesets.append(detail_obj)
+    return settings, rules, rulesets
 
 
-def _report(settings: dict, rules: list[dict]) -> int:
+def _report(settings: dict, rules: list[dict], rulesets: list[dict]) -> int:
     drift = settings_drift(settings)
     rule_problems = ruleset_drift(rules)
+    epic_problems = epic_ruleset_drift(rulesets)
 
     if drift:
         print("머지 설정 드리프트:")
@@ -165,7 +215,15 @@ def _report(settings: dict, rules: list[dict]) -> int:
     else:
         print("브랜치 룰셋 일치")
 
-    return 1 if (drift or rule_problems) else 0
+    if epic_problems:
+        print("\nEpic 통합 브랜치(epic/*) 룰셋 드리프트(확인만):")
+        for p in epic_problems:
+            print(f"  - {p}")
+        print("  epic/* 룰셋을 GitHub UI의 Rules → Rulesets에서 만들거나 조정합니다.")
+    else:
+        print("Epic 통합 브랜치 룰셋 일치")
+
+    return 1 if (drift or rule_problems or epic_problems) else 0
 
 
 def _apply(repo: str, drift: list[tuple[str, object, object, str]]) -> int:
@@ -212,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     fetched = _fetch(repo)
     if fetched is None:
         return 2
-    settings, rules = fetched
+    settings, rules, rulesets = fetched
 
     if args.apply:
         drift = settings_drift(settings)
@@ -225,9 +283,9 @@ def main(argv: list[str] | None = None) -> int:
             fetched = _fetch(repo)
             if fetched is None:
                 return 2
-            settings, rules = fetched
+            settings, rules, rulesets = fetched
 
-    return _report(settings, rules)
+    return _report(settings, rules, rulesets)
 
 
 if __name__ == "__main__":
