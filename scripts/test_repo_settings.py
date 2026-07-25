@@ -187,3 +187,32 @@ def test_epic_ruleset_catches_non_strict_policy():
 def test_epic_ruleset_catches_missing_rule_types():
     problems = rs.epic_ruleset_drift([_epic_ruleset(types=["required_status_checks"])])
     assert any("없는 규칙" in p for p in problems), problems
+
+
+# --- 보안 기능 ----------------------------------------------------------------
+
+
+def _security(**status: str) -> dict:
+    return {"security_and_analysis": {k: {"status": v} for k, v in status.items()}}
+
+
+def test_security_drift_on_enabled_features():
+    assert rs.security_drift(_security(**dict.fromkeys(rs.DESIRED_SECURITY, "enabled"))) == []
+
+
+def test_security_drift_catches_disabled_secret_scanning():
+    """실제 발견 상태 — public repo인데 시크릿 스캔·push protection이 모두 꺼져 있었다."""
+    problems = rs.security_drift(_security(**dict.fromkeys(rs.DESIRED_SECURITY, "disabled")))
+    assert len(problems) == len(rs.DESIRED_SECURITY), problems
+    assert any("push protection" in p or "push_protection" in p for p in problems), problems
+
+
+def test_security_drift_treats_missing_key_as_drift():
+    """키가 빠진 것을 '일치'로 넘기면 꺼져 있는 것과 구분되지 않는다."""
+    assert rs.security_drift({"security_and_analysis": {}})
+
+
+def test_security_drift_reports_unreadable_section():
+    """섹션 자체를 못 읽으면(권한 부족) 조용히 통과시키지 않는다."""
+    problems = rs.security_drift({})
+    assert any("읽지 못했습니다" in p for p in problems), problems
