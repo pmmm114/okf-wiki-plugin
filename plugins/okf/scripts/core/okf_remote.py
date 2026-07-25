@@ -6,7 +6,7 @@
 
 - ``clone``     : ``/okf-init --vault`` 마법사가 사용자 동의 후 1회(옵트인, #91 #153 AC5).
 - ``session_fetch`` : SessionStart 훅 **단일 지점**에서 fetch-only + TTL dedup(U1-5·U3-2).
-- ``refresh``   : ``/study`` 진입(step 0)에서 clean-gate 통과 시에만 ff-only 갱신(U3-2·U3-6).
+- ``refresh``   : ``/study`` 진입(step 0)에서 ff-only 갱신 + 봉인 잔재 회수(U3-2·U3-6, #216 V1).
 - ``doctor_vault_notes`` : doctor의 **무네트워크** 신선도 표시(로컬 git 메타만, U1-8).
 
 resolver(``vault_state``/``resolve_capture``/``resolve_inject``)에는 **절대 들어가지
@@ -117,12 +117,15 @@ def _stamp(clone_path: str | Path, **fields) -> None:
 
 
 @contextmanager
-def _clone_lock(clone_path: str | Path):
+def clone_lock(clone_path: str | Path):
     """관리형 clone의 worktree 조작 구간 advisory lock(비차단) — 다중 세션 경합 직렬화(D4).
 
     yield는 획득 여부(bool). fcntl 부재(비-POSIX)·``.git`` 부재·락 파일 생성 불가면
     무락으로 진행(True). 획득 실패(다른 세션 점유)면 False — 호출자가 '생략'으로 저하한다.
     파일 디스크립터 닫기가 flock을 해제한다.
+
+    공개 API다(#216 V1) — 잔재 회수는 refresh와 **다른 프로세스**(디스패치)에서도
+    일어나므로, 같은 락을 잡지 못하면 한쪽의 폐기가 다른 쪽의 ff와 경합한다.
     """
     gitdir = Path(clone_path) / ".git"
     if fcntl is None or not gitdir.is_dir():
@@ -153,6 +156,122 @@ def _is_dirty(clone_path: str | Path) -> bool | None:
     if rc != 0:
         return None
     return bool(out.strip())
+
+
+# --- 잔재 열거·봉인 판정·폐기 (#216 V1 — 정체 자가 회복의 원시) ----------------
+
+
+def _parse_status_z(out: str) -> list[tuple[str, str]]:
+    """``status --porcelain -z`` 출력을 (XY, 경로) 목록으로 파싱한다.
+
+    rename·copy(R·C)는 **원본 경로가 다음 토큰**에 오므로 하나 더 건너뛴다 — 안 그러면
+    원본 경로가 독립 엔트리로 잘못 잡힌다.
+    """
+    entries: list[tuple[str, str]] = []
+    tokens = out.split("\0")
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if len(token) < 4:  # "XY <경로>" 최소 형태 미만(꼬리 빈 토큰 포함)은 버린다
+            i += 1
+            continue
+        entries.append((token[:2], token[3:]))
+        i += 2 if token[0] in ("R", "C") else 1
+    return entries
+
+
+def list_residue(clone_path: str | Path) -> list[tuple[str, str]] | None:
+    """워킹트리 잔재를 (XY, 경로) 목록으로 연다. 판정 불가는 None.
+
+    두 플래그가 정확성의 전제다.
+
+    - ``--untracked-files=all`` — 기본값은 미추적 **디렉터리**를 ``?? dir/``로 접어
+      내보낸다. 그 경로를 지우려 하면 OSError라 폐기가 **조용히 무동작**한다.
+    - ``-z`` — 기본 출력은 비ASCII·공백 경로를 따옴표로 감싸고 이스케이프한다. 인용된
+      문자열을 그대로 경로로 쓰면 폐기가 엉뚱한 곳을 향한다.
+    """
+    rc, out, _err = _run_git(
+        ["status", "--porcelain", "-z", "--untracked-files=all"], cwd=str(clone_path)
+    )
+    if rc != 0:
+        return None
+    return _parse_status_z(out)
+
+
+def _remote_refs(clone_path: str | Path) -> list[str]:
+    """원격추적 ref 전체(무네트워크 — 이미 fetch된 것만)."""
+    rc, out, _err = _run_git(
+        ["for-each-ref", "--format=%(refname)", "refs/remotes"], cwd=str(clone_path)
+    )
+    if rc != 0:
+        return []
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def _worktree_blob(clone_path: str | Path, rel: str) -> str | None:
+    """워킹트리 파일의 blob 해시. 일반 파일이 아니면(디렉터리·깨진 심링크) None."""
+    target = Path(clone_path) / rel
+    if not target.is_file():
+        return None
+    rc, out, _err = _run_git(["hash-object", "--", str(target)], cwd=str(clone_path))
+    return out.strip() if rc == 0 and out.strip() else None
+
+
+def _blob_at(clone_path: str | Path, ref: str, rel: str) -> str | None:
+    """``<ref>:<경로>``의 blob 해시. 그 ref에 그 경로가 없으면 None."""
+    rc, out, _err = _run_git(
+        ["rev-parse", "--quiet", "--verify", f"{ref}:{rel}"], cwd=str(clone_path)
+    )
+    return out.strip() if rc == 0 and out.strip() else None
+
+
+def sealed_paths(clone_path: str | Path, rels) -> set[str]:
+    """내용이 **원격추적 ref에 담긴**(=봉인된) 경로 집합 — "지워도 회수 가능"의 증명.
+
+    판정 단위는 전체 tree가 아니라 **경로별 blob**이다. 전체 tree 동치로 잡으면 무관한
+    upstream 커밋 하나만 더 있어도 깨져서, 다중 머신 vault에서는 사실상 발화하지 않는다.
+
+    무네트워크다 — 이미 fetch된 ref만 본다. 따라서 판정은 "마지막 fetch 시점 기준"이고,
+    호출자는 그 신선도를 함께 제시해야 한다.
+    """
+    refs = _remote_refs(clone_path)
+    if not refs:
+        return set()
+    sealed: set[str] = set()
+    for rel in rels:
+        local = _worktree_blob(clone_path, rel)
+        if local is None:
+            continue
+        if any(_blob_at(clone_path, ref, rel) == local for ref in refs):
+            sealed.add(rel)
+    return sealed
+
+
+def discard_paths(clone_path: str | Path, entries) -> bool:
+    """봉인된 잔재를 경로별로 폐기하고 **사후 검증**한다. 전부 사라졌으면 True.
+
+    index를 먼저 되돌리는 것이 핵심이다 — ``checkout --``는 인덱스에서 워킹트리로
+    복원하므로 staged 엔트리(``A ``·``M ``)에는 무동작이고, 그러면 clone이 dirty로 남아
+    정체가 그대로 재발한다.
+
+    호출자는 **봉인이 증명된 경로만** 넘겨야 한다. 이 함수는 판정하지 않는다.
+    """
+    root = Path(clone_path)
+    for xy, rel in entries:
+        if xy[0] not in (" ", "?"):  # index에 올라간 변경 — 먼저 HEAD로 되돌린다
+            _run_git(["reset", "--quiet", "HEAD", "--", rel], cwd=str(clone_path))
+        if _blob_at(clone_path, "HEAD", rel) is not None:
+            _run_git(["checkout", "--", rel], cwd=str(clone_path))
+        else:
+            try:
+                (root / rel).unlink()
+            except OSError:  # 이미 없거나 지울 수 없음 — 사후 검증이 잡는다
+                pass
+    remaining = list_residue(clone_path)
+    if remaining is None:
+        return False
+    left = {rel for _xy, rel in remaining}
+    return not any(rel in left for _xy, rel in entries)
 
 
 def _ahead_behind(clone_path: str | Path) -> tuple[int | None, int | None]:
@@ -309,12 +428,56 @@ def session_fetch(ttl: float | None = None, timeout: float = _FETCH_TIMEOUT) -> 
 # --- refresh (/study 진입 — clean-gate ff-only) -------------------------------
 
 
-def refresh(timeout: float = _FETCH_TIMEOUT) -> dict:
-    """/study 진입용 신선도 갱신 — clean-gate 통과 시에만 fetch + ff-only merge.
+def _ff(clone_path: str | Path, timeout: float) -> int | None:
+    rc, _out, _err = _run_git(
+        ["merge", "--ff-only", "@{upstream}"], cwd=str(clone_path), timeout=timeout
+    )
+    return rc
 
-    승격은 clone worktree에 쓴다(#153 U3-2). dirty(미커밋 승격 잔재)면 갱신을
-    **생략**하고 경고만 낸다 — stash 자동회복은 clone을 wedge시키므로 금지. diverged
-    (로컬 커밋으로 ff 불가)도 생략+경고. 갱신은 최신 base 위 승격 불변식을 세운다(U3-6).
+
+def _recover_and_ff(clone_path: str | Path, timeout: float) -> dict:
+    """ff가 **경로 충돌**로 거부됐을 때 — 봉인된 잔재만 폐기하고 재시도한다(#216 V1).
+
+    git은 덮어쓸 로컬 변경이 있을 때만 거부하므로, 거부는 곧 "잔재가 upstream이 가져올
+    경로와 겹친다"는 뜻이다. 그 잔재가 원격에 이미 담겨 있으면(봉인) 폐기해도 회수
+    가능하므로 정체를 푼다. 봉인되지 않았으면 **아무것도 지우지 않는다** — 오탐 폐기는
+    비가역 지식 유실이지만, 미폐기는 알려진 정체를 재현할 뿐이고 진단 경로가 남는다.
+    """
+    entries = list_residue(clone_path)
+    if not entries:
+        return {
+            "refreshed": False,
+            "reason": "ff 거부",
+            "warning": "잔재 없이 ff가 거부됐다 — 관리형 clone 수동 점검 필요",
+        }
+    # 삭제·rename·copy는 폐기 대상에서 뺀다 — 워킹트리에 대조할 내용이 없거나
+    # 경로 쌍이라 봉인 판정이 성립하지 않는다(보수적 제외).
+    candidates = [(xy, rel) for xy, rel in entries if xy[0] not in ("R", "C") and "D" not in xy]
+    sealed = sealed_paths(clone_path, [rel for _xy, rel in candidates])
+    unsealed_warning = "원격에 없는 잔재가 ff를 막고 있다 — 디스패치(PR)로 반영하거나 직접 정리하라"
+    if not sealed:
+        return {"refreshed": False, "reason": "미봉인 잔재", "warning": unsealed_warning}
+    discard_paths(clone_path, [(xy, rel) for xy, rel in candidates if rel in sealed])
+    if _ff(clone_path, timeout) == 0:
+        return {"refreshed": True, "discarded": sorted(sealed)}
+    return {
+        "refreshed": False,
+        "reason": "미봉인 잔재",
+        "warning": unsealed_warning,
+        "discarded": sorted(sealed),
+    }
+
+
+def refresh(timeout: float = _FETCH_TIMEOUT) -> dict:
+    """/study 진입용 신선도 갱신 — fetch + ff-only, 거부되면 봉인된 잔재만 폐기 후 재시도.
+
+    **dirty 선판정은 두지 않는다(#216 V1).** git은 덮어쓸 경로가 실제로 충돌할 때만 ff를
+    거부하고 워킹트리·HEAD를 원자적으로 보존한다. 그보다 엄격한 bool 게이트는 안전한 ff
+    까지 거부해 clone을 영구 정체시켰다 — 그 정체가 #216이다. 미푸시 잔재는 충돌하지
+    않는 한 그대로 살아남아 주입이 계속된다(§7).
+
+    폐기는 **봉인**(내용이 원격추적 ref에 담김)이 증명된 경로에 한정한다. ``#153``이 금지한
+    것은 stash 자동회복이지 ff 위임이 아니다. diverged(로컬 커밋)면 회수에 진입하지 않는다.
     """
     resolved = _resolve_pointer()
     if isinstance(resolved, str):
@@ -323,18 +486,12 @@ def refresh(timeout: float = _FETCH_TIMEOUT) -> dict:
     if not okf_vault.valid_vault(clone_path):
         return {"refreshed": False, "reason": "clone 미생성"}
     # worktree 조작 구간은 다른 세션의 refresh와 직렬화한다(D4) — 획득 실패면 저하.
-    with _clone_lock(clone_path) as acquired:
+    with clone_lock(clone_path) as acquired:
         if not acquired:
             return {
                 "refreshed": False,
                 "reason": "locked",
                 "warning": "다른 세션이 clone을 갱신 중 — 생략(캐시로 진행)",
-            }
-        if _is_dirty(clone_path):
-            return {
-                "refreshed": False,
-                "reason": "dirty",
-                "warning": "clone에 미커밋 승격 잔재 — 디스패치(커밋)/폐기 후 동기화하라",
             }
         if os.environ.get("OKF_REMOTE_OFFLINE"):
             return {
@@ -352,16 +509,16 @@ def refresh(timeout: float = _FETCH_TIMEOUT) -> dict:
                 "warning": "신선도 갱신 실패 — 캐시로 진행",
             }
         _stamp(clone_path, last_fetch=now, last_attempt=now)
-        rc, _out, _err = _run_git(
-            ["merge", "--ff-only", "@{upstream}"], cwd=str(clone_path), timeout=timeout
-        )
-        if rc == 0:
+        if _ff(clone_path, timeout) == 0:
             return {"refreshed": True}
-        return {
-            "refreshed": False,
-            "reason": "diverged",
-            "warning": "로컬 커밋으로 ff 불가 — 관리형 clone 수동 정리 필요",
-        }
+        ahead, _behind = _ahead_behind(clone_path)
+        if ahead:  # 로컬 커밋이 있으면 잔재 문제가 아니다 — 회수에 진입하지 않는다
+            return {
+                "refreshed": False,
+                "reason": "diverged",
+                "warning": "로컬 커밋으로 ff 불가 — 관리형 clone 수동 정리 필요",
+            }
+        return _recover_and_ff(clone_path, timeout)
 
 
 # --- doctor (무네트워크 신선도 표시 — U1-8) -----------------------------------

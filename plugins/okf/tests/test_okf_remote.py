@@ -197,14 +197,27 @@ def test_refresh_ff_advances_clean_clone(monkeypatch, tmp_path):
     assert behind == 0  # ff로 최신 base
 
 
-def test_refresh_skips_dirty_clone(monkeypatch, tmp_path):
+def test_refresh_advances_despite_residue_when_no_conflict(monkeypatch, tmp_path):
+    """선판정 폐기(#225) — dirty여도 **경로 충돌이 없으면** git이 ff를 허용하고 잔재는 보존된다.
+
+    구계약("dirty면 무조건 생략")을 대체한다. `_is_dirty` bool 게이트가 git 자신보다
+    엄격해 안전한 ff까지 거부한 것이 #216 정체의 wedge 기제였다.
+    """
     src = _origin(tmp_path)
     monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
-    clone_path = okf_remote.clone()["clone_path"]
+    clone_path = Path(okf_remote.clone()["clone_path"])
     # 승격 잔재 시뮬레이션 — 추적 파일 수정(index.md는 승격마다 재생성됨)
-    (Path(clone_path) / ".okf" / "index.md").write_text("# dirty\n", encoding="utf-8")
+    (clone_path / ".okf" / "index.md").write_text("# dirty\n", encoding="utf-8")
+    # upstream은 **다른 경로**로 전진 — 충돌 없음
+    (src / "unrelated.md").write_text("y\n", encoding="utf-8")
+    _git(src, "add", "-A")
+    _git(src, "commit", "-m", "advance elsewhere")
     result = okf_remote.refresh()
-    assert result["refreshed"] is False and result["reason"] == "dirty" and result["warning"]
+    assert result["refreshed"] is True
+    _ahead, behind = okf_remote._ahead_behind(clone_path)
+    assert behind == 0
+    # 미푸시 잔재는 그대로 살아 있어야 한다(주입 연속성)
+    assert (clone_path / ".okf" / "index.md").read_text(encoding="utf-8") == "# dirty\n"
 
 
 def test_refresh_offline_env_degrades(monkeypatch, tmp_path):
@@ -214,6 +227,166 @@ def test_refresh_offline_env_degrades(monkeypatch, tmp_path):
     monkeypatch.setenv("OKF_REMOTE_OFFLINE", "1")
     result = okf_remote.refresh()
     assert result["refreshed"] is False and result["reason"] == "offline env"
+
+
+# --- 잔재 회수 (#225 V1 — 봉인 판정 기반 자가 회복) ----------------------------
+
+
+def _merge_into_origin(src, rel: str, body: str) -> None:
+    """origin에 <rel>을 <body>로 커밋한다 — PR 리뷰가 머지된 시점의 재현."""
+    target = Path(src) / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(body, encoding="utf-8")
+    _git(src, "add", "-A")
+    _git(src, "commit", "-m", f"merge {rel}")
+
+
+def test_refresh_recovers_sealed_untracked_residue(monkeypatch, tmp_path):
+    """#216 사고 형태 — 미추적 잔재가 origin에 **같은 내용**으로 머지되면 ff가 영구 차단된다.
+
+    바이트 동일해도 git은 'untracked working tree files would be overwritten'로 거부하므로
+    선판정 폐기만으로는 풀리지 않는다. 봉인(원격추적 ref 트리에 blob 존재)을 증명해 폐기한다.
+    """
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    body = "# promoted\n"
+    (clone_path / ".okf" / "new.md").write_text(body, encoding="utf-8")  # 승격 잔재(미추적)
+    _merge_into_origin(src, ".okf/new.md", body)  # 같은 내용이 머지됨 → 봉인
+    result = okf_remote.refresh()
+    assert result["refreshed"] is True
+    assert result["discarded"] == [".okf/new.md"]
+    _ahead, behind = okf_remote._ahead_behind(clone_path)
+    assert behind == 0
+    assert okf_remote._is_dirty(clone_path) is False
+
+
+def test_refresh_recovers_sealed_staged_residue(monkeypatch, tmp_path):
+    """staged 잔재도 회수된다 — `checkout --`는 index를 못 되돌려 wedge가 남는다(회귀 게이트)."""
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    body = "# staged\n"
+    (clone_path / ".okf" / "new.md").write_text(body, encoding="utf-8")
+    _git(clone_path, "add", ".okf/new.md")  # index에 A 엔트리로 올림
+    _merge_into_origin(src, ".okf/new.md", body)
+    result = okf_remote.refresh()
+    assert result["refreshed"] is True
+    assert okf_remote._is_dirty(clone_path) is False  # index까지 clean
+
+
+def test_refresh_recovers_sealed_modified_residue(monkeypatch, tmp_path):
+    """추적 파일 수정도 같은 내용이 머지됐으면 봉인이므로 폐기된다."""
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    body = "# index v2\n"
+    (clone_path / ".okf" / "index.md").write_text(body, encoding="utf-8")
+    _merge_into_origin(src, ".okf/index.md", body)
+    result = okf_remote.refresh()
+    assert result["refreshed"] is True
+    assert okf_remote._is_dirty(clone_path) is False
+
+
+def test_refresh_preserves_unsealed_conflicting_residue(monkeypatch, tmp_path):
+    """미봉인 잔재는 폐기하지 않는다 — 어디에도 push되지 않은 지식의 유실 금지(fail-safe)."""
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    mine = "# mine — unpushed\n"
+    (clone_path / ".okf" / "c.md").write_text(mine, encoding="utf-8")
+    _merge_into_origin(src, ".okf/c.md", "# theirs\n")  # 같은 경로, **다른** 내용
+    result = okf_remote.refresh()
+    assert result["refreshed"] is False
+    assert result["reason"] == "미봉인 잔재"
+    assert result["warning"]
+    assert (clone_path / ".okf" / "c.md").read_text(encoding="utf-8") == mine  # 보존
+
+
+def test_refresh_discards_only_sealed_paths(monkeypatch, tmp_path):
+    """봉인·미봉인이 섞이면 봉인된 것만 폐기하고 미봉인은 남긴다."""
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    sealed_body = "# sealed\n"
+    (clone_path / ".okf" / "sealed.md").write_text(sealed_body, encoding="utf-8")
+    (clone_path / ".okf" / "unsealed.md").write_text("# unsealed\n", encoding="utf-8")
+    _merge_into_origin(src, ".okf/sealed.md", sealed_body)
+    result = okf_remote.refresh()
+    assert result["refreshed"] is True
+    assert result["discarded"] == [".okf/sealed.md"]
+    # 폐기는 삭제가 아니라 **원격 버전으로의 대체**다 — ff가 origin 사본을 추적 파일로 되살린다
+    assert (clone_path / ".okf" / "sealed.md").read_text(encoding="utf-8") == sealed_body
+    residue = {rel for _xy, rel in okf_remote.list_residue(clone_path)}
+    assert ".okf/sealed.md" not in residue  # 더는 잔재가 아니다
+    assert ".okf/unsealed.md" in residue  # 미봉인은 잔재로 남아 주입에 계속 보인다
+
+
+def test_list_residue_expands_untracked_directory(monkeypatch, tmp_path):
+    """미추적 **디렉터리**가 개별 파일로 펼쳐진다 — `?? dir/` 접힘은 폐기를 무동작으로 만든다."""
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    topic = clone_path / ".okf" / "topic"
+    topic.mkdir(parents=True)
+    (topic / "a.md").write_text("a\n", encoding="utf-8")
+    (topic / "b.md").write_text("b\n", encoding="utf-8")
+    rels = {rel for _xy, rel in okf_remote.list_residue(clone_path)}
+    assert ".okf/topic/a.md" in rels
+    assert ".okf/topic/b.md" in rels
+    assert ".okf/topic/" not in rels
+
+
+def test_list_residue_handles_non_ascii_paths(monkeypatch, tmp_path):
+    """비ASCII 경로가 인용부호 없이 그대로 나온다(`-z`) — 인용된 경로는 폐기가 빗나간다."""
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    (clone_path / ".okf" / "한글.md").write_text("x\n", encoding="utf-8")
+    rels = {rel for _xy, rel in okf_remote.list_residue(clone_path)}
+    assert ".okf/한글.md" in rels
+
+
+def test_sealed_paths_matches_per_path_blob_not_whole_tree(monkeypatch, tmp_path):
+    """봉인은 **경로별 blob 동치** — 무관한 upstream 커밋이 더 있어도 성립한다.
+
+    전체 tree 동치로 잡으면 다른 머신의 승격 하나만 끼어도 판정이 깨져 발화하지 않는다.
+    """
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    body = "# sealed\n"
+    (clone_path / ".okf" / "s.md").write_text(body, encoding="utf-8")
+    _merge_into_origin(src, ".okf/s.md", body)
+    _merge_into_origin(src, "noise.md", "noise\n")  # 무관한 후속 커밋
+    okf_remote.session_fetch()  # 원격추적 ref 갱신(무네트워크 판정의 전제)
+    assert okf_remote.sealed_paths(clone_path, [".okf/s.md"]) == {".okf/s.md"}
+
+
+def test_sealed_paths_empty_without_remote_match(monkeypatch, tmp_path):
+    """어떤 원격추적 ref에도 없는 내용은 봉인되지 않는다."""
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    (clone_path / ".okf" / "u.md").write_text("# never pushed\n", encoding="utf-8")
+    assert okf_remote.sealed_paths(clone_path, [".okf/u.md"]) == set()
+
+
+def test_refresh_keeps_diverged_clone_untouched(monkeypatch, tmp_path):
+    """로컬 커밋으로 ff 불가(diverged)면 잔재 폐기 경로에 진입하지 않는다."""
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    _git(clone_path, "config", "user.email", "t@example.com")
+    _git(clone_path, "config", "user.name", "t")
+    (clone_path / "local.md").write_text("local\n", encoding="utf-8")
+    _git(clone_path, "add", "-A")
+    _git(clone_path, "commit", "-m", "local commit")
+    _merge_into_origin(src, "remote.md", "remote\n")
+    result = okf_remote.refresh()
+    assert result["refreshed"] is False
+    assert result["reason"] == "diverged"
+    assert (clone_path / "local.md").exists()
 
 
 # --- doctor (무네트워크 표시) --------------------------------------------------
