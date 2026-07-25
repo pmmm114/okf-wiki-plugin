@@ -19,9 +19,6 @@ on:
 # 최소권한을 워크플로에 적어 둔다. 생략하면 `GITHUB_TOKEN` 권한이 repo·org 기본값에
 # 위임되는데, 그 기본값은 이 파일 밖에서 조용히 바뀔 수 있다. 이 잡은 코드를 읽어
 # 검사만 하므로 읽기 하나면 충분하다 (게이트: scripts/security_scan.py).
-permissions:
-  contents: read
-
 jobs:
   core:
     runs-on: ubuntu-latest

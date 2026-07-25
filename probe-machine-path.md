@@ -1,0 +1,1 @@
+vault = "/Users/testuser/kb"
