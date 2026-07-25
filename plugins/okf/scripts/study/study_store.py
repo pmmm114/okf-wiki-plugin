@@ -165,6 +165,10 @@ def insert_candidate(
     최근 적재)은 후보에 부착되는 이원 타임스탬프다. ``captured_date``는 valid-time
     계열이라 재캡처에 불변(갱신하면 목록 정렬이 재배열된다). ``line_hashes``는 자식
     줄-해시(A2′, #131). ``simhash``는 근사중복 자문용 지문(#133).
+
+    동일 내용 블록이 **여러 파일에 공존**하면 source는 최후 캡처 파일이 이긴다
+    (last-write-wins) — 실측상 교차-파일 중복은 전부 보일러플레이트라 노이즈 필터
+    (#256)가 선행 제거하는 전제이고, 정당 중복이 생기면 귀속은 최근 저장 기준이 된다.
     """
     with _connect(runtime) as conn:
         existed = (
