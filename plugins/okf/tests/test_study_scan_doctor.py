@@ -190,6 +190,16 @@ def test_doctor_unqueued_recovery_hint(monkeypatch, tmp_path):
     assert "[회복]" in out and "미큐잉 후보가 있는 파일 1개" in out and "--enqueue" in out
 
 
+def test_doctor_pending_shows_file_count(monkeypatch, tmp_path):
+    # U3(#257) — 대기 요약도 파일 단위로 집계한다(선례: 미큐잉 회복 힌트의 파일 수)
+    vault = _valid_vault(tmp_path, {"capture": "review"})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+    rt = study_scope.user_scope_runtime()
+    study_inbox.append(rt, "fact a", "/mem/one.md")
+    study_inbox.append(rt, "fact b", "/mem/two.md")
+    assert "2 (파일 2)" in okf_doctor.run(str(_project(tmp_path)))
+
+
 def test_doctor_shows_recurrence(monkeypatch, tmp_path):
     # U3 #132 — 재등장(recurrence>1) 후보를 doctor 대기 요약에 표시
     vault = _valid_vault(tmp_path, {"capture": "review"})

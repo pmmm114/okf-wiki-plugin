@@ -68,8 +68,14 @@ def run(payload: dict, project: str | Path) -> str | None:
     if not appended:
         return None
 
-    pending = len(study_inbox.list_candidates(runtime))
-    return f"메모리 후보를 study 인박스에 적재({pending}개 대기). /study로 검토·승격하라."
+    # 보고는 파일 단위(#257) — 훅은 호출당 파일 1개를 처리하므로 "이번 저장분"과
+    # "전체 대기"를 분리 표기한다. 대기 집계는 캡처 스냅샷 누적이다(파일 현재 상태 아님).
+    pending = study_inbox.list_candidates(runtime)
+    files = len({c["source"] for c in pending})
+    return (
+        f"메모리 후보 {appended}건을 study 인박스에 적재(이 파일). "
+        f"전체 대기 파일 {files}개·{len(pending)}건. /study로 검토·승격하라."
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
