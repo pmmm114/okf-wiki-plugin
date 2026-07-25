@@ -17,11 +17,12 @@ import argparse
 import posixpath
 from pathlib import Path
 
+from okf_core.bundle import DEFAULT_RULES_VERSION, dir_tree, partition, rules_for
 from okf_core.parser import ParsedDoc, walk_bundle
-from okf_core.validate import concept_conforms, load_rules
 
-RESERVED = frozenset({"index.md", "log.md"})
-DEFAULT_OKF_VERSION = "0.1"
+# 생성할 루트 선언 값 = 엔진이 기본으로 아는 세대. 갈리면 생성된 index가 엔진이
+# 모르는 세대를 선언하게 되므로 규칙 쪽 상수를 그대로 쓴다.
+DEFAULT_OKF_VERSION = DEFAULT_RULES_VERSION
 
 
 def _title(rel: str, doc: ParsedDoc) -> str:
@@ -47,21 +48,16 @@ def _entry(title: str, url: str, desc: str) -> str:
 def generate_indexes(root: str | Path) -> dict[str, str]:
     """{index.md 상대경로: 생성 내용}을 반환한다. .md를 가진 모든 디렉터리 대상."""
     root = Path(root)
-    docs = dict(walk_bundle(root))
-    rules, _ = load_rules()
+    parsed = walk_bundle(root)
+    docs = dict(parsed)
+    rules, _ = rules_for(parsed)
 
-    # 디렉터리 → (직속 개념 문서, .md를 품은 직속 하위 디렉터리)
-    # 개념은 §9 파일 단위 통과분만 소비한다(불변식: == validate §9 통과 집합)
-    dirs: dict[str, tuple[list[str], set[str]]] = {}
-    for rel in docs:
-        d = posixpath.dirname(rel)
-        dirs.setdefault(d, ([], set()))
-        if posixpath.basename(rel) not in RESERVED and concept_conforms(docs[rel], rules):
-            dirs[d][0].append(rel)
-        while d:  # 조상 디렉터리마다 자식 디렉터리 체인 등록
-            parent = posixpath.dirname(d)
-            dirs.setdefault(parent, ([], set()))[1].add(d)
-            d = parent
+    # 디렉터리 트리(조상 체인 포함)와 개념 우주는 bundle이 소유한다 — 개념은 §9 파일
+    # 단위 통과분만 소비한다(불변식: == validate §9 통과 집합).
+    subdirs_of = dir_tree(parsed)
+    concepts_of: dict[str, list[str]] = {d: [] for d in subdirs_of}
+    for rel in partition(parsed, rules).concepts:
+        concepts_of[posixpath.dirname(rel)].append(rel)
 
     # 기존 루트 index의 okf_version 보존
     root_doc = docs.get("index.md")
@@ -72,7 +68,8 @@ def generate_indexes(root: str | Path) -> dict[str, str]:
             okf_version = declared.strip()
 
     out: dict[str, str] = {}
-    for d, (concepts, subdirs) in dirs.items():
+    for d, subdirs in subdirs_of.items():
+        concepts = concepts_of[d]
         lines: list[str] = ["# Contents", ""]
         for sub in sorted(subdirs):
             name = posixpath.basename(sub)

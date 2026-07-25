@@ -27,7 +27,8 @@ _CLOSE = "</okf-context>"
 _GIST_MAX = 160
 
 
-def _gist(doc: ParsedDoc) -> str:
+def gist(doc: ParsedDoc) -> str:
+    """개념 1줄 요약 — description, 없으면 본문 첫 표 행·첫 문장(공유 표면)."""
     fm = doc.frontmatter or {}
     desc = fm.get("description")
     if isinstance(desc, str) and desc.strip():
@@ -78,9 +79,9 @@ def build_context(
         fm = doc.frontmatter or {}
         type_val = fm.get("type")
         type_str = type_val.strip() if isinstance(type_val, str) and type_val.strip() else "?"
-        gist = _gist(doc)
+        summary = gist(doc)
         head = f"{rel} [{type_str}]"
-        line = f"{head} — {gist}" if gist else head
+        line = f"{head} — {summary}" if summary else head
         entries.append((_axis_value(doc, group_by) if group_by else None, line))
 
     if group_by:

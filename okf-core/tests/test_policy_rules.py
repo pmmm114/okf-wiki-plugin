@@ -4,11 +4,11 @@
 from pathlib import Path
 
 import okf_core.parser as parser_mod
+from okf_core.bundle import load_rules
 from okf_core.policy import run_policies
 from okf_core.validate import (
     POL_UNKNOWN_VERSION,
     is_conformant,
-    load_rules,
     validate_bundle,
 )
 
@@ -44,7 +44,8 @@ def test_no_rule_constants_in_validate_or_policy_code():
     forbidden += [f"'{name}'" for name in rules["reserved_files"]]
     forbidden += [f'"{key}"' for key in rules["required_frontmatter"]]
     forbidden += [f"'{key}'" for key in rules["required_frontmatter"]]
-    for module in ("validate.py", "policy.py"):
+    # bundle은 판정 술어(개념 우주·예약 구분)를 소유하므로 같은 규율을 받는다.
+    for module in ("validate.py", "policy.py", "bundle.py"):
         text = (SRC / module).read_text(encoding="utf-8")
         for literal in forbidden:
             assert literal not in text, f"{module}에 규칙 상수 {literal} 하드코딩"

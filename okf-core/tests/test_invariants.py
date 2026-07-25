@@ -10,12 +10,15 @@ import posixpath
 import re
 from pathlib import Path
 
-from okf_core.index import RESERVED, generate_indexes
+from okf_core.bundle import load_rules
+from okf_core.index import generate_indexes
 from okf_core.validate import validate_bundle
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BUNDLES = ("appendix-a", "violations", "strict-warns")
 SRC = Path(__file__).resolve().parents[1] / "src" / "okf_core"
+# 예약 파일명은 규칙 데이터가 단일 원천 — 테스트도 값을 하드코딩하지 않는다.
+RESERVED = frozenset(load_rules()[0]["reserved_files"])
 
 _ENTRY_URL = re.compile(r"^\* \[[^\]]*\]\(([^)]+)\)", re.MULTILINE)
 
