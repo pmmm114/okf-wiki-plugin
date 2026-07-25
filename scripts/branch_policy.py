@@ -9,13 +9,21 @@
 이므로 main에 새겨지는 것은 PR 제목 **과 브랜치 커밋 메시지 본문**이다. 그래서 제목만
 보면 부족하다 — 실제로 세션 공유 링크는 PR 본문이 아니라 커밋 트레일러로 흘러들었다.
 
+판정은 PR의 **base로 3분기**한다(docs/branching.md §Epic과 유닛 분해). 한 PR이 닫는
+이슈 개수·Epic 통합 브랜치 정합·본문 템플릿이 base에 따라 달라지기 때문이다.
+
+- 일반·유닛 → ``main``: 닫는 이슈 ≤1(여러 유닛 뭉침 차단), 기본 템플릿.
+- 유닛 → ``epic/<n>``: 닫는 이슈 ≤1이고 그 Epic 자신은 닫지 않음.
+- ``epic/<n>`` → ``main``(통합): 개수 제한 면제, 그 Epic을 닫아야 함, Epic 템플릿.
+
 판정 상수를 여기서 새로 만들지 않는다:
 
 - 타입 어휘는 ``release_notes``의 CATEGORIES·EXCLUDED에서 파생한다. 릴리스 노트가
   아는 타입과 게이트가 허용하는 타입이 갈리면 오타(``fet:``)가 조용히 "기타"로 빠져
   ``next_version``의 범프 판정을 바꾼다 — 어휘를 한 곳에 두어 그 실수를 막는다.
-- PR 본문의 필수 섹션은 ``.github/pull_request_template.md``에서 읽는다. 템플릿을
-  고치면 게이트가 따라온다.
+- PR 본문의 필수 섹션은 ``.github`` 아래 PR 템플릿에서 읽는다. 템플릿을 고치면
+  게이트가 따라온다. 통합 PR은 ``PULL_REQUEST_TEMPLATE/epic.md``, 나머지는 기본
+  ``pull_request_template.md``를 본다.
 
 종료코드: 0 통과 / 1 위반 / 2 실행 오류.
 """
@@ -32,7 +40,13 @@ from pathlib import Path
 from release_notes import CATEGORIES, EXCLUDED
 
 _ROOT = Path(__file__).resolve().parent.parent
-PR_TEMPLATE = _ROOT / ".github" / "pull_request_template.md"
+_GH = _ROOT / ".github"
+# 기본 PR 템플릿(GitHub이 새 PR에 자동 채움). Epic 통합 PR만 별도 템플릿을 쓴다.
+PR_TEMPLATE = _GH / "pull_request_template.md"
+EPIC_TEMPLATE = _GH / "PULL_REQUEST_TEMPLATE" / "epic.md"
+
+# 통합 브랜치가 최종 착지하는 기본 브랜치. base가 이것이면 스쿼시가 main에 남는다.
+DEFAULT_BRANCH = "main"
 
 # 릴리스 노트가 분류하는 타입 = 게이트가 아는 타입의 토대(단일 원천).
 _RELEASE_TYPES = frozenset(t for _, types in CATEGORIES for t in types) | frozenset(EXCLUDED)
@@ -42,11 +56,22 @@ KNOWN_TYPES = _RELEASE_TYPES | EXTRA_TYPES
 
 # 에이전트 세션이 자동 생성하는 브랜치 접두(docs/branching.md) — 타입 어휘 밖의 예외.
 AGENT_PREFIX = "claude"
+# Epic 통합 브랜치 접두. 커밋 타입 어휘가 아니라 브랜치 이름 전용이다(KNOWN_TYPES 불침)
+# — `epic:` 커밋 제목은 여전히 어휘 밖으로 막힌다.
+EPIC_PREFIX = "epic"
 
 _SUBJECT = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?(?P<breaking>!)?: (?P<rest>.+)$")
 _SLUG = re.compile(r"^[a-z0-9]+(?:[-.][a-z0-9]+)*$")
+# Epic 통합 브랜치 슬러그 — 이름에 Epic 이슈 번호를 박는다: `epic/<번호>-<슬러그>`.
+_EPIC_SLUG = re.compile(r"^\d+-[a-z0-9]+(?:[-.][a-z0-9]+)*$")
+_EPIC_REF = re.compile(r"^epic/(\d+)-")
 _PR_SUFFIX = re.compile(r"\(#\d+\)\s*$")
 _HEADING = re.compile(r"^##\s+(?P<text>.+?)\s*$", re.MULTILINE)
+
+# GitHub이 머지 때 이슈를 닫는 키워드 + 이슈 번호. `Refs`는 닫지 않으므로 세지 않는다.
+_CLOSING = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)", re.IGNORECASE)
+# 정말로 쪼갤 수 없는 원자적 변경의 탈출구(docs/branching.md). 본문에 사유와 함께 단다.
+MULTI_UNIT_MARKER = "policy:multi-unit"
 
 # 모델 식별자 = "이름 + 버전"만 노린다. 제품명 'Claude Code'·트레일러 'Co-authored-by:
 # Claude'·브랜치 접두 'claude/'는 버전이 없으므로 걸리지 않는다(오탐 0을 이력으로 확인).
@@ -65,6 +90,13 @@ _SESSION_LINK = re.compile(
 )
 
 
+def template_for(base_ref: str, head_ref: str) -> Path:
+    """PR의 base·head로 볼 템플릿을 고른다 — 통합 PR만 Epic 템플릿, 나머지는 기본."""
+    if head_ref.startswith(f"{EPIC_PREFIX}/") and base_ref == DEFAULT_BRANCH:
+        return EPIC_TEMPLATE
+    return PR_TEMPLATE
+
+
 def required_pr_sections(template: Path | None = None) -> list[str]:
     """PR 템플릿의 `## ` 헤딩 목록. 이게 본문 필수 섹션의 단일 원천이다."""
     path = template or PR_TEMPLATE
@@ -80,19 +112,33 @@ def _norm_heading(text: str) -> str:
     return text.split("(")[0].strip().lower()
 
 
+def _epic_number(ref: str) -> int | None:
+    """`epic/<n>-...` 브랜치 이름에서 Epic 이슈 번호를 뽑는다(아니면 None)."""
+    m = _EPIC_REF.match(ref or "")
+    return int(m.group(1)) if m else None
+
+
 def check_branch_name(name: str) -> list[str]:
-    """`<타입>/<슬러그>` 또는 `claude/<슬러그>` 판정."""
+    """`<타입>/<슬러그>` · `claude/<슬러그>` · `epic/<번호>-<슬러그>` 판정."""
     out: list[str] = []
     if not name:
         return ["브랜치 이름이 비어 있습니다"]
-    if name == "main" or re.match(r"^v\d", name):
+    if name == DEFAULT_BRANCH or re.match(r"^v\d", name):
         return [f"`{name}`은 main·릴리스 태그 이름과 겹칩니다"]
     if "/" not in name:
         return [f"`{name}`에 타입 접두가 없습니다 — `<타입>/<슬러그>` 형식을 씁니다"]
 
     prefix, slug = name.split("/", 1)
+    if prefix == EPIC_PREFIX:
+        # Epic 통합 브랜치는 이름에 이슈 번호를 박아 통합 PR의 Closes와 대조된다.
+        if not _EPIC_SLUG.match(slug):
+            out.append(
+                f"epic 브랜치는 `epic/<이슈번호>-<슬러그>` 형식입니다"
+                f"(번호로 시작, 소문자 슬러그) — `{slug}`"
+            )
+        return out
     if prefix != AGENT_PREFIX and prefix not in KNOWN_TYPES:
-        allowed = ", ".join(sorted(KNOWN_TYPES | {AGENT_PREFIX}))
+        allowed = ", ".join(sorted(KNOWN_TYPES | {AGENT_PREFIX, EPIC_PREFIX}))
         out.append(f"브랜치 타입 `{prefix}`는 어휘 밖입니다 — 허용: {allowed}")
     if not _SLUG.match(slug):
         out.append(f"슬러그 `{slug}`는 소문자·숫자·하이픈만 씁니다(대문자·공백·`_` 불가)")
@@ -123,16 +169,65 @@ def check_subject(subject: str, *, kind: str = "PR 제목") -> list[str]:
     return out
 
 
-def check_pr_body(body: str, template: Path | None = None) -> list[str]:
-    """PR 본문이 템플릿 구조를 갖췄는지 판정(섹션 목록은 템플릿에서 읽는다)."""
+def check_pr_body(body: str, base_ref: str = DEFAULT_BRANCH, head_ref: str = "") -> list[str]:
+    """PR 본문이 템플릿 구조를 갖췄는지 판정(섹션 목록은 base에 맞는 템플릿에서 읽는다)."""
     if not (body or "").strip():
         return ["PR 본문이 비어 있습니다 — 템플릿 구조를 채웁니다"]
 
+    template = template_for(base_ref, head_ref)
     present = {_norm_heading(m.group("text")) for m in _HEADING.finditer(body)}
     missing = [s for s in required_pr_sections(template) if _norm_heading(s) not in present]
     if missing:
-        return ["PR 본문에 템플릿 섹션이 없습니다: " + ", ".join(f"`## {s}`" for s in missing)]
+        which = "Epic 통합" if template == EPIC_TEMPLATE else "기본"
+        joined = ", ".join(f"`## {s}`" for s in missing)
+        return [f"PR 본문에 {which} 템플릿 섹션이 없습니다: {joined}"]
     return []
+
+
+def closing_issues(body: str) -> list[int]:
+    """본문의 GitHub closing 키워드가 닫는 이슈 번호들(중복 제거, 등장 순서)."""
+    seen: dict[int, None] = {}
+    for m in _CLOSING.finditer(body or ""):
+        seen.setdefault(int(m.group(1)), None)
+    return list(seen)
+
+
+def _bundling_problem(closes: list[int]) -> str:
+    refs = ", ".join(f"#{n}" for n in closes)
+    return (
+        f"한 PR이 이슈 {len(closes)}개를 닫습니다({refs}) — 유닛당 PR이 기본입니다. "
+        f"정말 쪼갤 수 없는 원자적 변경이면 사유와 함께 `{MULTI_UNIT_MARKER}` 마커를 답니다"
+    )
+
+
+def check_closing_issues(body: str, base_ref: str, head_ref: str) -> list[str]:
+    """PR이 닫는 이슈를 base로 3분기 판정 — 유닛 뭉침과 Epic 오조작을 막는다."""
+    body = body or ""
+    closes = closing_issues(body)
+    marker = MULTI_UNIT_MARKER in body
+
+    # 통합 PR(epic/<n> → main): 그 Epic을 닫아야 하고, 개수 제한은 면제(유닛들을 함께 참조).
+    if head_ref.startswith(f"{EPIC_PREFIX}/") and base_ref == DEFAULT_BRANCH:
+        n = _epic_number(head_ref)
+        if n is not None and n not in closes:
+            msg = f"통합 PR은 자기 Epic(`#{n}`)을 닫아야 합니다 — 본문에 `Closes #{n}`을 적습니다"
+            return [msg]
+        return []
+
+    out: list[str] = []
+    # 유닛 → 통합 브랜치: 통합 브랜치의 Epic 자신은 닫지 않는다(조기 Epic close 방지).
+    if base_ref.startswith(f"{EPIC_PREFIX}/"):
+        n = _epic_number(base_ref)
+        if n is not None and n in closes:
+            msg = (
+                f"유닛 PR은 통합 브랜치의 Epic(`#{n}`)을 닫지 않습니다 — 자기 sub-issue를 닫습니다"
+            )
+            out.append(msg)
+
+    # 일반·유닛 공통: 여러 이슈를 한 PR로 닫으면 유닛 경계가 사라진다.
+    if len(closes) > 1 and not marker:
+        out.append(_bundling_problem(closes))
+    return out
 
 
 def check_no_model_identifier(text: str, *, where: str) -> list[str]:
@@ -158,15 +253,23 @@ def _leak_checks(text: str, *, where: str) -> list[str]:
     return check_no_model_identifier(text, where=where) + check_no_session_link(text, where=where)
 
 
-def check_pr(head_ref: str, title: str, body: str, commits: list[str] | None = None) -> list[str]:
+def check_pr(
+    head_ref: str,
+    title: str,
+    body: str,
+    commits: list[str] | None = None,
+    base_ref: str = DEFAULT_BRANCH,
+) -> list[str]:
     """PR 하나에 대한 전수 판정.
 
-    ``commits``는 브랜치의 커밋 메시지 전문 목록이다. 스쿼시가 이 본문들을 main에
-    합쳐 넣으므로(``squash_merge_commit_message=COMMIT_MESSAGES``) 유출 검사 대상이다.
+    ``base_ref``는 PR이 머지될 대상 브랜치다. 닫는 이슈 규칙과 본문 템플릿이 base로
+    갈리므로(§Epic과 유닛 분해) 함께 넘긴다. ``commits``는 브랜치의 커밋 메시지 전문
+    목록이다. 스쿼시가 이 본문들을 main에 합쳐 넣으므로 유출 검사 대상이다.
     """
     out = check_branch_name(head_ref)
     out += check_subject(title, kind="PR 제목")
-    out += check_pr_body(body)
+    out += check_pr_body(body, base_ref=base_ref, head_ref=head_ref)
+    out += check_closing_issues(body, base_ref, head_ref)
     out += _leak_checks(title, where="PR 제목")
     out += _leak_checks(body, where="PR 본문")
     for i, msg in enumerate(commits or [], 1):
@@ -204,6 +307,7 @@ def main(argv: list[str] | None = None) -> int:
         head_ref = os.environ.get("PR_HEAD_REF", "")
         title = os.environ.get("PR_TITLE", "")
         body = os.environ.get("PR_BODY", "")
+        base_ref = os.environ.get("PR_BASE_REF", "") or DEFAULT_BRANCH
         base_sha = os.environ.get("PR_BASE_SHA", "")
         head_sha = os.environ.get("PR_HEAD_SHA", "")
         if not head_ref or not title:
@@ -217,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
                 # 이력이 얕으면(fetch-depth) 범위를 못 읽는다 — 조용히 넘기지 않는다.
                 print(f"커밋 메시지를 읽지 못했습니다: {e}", file=sys.stderr)
                 return 2
-        problems = check_pr(head_ref, title, body, commits)
+        problems = check_pr(head_ref, title, body, commits, base_ref=base_ref)
     elif args.subject_file:
         try:
             raw = Path(args.subject_file).read_text(encoding="utf-8")

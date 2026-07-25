@@ -13,6 +13,7 @@ runs:
       shell: bash
       env:
         PR_HEAD_REF: ${{ github.head_ref }}
+        PR_BASE_REF: ${{ github.base_ref }}
         PR_TITLE: ${{ github.event.pull_request.title }}
         PR_BODY: ${{ github.event.pull_request.body }}
         PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}

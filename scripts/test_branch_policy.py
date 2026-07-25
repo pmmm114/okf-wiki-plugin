@@ -316,3 +316,136 @@ def test_check_pr_reports_error_on_unreadable_range(tmp_path, monkeypatch):
     monkeypatch.setenv("PR_BASE_SHA", "0" * 40)
     monkeypatch.setenv("PR_HEAD_SHA", "HEAD")
     assert bp.main(["--check-pr"]) == 2
+
+
+# --- Epic 통합 브랜치 이름 (U1) ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["epic/189-study-accretion", "epic/72-writable-vault", "epic/1-x"],
+)
+def test_epic_branch_name_accepts(name):
+    assert bp.check_branch_name(name) == []
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "epic/study-accretion",  # 번호 없음
+        "epic/189-Study",  # 대문자
+        "epic/189_study",  # snake_case
+        "epic/189",  # 번호만, 슬러그 없음
+    ],
+)
+def test_epic_branch_name_rejects(name):
+    problems = bp.check_branch_name(name)
+    assert problems, name
+    assert any("이슈번호" in p for p in problems), problems
+
+
+def test_epic_is_branch_prefix_not_a_commit_type():
+    """`epic`은 브랜치 접두일 뿐 커밋 타입 어휘가 아니다 — `epic:` 제목은 막힌다."""
+    assert "epic" not in bp.KNOWN_TYPES
+    assert any("어휘 밖" in p for p in bp.check_subject("epic: 뭔가", kind="제목"))
+
+
+# --- 닫는 이슈 파싱 (U1) -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("Closes #12", [12]),
+        ("closes #12 · fixes #13 · resolves #14", [12, 13, 14]),
+        ("Fixed #7, Closed #7", [7]),  # 중복 제거
+        ("Refs #11 · Ref #9", []),  # Refs는 닫지 않으므로 세지 않는다
+        ("관련 없음 #99 텍스트", []),  # 키워드 없는 번호는 대상 아님
+        ("", []),
+    ],
+)
+def test_closing_issues_parsing(body, expected):
+    assert bp.closing_issues(body) == expected
+
+
+# --- 닫는 이슈 base 3분기 (U1) -----------------------------------------------
+
+
+def test_closing_normal_to_main_allows_zero_or_one():
+    assert bp.check_closing_issues("본문만", "main", "docs/x") == []
+    assert bp.check_closing_issues("Closes #12", "main", "docs/x") == []
+
+
+def test_closing_normal_to_main_rejects_bundling():
+    problems = bp.check_closing_issues("Closes #12 Closes #13", "main", "feat/x")
+    assert any("2개를 닫습니다" in p for p in problems), problems
+
+
+def test_closing_bundling_escape_marker():
+    """정말 쪼갤 수 없는 원자 변경만 마커로 예외 — docs/branching.md가 인정하는 유일한 예외."""
+    body = "Closes #12 Closes #13\n\n<!-- policy:multi-unit: 한 파일 원자 변경 -->"
+    assert bp.check_closing_issues(body, "main", "feat/x") == []
+
+
+def test_closing_unit_to_epic_rejects_closing_the_epic():
+    """유닛 PR이 통합 브랜치의 Epic 자신을 닫으면 조기 Epic close가 된다."""
+    problems = bp.check_closing_issues("Closes #189", "epic/189-study", "feat/u1")
+    assert any("Epic(`#189`)을 닫지 않습니다" in p for p in problems), problems
+
+
+def test_closing_unit_to_epic_allows_subissue():
+    assert bp.check_closing_issues("Closes #190", "epic/189-study", "feat/u1") == []
+
+
+def test_closing_integration_requires_its_epic():
+    """통합 PR은 자기 Epic(브랜치 이름의 번호)을 닫아야 한다."""
+    problems = bp.check_closing_issues("Refs #190 #191", "main", "epic/189-study")
+    assert any("자기 Epic(`#189`)을 닫아야" in p for p in problems), problems
+
+
+def test_closing_integration_exempt_from_count():
+    """통합 PR은 Epic + 유닛들을 함께 참조하므로 개수 제한 면제."""
+    assert bp.check_closing_issues("Closes #189\nRefs #190, #191", "main", "epic/189-study") == []
+
+
+# --- 템플릿 선택 (U1) --------------------------------------------------------
+
+
+def test_template_for_integration_uses_epic_template():
+    assert bp.template_for("main", "epic/189-study") == bp.EPIC_TEMPLATE
+
+
+def test_template_for_others_use_default():
+    assert bp.template_for("main", "feat/x") == bp.PR_TEMPLATE
+    assert bp.template_for("epic/189-study", "feat/u1") == bp.PR_TEMPLATE  # 유닛→통합은 기본
+
+
+def test_epic_template_exists_and_has_sections():
+    sections = {bp._norm_heading(s) for s in bp.required_pr_sections(bp.EPIC_TEMPLATE)}
+    assert {"epic 요약", "닫는 epic", "구성 유닛", "통합 검증", "체크리스트"} <= sections
+
+
+def test_integration_pr_body_requires_epic_sections():
+    """통합 PR에 기본 템플릿 본문을 내면 Epic 섹션 누락으로 걸린다(게이트가 템플릿을 강제)."""
+    default_body = "\n".join(f"## {s}\n\n내용\n" for s in bp.required_pr_sections())
+    problems = bp.check_pr_body(default_body, base_ref="main", head_ref="epic/189-study")
+    assert any("Epic 통합 템플릿 섹션이 없습니다" in p for p in problems), problems
+
+
+def test_check_pr_threads_base_ref():
+    """전수 판정이 base를 받아 유닛→통합 규칙을 적용한다."""
+    body = "\n".join(f"## {s}\n\n내용\n" for s in bp.required_pr_sections())
+    problems = bp.check_pr("feat/u1", "feat: u1", body + "\nCloses #189", base_ref="epic/189-study")
+    assert any("Epic(`#189`)을 닫지 않습니다" in p for p in problems), problems
+
+
+def test_cli_check_pr_reads_base_ref(monkeypatch):
+    """--check-pr가 PR_BASE_REF를 읽어 base 인지 판정을 적용한다."""
+    good = "\n".join(f"## {s}\n\n내용\n" for s in bp.required_pr_sections())
+    monkeypatch.setenv("PR_HEAD_REF", "feat/u1")
+    monkeypatch.setenv("PR_TITLE", "feat: u1")
+    monkeypatch.setenv("PR_BODY", good + "\nCloses #189")
+    monkeypatch.setenv("PR_BASE_REF", "epic/189-study")
+    monkeypatch.delenv("PR_BASE_SHA", raising=False)
+    monkeypatch.delenv("PR_HEAD_SHA", raising=False)
+    assert bp.main(["--check-pr"]) == 1  # 유닛이 자기 Epic을 닫음 → 위반
