@@ -1,0 +1,290 @@
+{
+  "bundle": {
+    "concepts": 7,
+    "reserved": 7,
+    "failing": 0,
+    "dirs": 7,
+    "links": 5,
+    "axes": [
+      "type"
+    ]
+  },
+  "fields": [
+    {
+      "field": "description",
+      "present": 6,
+      "concepts": 7,
+      "values": 6,
+      "kinds": {
+        "str": 6
+      }
+    },
+    {
+      "field": "tags",
+      "present": 3,
+      "concepts": 7,
+      "values": 2,
+      "kinds": {
+        "list": 3
+      }
+    },
+    {
+      "field": "timestamp",
+      "present": 7,
+      "concepts": 7,
+      "values": 5,
+      "kinds": {
+        "other": 1,
+        "str": 6
+      }
+    },
+    {
+      "field": "type",
+      "present": 7,
+      "concepts": 7,
+      "values": 3,
+      "kinds": {
+        "str": 7
+      }
+    }
+  ],
+  "axes": [
+    {
+      "axis": "type",
+      "present": 7,
+      "missing": 0,
+      "valueless": 0,
+      "values": [
+        {
+          "value": "Convention",
+          "count": 2,
+          "dirs": {
+            "dup": 1,
+            "solo": 1
+          }
+        },
+        {
+          "value": "Practice",
+          "count": 2,
+          "dirs": {
+            "deep/nested/leaf": 1,
+            "dup": 1
+          }
+        },
+        {
+          "value": "Reference",
+          "count": 3,
+          "dirs": {
+            "cluster": 3
+          }
+        }
+      ]
+    }
+  ],
+  "dirs": [
+    {
+      "path": ".",
+      "depth": 0,
+      "concepts": 0,
+      "subtree": 7,
+      "links": {
+        "internal": 0,
+        "outbound": 0,
+        "inbound": 0,
+        "to": {}
+      },
+      "axes": {
+        "type": {}
+      },
+      "items": []
+    },
+    {
+      "path": "cluster",
+      "depth": 1,
+      "concepts": 3,
+      "subtree": 3,
+      "links": {
+        "internal": 3,
+        "outbound": 1,
+        "inbound": 0,
+        "to": {
+          "solo": 1
+        }
+      },
+      "axes": {
+        "type": {
+          "Reference": 3
+        }
+      },
+      "items": [
+        {
+          "path": "cluster/a.md",
+          "axes": {
+            "type": [
+              "Reference"
+            ]
+          },
+          "summary": "한 번에 들어온 묶음의 첫 개념.",
+          "summary_from": "frontmatter",
+          "refs": 1
+        },
+        {
+          "path": "cluster/b.md",
+          "axes": {
+            "type": [
+              "Reference"
+            ]
+          },
+          "summary": "같은 묶음의 둘째 개념 — 축 값이 tags에도 중복돼 있다.",
+          "summary_from": "frontmatter",
+          "refs": 1
+        },
+        {
+          "path": "cluster/c.md",
+          "axes": {
+            "type": [
+              "Reference"
+            ]
+          },
+          "summary": "권장 필드가 없어 요약이 본문에서 뽑힌다.",
+          "summary_from": "body",
+          "refs": 1
+        }
+      ]
+    },
+    {
+      "path": "deep",
+      "depth": 1,
+      "concepts": 0,
+      "subtree": 1,
+      "links": {
+        "internal": 0,
+        "outbound": 0,
+        "inbound": 0,
+        "to": {}
+      },
+      "axes": {
+        "type": {}
+      },
+      "items": []
+    },
+    {
+      "path": "deep/nested",
+      "depth": 2,
+      "concepts": 0,
+      "subtree": 1,
+      "links": {
+        "internal": 0,
+        "outbound": 0,
+        "inbound": 0,
+        "to": {}
+      },
+      "axes": {
+        "type": {}
+      },
+      "items": []
+    },
+    {
+      "path": "deep/nested/leaf",
+      "depth": 3,
+      "concepts": 1,
+      "subtree": 1,
+      "links": {
+        "internal": 0,
+        "outbound": 0,
+        "inbound": 0,
+        "to": {}
+      },
+      "axes": {
+        "type": {
+          "Practice": 1
+        }
+      },
+      "items": [
+        {
+          "path": "deep/nested/leaf/one.md",
+          "axes": {
+            "type": [
+              "Practice"
+            ]
+          },
+          "summary": "깊이 3에 홀로 놓인 개념 — 위 두 층은 통과 디렉터리다.",
+          "summary_from": "frontmatter",
+          "refs": 0
+        }
+      ]
+    },
+    {
+      "path": "dup",
+      "depth": 1,
+      "concepts": 2,
+      "subtree": 2,
+      "links": {
+        "internal": 1,
+        "outbound": 0,
+        "inbound": 0,
+        "to": {}
+      },
+      "axes": {
+        "type": {
+          "Convention": 1,
+          "Practice": 1
+        }
+      },
+      "items": [
+        {
+          "path": "dup/first.md",
+          "axes": {
+            "type": [
+              "Convention"
+            ]
+          },
+          "summary": "커밋 전에 검증을 돌린다 — 실패하면 머지하지 않는다.",
+          "summary_from": "frontmatter",
+          "refs": 1
+        },
+        {
+          "path": "dup/second.md",
+          "axes": {
+            "type": [
+              "Practice"
+            ]
+          },
+          "summary": "커밋 전에 검증을 돌린다 — 실패하면 머지하지 않는다(재서술).",
+          "summary_from": "frontmatter",
+          "refs": 0
+        }
+      ]
+    },
+    {
+      "path": "solo",
+      "depth": 1,
+      "concepts": 1,
+      "subtree": 1,
+      "links": {
+        "internal": 0,
+        "outbound": 0,
+        "inbound": 1,
+        "to": {}
+      },
+      "axes": {
+        "type": {
+          "Convention": 1
+        }
+      },
+      "items": [
+        {
+          "path": "solo/only.md",
+          "axes": {
+            "type": [
+              "Convention"
+            ]
+          },
+          "summary": "혼자 있는 개념 — 이웃도 내부 링크도 없다.",
+          "summary_from": "frontmatter",
+          "refs": 1
+        }
+      ]
+    }
+  ]
+}
