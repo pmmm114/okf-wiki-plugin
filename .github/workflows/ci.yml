@@ -2,13 +2,33 @@
 # 라이선스 검사 스텝은 T-P3-2/3/5에서 추가한다. job 이름 `core`는 브랜치 룰셋의
 # required status check 컨텍스트로 쓰이므로 변경 금지.
 name: ci
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+    # 기본 활동 타입(opened·synchronize·reopened)에는 `edited`가 없다. 그대로 두면
+    # 멀쩡한 제목으로 열어 green을 받은 뒤 제목·본문만 고쳐도 정책 게이트가 다시
+    # 돌지 않아, 스쿼시 때 그 제목이 그대로 main에 새겨진다.
+    types: [opened, synchronize, reopened, edited]
 jobs:
   core:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # 정책 게이트가 PR 범위의 커밋 메시지를 읽는다(스쿼시가 그 본문을 main에 합침).
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - name: 브랜치·PR 정책 게이트
+        # PR 이벤트에만 컨텍스트가 있다. 값은 env로 넘긴다 — run에 ${{ }}를 직접 펼치면
+        # PR 제목이 셸로 주입될 수 있다.
+        if: github.event_name == 'pull_request'
+        env:
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/branch_policy.py --check-pr
       - name: 자기 번들 검증 (.okf)
         run: uv run --project okf-core okf validate .okf --strict
       - name: JSON 스텁 파싱 검사
