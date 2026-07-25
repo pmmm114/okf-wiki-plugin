@@ -13,14 +13,20 @@
 엔진은 목적지를 모르므로(무참조 불변식) 이 판정은 엔진 밖 repo-메타 계층인 여기
 (`scripts/`, `pytest scripts`가 CI `core` 잡에서 자동 수집)에 둔다.
 
+스코프는 **git이 추적하는 `.md`**다. 웹뷰에서 읽히는 것이 곧 커밋된 것이므로 판정
+대상도 그것이어야 한다. 워킹트리를 훑으면 git 워크트리 체크아웃·에이전트 런타임
+상태처럼 repo의 일부가 아닌 미추적 파일까지 딸려 들어와, repo가 멀쩡한데도 게이트가
+빨개진다(실제로 `.claude/worktrees/`의 스테일 체크아웃이 그렇게 잡혔다).
+
 제외: `okf-core/vendor/**`(바이트 프리즈 스펙 — 링크는 형식 예시), `okf-core/tests/**`
-(엔진의 §5.3 관용을 실증하는 계약 입력), 심볼릭 링크(reference/SPEC.md → 벤더 스펙),
-가상환경·캐시. 인라인 링크만 본다(엔진 파서의 인라인·펜스제외 판단과 정합). stdlib 전용.
+(엔진의 §5.3 관용을 실증하는 계약 입력), 심볼릭 링크(reference/SPEC.md → 벤더 스펙).
+인라인 링크만 본다(엔진 파서의 인라인·펜스제외 판단과 정합). stdlib 전용.
 """
 
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -71,16 +77,32 @@ def _nonportable(url: str) -> str | None:
     return None
 
 
+def _tracked_markdown() -> list[str]:
+    """git이 추적하는 `.md`의 repo-상대 경로(posix).
+
+    미추적 파일을 스코프에서 빼는 것이 요점이다 — 커밋되지 않은 것은 웹뷰에 뜨지
+    않으므로 이식성 판정 대상이 아니다. 가상환경·캐시가 추적될 일이 없으니 경로
+    제외 목록도 따로 둘 필요가 없어진다.
+    """
+    out = subprocess.run(
+        ["git", "-C", str(_ROOT), "ls-files", "-z", "--", "*.md"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return [p for p in out.split("\0") if p]
+
+
 def _in_scope_docs() -> list[Path]:
-    """브라우징 대상 실문서(.md)만 — 벤더·픽스처·심볼릭·캐시·가상환경 제외."""
+    """브라우징 대상 실문서(.md)만 — 미추적·벤더·픽스처·심볼릭 제외."""
     out = []
-    for p in sorted(_ROOT.rglob("*.md")):
-        if p.is_symlink():
+    for rel in sorted(_tracked_markdown()):
+        if rel.startswith(("okf-core/vendor/", "okf-core/tests/")):
             continue
-        rel = p.relative_to(_ROOT)
-        if set(rel.parts) & {".git", ".venv", "node_modules", ".pytest_cache", "__pycache__"}:
-            continue
-        if rel.as_posix().startswith(("okf-core/vendor/", "okf-core/tests/")):
+        p = _ROOT / rel
+        if p.is_symlink() or not p.is_file():
+            # 심볼릭은 벤더 실체를 가리키고(중복 판정), 삭제됐지만 아직 스테이지되지
+            # 않은 경로는 읽을 문서가 없다.
             continue
         out.append(p)
     return out
@@ -125,3 +147,20 @@ def test_scope_boundary():
     assert not any(r.startswith("okf-core/vendor/") for r in rels)  # 벤더 제외
     assert not any("fixtures" in r for r in rels)  # 픽스처 계약 제외
     assert "plugins/okf/skills/okf/reference/SPEC.md" not in rels  # 심볼릭(벤더) 제외
+
+
+def test_scope_excludes_untracked_files():
+    """미추적 파일은 스코프 밖 — 워킹트리에 뭘 두든 게이트 판정이 흔들리지 않는다.
+
+    위반 링크를 담은 미추적 `.md`를 실제로 만들어 확인한다. 스코프가 워킹트리
+    기준으로 돌아가면 이 파일이 잡혀 게이트가 빨개진다.
+    """
+    probe = _ROOT / "_doc_links_scope_probe.md"
+    probe.write_text("[깨지는 링크](/absolute.md)\n", encoding="utf-8")
+    try:
+        rels = {p.relative_to(_ROOT).as_posix() for p in _in_scope_docs()}
+        assert probe.name not in rels
+        # 전수 검사도 이 파일 때문에 실패하지 않아야 한다.
+        test_docs_have_no_nonportable_internal_links()
+    finally:
+        probe.unlink()
