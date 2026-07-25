@@ -13,13 +13,17 @@ argument-hint: "[<topic> | --layer <layer> | --bundle <path>]"
    (`.okf/` 또는 `.okf-wiki.json`이 가리키는 번들). 이하 `<bundle>`.
 
 1. **① 신호 수집(자문)**: `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py"
-   "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_layers.py" signals <bundle> --json`.
-   탐색은 EXPLORE.md 계약 경유다(현재 제공자는 내장 고정 — 교체 배선은 #204) —
-   응답의 **계약 필드만 소비**하고 확장 필드에 로직을 걸지 않는다. 하위층
-   밀집·참조 집중·미접지·미분류에서 승격 후보 주제를 고른다(`<topic>` 인자가
-   있으면 그 주제로 한정). 신호는 자문이다 — 커도 §8 부적격이면 승격하지 않는다.
+   "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_explore.py" run <bundle> signals`.
+   탐색은 EXPLORE.md 계약 경유다 — 리졸버가 `explore.provider`(설정 시·승인 시)를
+   쓰고 아니면 내장(okf_layers)으로 폴백하며, 외부 응답은 계약 검증기를 통과한
+   것만 나온다. stderr에 "미승인" 안내가 보이면 사용자에게 설정된 제공자 명령을
+   보여주고, 승인 의사를 받으면 `… okf_explore.py approve <project>`를 실행한다
+   (거절하면 내장으로 계속). 응답의 **계약 필드만 소비**하고 확장 필드에 로직을
+   걸지 않는다. 하위층 밀집·참조 집중·미접지·미분류에서 승격 후보 주제를
+   고른다(`<topic>` 인자가 있으면 그 주제로 한정). 신호는 자문이다 — 커도 §8
+   부적격이면 승격하지 않는다.
 
-2. **②a 지형 탐색(자문)**: `… okf_layers.py map <bundle> --topic <t> --json`
+2. **②a 지형 탐색(자문)**: `… okf_explore.py run <bundle> map --topic <t>`
    (`--layer <층>` 인자가 있으면 전달). 맵의 description 인벤토리로 재료 후보를
    좁힌 뒤, **고른 재료의 원문을 직접 Read**한다 — §8 판정 대상은 본문이며 맵
    요약으로 판정하지 않는다.
