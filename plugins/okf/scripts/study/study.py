@@ -4,7 +4,8 @@
 어떤 개념으로 만들지)은 모델의 몫이고, 여기서는 목록·원장·드레인·디스패치만 한다.
 
   study list     <project> [--by-file]                  후보 JSON(평탄 | 파일 그룹 뷰)
-  study resolve  <project> --id ID --status S [--ref R] [--layer L]  원장 기록 + inbox 드레인
+  study resolve  <project> (--id ID [--id ...] | --source PATH) --status S [--ref R] [--layer L]
+                                                         원장 기록 + inbox 드레인(일괄 가능)
   study clear    <project>                              현재 후보 전부 discard
   study dispatch <project> --source S --concept-{path,type,topic,layer} <vals>
                                                          핸들러 실행(경로·git·trust 게이트)
@@ -139,15 +140,40 @@ def cmd_list(args) -> int:
 
 def cmd_resolve(args) -> int:
     _promote, runtime = _scope(args.project)
+    if args.source is not None:
+        # 파일 단위 일괄(#258): 저장 source는 _sanitize 통과본 — 동일 정규화 후 **정확
+        # 문자열 일치**. 경로 해석(Path.resolve·실존 검사)은 금물 — rename·삭제된 옛
+        # 경로의 잔존 후보 일괄 정리가 주 용례다. dispatch의 --source(캡처 채널)와는
+        # 다른 축이다(이쪽은 candidate.source 컬럼).
+        wanted = study_inbox._sanitize(args.source)
+        cands = study_inbox.list_candidates(runtime) if runtime else []
+        ids = [c["id"] for c in cands if c["source"] == wanted]
+        if not ids:
+            # 매칭 0건은 무음 성공이 아니라 가시적 실패 — 현존 source를 보여 오타를 드러낸다
+            print(
+                json.dumps(
+                    {
+                        "error": f"source 일치 후보 없음: {wanted}",
+                        "sources": sorted({c["source"] for c in cands}),
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return 1
+    else:
+        ids = list(dict.fromkeys(args.id))
     dropped: list[str] = []
     if runtime:
-        if args.layer:
-            study_inbox.set_layer(runtime, args.id, args.layer)  # 후보에 인식층 영속(#189 U5)
-        study_inbox.record(runtime, args.id, args.status, args.ref, layer=args.layer)
-        dropped = study_inbox.drop(runtime, [args.id])
+        for ident in ids:
+            if args.layer:
+                study_inbox.set_layer(runtime, ident, args.layer)  # 후보에 인식층 영속(#189 U5)
+            # 원장·저널은 id별 계약 유지(측정 원자 = 블록 id) — 일괄 + 단일 --ref는
+            # "N후보 → 1개념 병합 승격"을 의미한다(#258).
+            study_inbox.record(runtime, ident, args.status, args.ref, layer=args.layer)
+        dropped = study_inbox.drop(runtime, ids)
     print(
         json.dumps(
-            {"id": args.id, "status": args.status, "layer": args.layer, "dropped": dropped},
+            {"ids": ids, "status": args.status, "layer": args.layer, "dropped": dropped},
             ensure_ascii=False,
         )
     )
@@ -349,9 +375,14 @@ def main(argv: list[str] | None = None) -> int:
     lst.add_argument("project", nargs="?", default=".")
     lst.add_argument("--by-file", action="store_true", dest="by_file")
 
-    res = sub.add_parser("resolve", help="원장 기록 + inbox 드레인")
+    res = sub.add_parser("resolve", help="원장 기록 + inbox 드레인(다중 --id·--source 일괄)")
     res.add_argument("project", nargs="?", default=".")
-    res.add_argument("--id", required=True)
+    sel = res.add_mutually_exclusive_group(required=True)
+    sel.add_argument("--id", action="append", help="후보 id(반복 가능) — --source와 배타")
+    sel.add_argument(
+        "--source",
+        help="candidate.source(파일 경로) 정확 일치 일괄 — dispatch --source(캡처 채널)와 다름",
+    )
     res.add_argument("--status", required=True, choices=["promoted", "discarded"])
     res.add_argument("--ref")
     res.add_argument("--layer", help="인식층(정보/지식/지혜) — 저널·후보에 provenance로 새김")
