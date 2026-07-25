@@ -13,7 +13,7 @@ import argparse
 from pathlib import Path
 
 from okf_core import logmd
-from okf_core.validate import load_rules
+from okf_core.bundle import load_rules
 
 
 def init_bundle(target: str | Path) -> list[str]:

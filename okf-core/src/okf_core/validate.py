@@ -12,7 +12,8 @@
 판정에 쓰는 상수(예약 파일명·필수/권장 필드·헤딩 형식·strict 승격 집합)는
 코드에 두지 않고 ``rules/v<major>_<minor>.json``에서 로드한다(T-P2-6). 버전은
 루트 인덱스의 ``okf_version`` 선언으로 선택하고, 미지 버전은 기본 규칙으로
-최선 소비하며 warn을 남긴다(§11).
+최선 소비하며 warn을 남긴다(§11) — 그 선택 절차는 ``bundle.rules_for``가
+소유한다(소비자마다 규칙 세대가 갈리지 않게).
 
 파이프 순서(T-P2-3): 파스 1회(walk_bundle) → §9 → 정책(policy.run_policies,
 같은 ParsedDoc 재사용) — 재파싱하지 않는다.
@@ -32,6 +33,7 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from okf_core.bundle import rules_for
 from okf_core.parser import FORM_EXTERNAL, ParsedDoc, walk_bundle
 
 RULE_FRONTMATTER = "OKF9.1"
@@ -41,8 +43,6 @@ POL_BROKEN_LINK = "POL.broken-link"
 POL_DESCRIPTION = "POL.description"
 POL_UNKNOWN_VERSION = "POL.okf-version"
 
-RULES_DIR = Path(__file__).parent / "rules"
-DEFAULT_RULES_VERSION = "0.1"
 REJECT_NOTE = "§9 거부 금지 항목 — 컨포먼스 판정에 영향 없음"
 
 
@@ -59,47 +59,6 @@ class Finding:
 
 def is_conformant(findings: list[Finding]) -> bool:
     return not any(f.level == "error" for f in findings)
-
-
-def _rules_path(version: str) -> Path:
-    return RULES_DIR / f"v{version.replace('.', '_')}.json"
-
-
-def load_rules(version: str | None = None) -> tuple[dict, str | None]:
-    """(규칙, 미지 버전 경고 메시지|None). 미지 버전은 기본 규칙으로 최선 소비(§11)."""
-    requested = str(version).strip() if version is not None else DEFAULT_RULES_VERSION
-    path = _rules_path(requested)
-    if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8")), None
-    default = json.loads(_rules_path(DEFAULT_RULES_VERSION).read_text(encoding="utf-8"))
-    return default, (
-        f"미지 okf_version `{requested}` — {DEFAULT_RULES_VERSION} 규칙으로 최선 소비(§11, "
-        "컨포먼스 판정에 영향 없음)"
-    )
-
-
-def _declared_version(parsed: list[tuple[str, ParsedDoc]], default_rules: dict) -> str | None:
-    """루트 인덱스 frontmatter의 okf_version 선언 값(없으면 None)."""
-    docs = dict(parsed)
-    version_key = default_rules["root_index_frontmatter_keys"][0]
-    for rel in default_rules["index_frontmatter_allowed_at"]:
-        doc = docs.get(rel)
-        if doc is not None and isinstance(doc.frontmatter, dict):
-            declared = doc.frontmatter.get(version_key)
-            if declared is not None:
-                return str(declared)
-    return None
-
-
-def concept_conforms(doc: ParsedDoc, rules: dict) -> bool:
-    """개념 파일의 §9 파일 단위 통과 여부(9.1 파싱 + 9.2 필수 필드) — index가
-    소비 가능성 판단에 공유한다(불변식: index 소비 집합 == §9 통과 집합)."""
-    if doc.fm_error is not None or doc.frontmatter is None:
-        return False
-    return all(
-        isinstance(doc.frontmatter.get(key), str) and doc.frontmatter.get(key).strip()
-        for key in rules["required_frontmatter"]
-    )
 
 
 def _check_concept(rel: str, doc: ParsedDoc, rules: dict, findings: list[Finding]) -> None:
@@ -189,14 +148,11 @@ def validate_bundle(root: str | Path, strict: bool = False) -> list[Finding]:
     parsed = walk_bundle(root)
     existing = {rel for rel, _ in parsed}
 
-    default_rules, _ = load_rules()
-    rules, version_warn = load_rules(_declared_version(parsed, default_rules))
+    rules, version_warn = rules_for(parsed)
 
     findings: list[Finding] = []
     if version_warn is not None:
-        findings.append(
-            Finding(default_rules["index_file"], POL_UNKNOWN_VERSION, "warn", version_warn)
-        )
+        findings.append(Finding(rules["index_file"], POL_UNKNOWN_VERSION, "warn", version_warn))
 
     allowed_at = set(rules["index_frontmatter_allowed_at"])
     date_re = re.compile(rules["log_date_heading_pattern"])
