@@ -87,7 +87,8 @@ repo에 `.okf/` 번들(또는 `.okf-wiki.json`이 가리키는 번들)이 있고
   (`supersedes`)으로 흡수한다(exact 재부상 차단은 원장이 이미 한다).
   층 어휘·판정 휴리스틱·정초 순서는 `reference/LAYERS.md`가 정본(§1 정의·
   §5 저작 가이드·§8 판정 기준) — 어휘를 재기술하지 말고 그 문서를 따른다.
-  `<topic>`/`--type` 인자로 후보를 그 주제/타입에 한정할 수 있다.
+  `<topic>`/`--type` 인자는 후보 필드가 아니라 **스니펫을 읽고 판정해 거르는 필터**다
+  (후보에는 축 값이 없다 — `id`·`date`·`snippet`·`source`·`recurrence`뿐).
 - **접지(교차층 맵핑)**: 상위 층은 근거 하위 개념에 접지한다 — 후보를 `bin/okf-py
   scripts/core/okf_layers.py <번들> --candidates-for <layer> --json`으로 질의하면 정초
   엄격 하향(지식→정보, 지혜→지식·정보)으로 **기존 하위층 개념만** 제시된다. 세 단계로
