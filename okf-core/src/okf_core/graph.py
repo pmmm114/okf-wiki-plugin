@@ -22,8 +22,8 @@ from pathlib import Path
 from okf_core.parser import FORM_EXTERNAL, walk_bundle
 
 
-def _resolve(rel: str, target: str) -> str | None:
-    """번들 내부 .md 링크 대상을 번들 상대경로로 정규화. 대상 아님 → None."""
+def resolve_link(rel: str, target: str) -> str | None:
+    """번들 내부 .md 링크 대상을 번들 상대경로로 정규화. 대상 아님 → None(공유 표면)."""
     t = target.split("#", 1)[0]
     if not t or t.endswith("/") or not t.endswith(".md"):
         return None
@@ -59,7 +59,7 @@ def build_graph(root: str | Path, edges_from: str | None = None) -> dict:
         for link in doc.links:
             if link.form == FORM_EXTERNAL:
                 continue
-            resolved = _resolve(rel, link.target)
+            resolved = resolve_link(rel, link.target)
             if resolved is None or resolved not in existing:
                 continue
             if (rel, resolved) not in seen:
@@ -70,7 +70,7 @@ def build_graph(root: str | Path, edges_from: str | None = None) -> dict:
             for item in raw if isinstance(raw, list) else []:
                 if not isinstance(item, str):
                     continue
-                resolved = _resolve(rel, item)
+                resolved = resolve_link(rel, item)
                 if resolved is None or resolved not in existing:
                     continue  # dangling·비.md 대상은 엣지에서 제외(본문 링크와 동일)
                 if (rel, resolved) not in typed_seen:

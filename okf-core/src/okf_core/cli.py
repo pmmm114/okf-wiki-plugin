@@ -1,27 +1,29 @@
-"""okf CLI (T-P2-5) — 서브커맨드 6종을 각 모듈의 main으로 위임한다.
+"""okf CLI (T-P2-5) — 서브커맨드 7종을 각 모듈의 main으로 위임한다.
 
   okf validate <path> [--strict] [--format json]
   okf index    <path> [--write]
   okf graph    <path> --json [--linked-to P] [--edges-from KEY] [--chain C]
   okf context  <path> [--max-chars N] [--group-by KEY] [--filter KEY=VALUE]
+  okf census   <path> [--axis KEY]... [--json]
   okf log      append <path> -m MSG
   okf init     <dir>
 
 종료코드 계약은 각 서브커맨드가 따른다(F-3: 0 정상/컨포먼트, 1 비컨포먼트,
-2 실행 오류).
+2 실행 오류). census는 판정이 없어 1을 내지 않는다.
 """
 
 from __future__ import annotations
 
 import sys
 
-from okf_core import context, graph, index, init, logmd, validate
+from okf_core import census, context, graph, index, init, logmd, validate
 
 _COMMANDS = {
     "validate": validate.main,
     "index": index.main,
     "graph": graph.main,
     "context": context.main,
+    "census": census.main,
     "log": logmd.main,
     "init": init.main,
 }
@@ -33,6 +35,7 @@ _USAGE = """\
   index    <path> [--write]                   §6 형식 index.md 재생성
   graph    <path> --json [--linked-to P] [--edges-from KEY] [--chain C]  링크·역링크·사슬
   context  <path> [--max-chars N] [--group-by KEY] [--filter KEY=VALUE]  주입용 압축 인덱스
+  census   <path> [--axis KEY]... [--json]    배치·분류 판정용 인구조사(관측 전용)
   log      append <path> -m MSG               log.md 항목 추가(§7)
   init     <dir>                              §9 컨포먼트 최소 번들 스캐폴드
 

@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 import study_inbox
 import study_store
+
+PLUGIN = Path(__file__).resolve().parent.parent
+FIELD_DOCS = (PLUGIN / "commands" / "study.md", PLUGIN / "skills" / "okf" / "SKILL.md")
+# 후보 필드 목록이 뒤따르는 문장 — 목록 자리를 찾는 앵커
+FIELD_LIST_MARKER = "후보에는 축 값이 없다"
 
 
 def test_append_and_list_roundtrip(tmp_path):
@@ -20,6 +28,33 @@ def test_append_and_list_roundtrip(tmp_path):
         "source": "MEMORY.md",
         "recurrence": 1,
     }
+
+
+def test_docs_list_actual_candidate_fields(tmp_path):
+    """후보 필드를 열거하는 문서의 **목록**이 실제 스키마와 정확히 같다.
+
+    문서가 없는 필드를 전제하면 **실행 불가능한 계약**이 된다 — 실제로 커맨드가
+    `<topic>`·`--type`으로 "후보를 한정한다"고 쓰는 동안 후보에는 그 축이 없었다.
+    반대로 스키마에 필드가 늘었는데 문서가 옛 목록을 유지하는 것도 같은 괴리다.
+
+    문서 전체에서 필드명을 찾으면 안 된다 — 다른 절이 같은 이름을 언급하기만 해도
+    목록에서 빠진 것을 놓친다(감도 실증에서 실제로 걸렸다). 목록 자리만 떼어
+    집합으로 비교하므로 누락도 과잉도 red다.
+    """
+    study_inbox.append(tmp_path, "스니펫", "MEMORY.md", date="2026-07-19")
+    actual = set(study_inbox.list_candidates(tmp_path)[0])
+    checked = 0
+    for doc in FIELD_DOCS:
+        text = doc.read_text(encoding="utf-8")
+        found = text.find(FIELD_LIST_MARKER)
+        if found < 0:  # 필드를 열거하는 문서만 대상
+            continue
+        # 마커 직후 좁은 창만 본다 — 넓게 잡으면 뒤쪽 절의 백틱 토큰까지 딸려 온다
+        window = text[found : found + len(FIELD_LIST_MARKER) + 120]
+        listed = set(re.findall(r"`([a-z_]+)`", window))
+        assert listed == actual, f"{doc.name}의 후보 필드 목록이 스키마와 다르다: {listed}"
+        checked += 1
+    assert checked, "후보 필드를 열거하는 문서가 하나도 없다 — 계약이 문서화되지 않았다"
 
 
 def test_id_is_content_hash_and_stable(tmp_path):

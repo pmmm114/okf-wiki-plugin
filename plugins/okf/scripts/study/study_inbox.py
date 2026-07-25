@@ -168,7 +168,12 @@ def block_known_lines(runtime: str | Path, ident: str) -> list[str]:
 
 
 def list_candidates(runtime: str | Path) -> list[dict]:
-    """inbox의 후보를 [{id, date, snippet, source}] 목록으로 반환한다(최신 우선)."""
+    """inbox의 후보를 ``[{id, date, snippet, source, recurrence}]``로 반환한다(최신 우선).
+
+    **분류 축(주제·타입·인식층)은 후보에 없다** — 스니펫 본문뿐이다. 커맨드의
+    `<topic>`·`--type`·`--layer` 인자는 이 필드들을 거르는 것이 아니라 스니펫을 읽고
+    판정해 좁히는 필터다(문서가 필드 필터로 읽히면 실행 불가능한 계약이 된다).
+    """
     if not study_store.available():
         return []
     return study_store.list_candidates(runtime)
