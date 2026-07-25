@@ -1,0 +1,26 @@
+# 컨포먼스 계층 — 엔진의 판정이 스펙·참조 구현과 어긋나지 않는지.
+name: 컨포먼스
+description: 자기 번들(.okf) 검증, 픽스처 스냅샷 회귀, 참조 오라클 차동 리포트.
+runs:
+  using: composite
+  steps:
+    - name: 자기 번들 검증 (.okf)
+      # 엔진을 자기 지식 번들에 먹인다 — 도그푸딩이 곧 첫 소비처 검증이다.
+      shell: bash
+      run: uv run --project okf-core okf validate .okf --strict
+
+    - name: 픽스처 스위트
+      # 스냅샷이 곧 회귀 계약. 갱신은 --update 후 diff 검수해서 커밋한다.
+      shell: bash
+      run: uv run --with pyyaml python okf-core/scripts/run_fixture_suite.py
+
+    - name: 오라클 차동 (리포트 전용)
+      # 참조 검증기와의 판정 차이는 붉히지 않고 리포트로 남긴다 — 차이가 곧 버그는
+      # 아니고(관용 범위), 판단은 사람이 아티팩트를 보고 한다.
+      shell: bash
+      run: uv run --with pyyaml python okf-core/scripts/oracle_diff.py
+
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: oracle-diff-report
+        path: oracle-diff-report.md

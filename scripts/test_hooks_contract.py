@@ -154,13 +154,43 @@ def test_every_job_delegates_to_shared_judgment():
         )
 
 
+def ci_command_surface() -> str:
+    """CI가 실제로 실행하는 명령이 적힌 파일 전체의 본문.
+
+    `ci.yml`은 순서만 정하고 명령은 `.github/actions/<카테고리>/action.yml`로 내려갔다
+    (잡을 나누면 required check 컨텍스트 `core`가 갈리므로 composite action을 쓴다).
+    "CI와 같은 명령인가"를 판정하려면 두 곳을 함께 봐야 한다 — `ci.yml`만 보면 스텝을
+    카테고리로 옮긴 것만으로 이 게이트가 빨개진다.
+    """
+    files = [_ROOT / ".github" / "workflows" / "ci.yml"]
+    files += sorted((_ROOT / ".github" / "actions").glob("*/action.yml"))
+    return "\n".join(f.read_text(encoding="utf-8") for f in files)
+
+
 def test_meta_test_command_matches_ci():
     """repo-메타 테스트는 CI `core` 잡과 같은 명령이어야 한다."""
-    ci = (_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     hook_cmd = next(c for c in run_commands(_config_text()) if "pytest scripts" in c)
-    assert hook_cmd in ci, (
-        f"훅의 명령이 ci.yml에 없습니다: {hook_cmd!r} — 로컬과 CI가 다른 것을 돌리면 "
-        f"로컬 통과가 CI 통과를 뜻하지 않습니다."
+    assert hook_cmd in ci_command_surface(), (
+        f"훅의 명령이 CI에 없습니다: {hook_cmd!r} — 로컬과 CI가 다른 것을 돌리면 "
+        f"로컬 통과가 CI 통과를 뜻하지 않습니다. CI 명령은 ci.yml과 "
+        f".github/actions/*/action.yml에 있습니다."
+    )
+
+
+def test_ci_command_surface_covers_composite_actions():
+    """탐색면이 composite action까지 닿는지 — 이 게이트가 진짜 보는 범위의 자기 검증.
+
+    `ci.yml`만 읽던 시절의 좁은 탐색면으로 회귀하면 여기서 잡힌다. `pytest scripts`가
+    액션 파일에만 있고 `ci.yml`에는 없다는 사실 자체가 확장이 필요했던 이유다.
+    """
+    ci_only = (_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "pytest scripts" not in ci_only, (
+        "ci.yml이 다시 명령을 직접 들고 있습니다 — 그러면 이 자기 검증이 무의미해집니다. "
+        "구조가 바뀐 것이라면 위 ci_command_surface()의 설명도 함께 고치세요."
+    )
+    assert "pytest scripts" in ci_command_surface(), (
+        "탐색면이 .github/actions/*/action.yml에 닿지 않습니다 — 훅과 CI가 갈려도 "
+        "test_meta_test_command_matches_ci가 통과해버립니다."
     )
 
 

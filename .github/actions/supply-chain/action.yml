@@ -1,0 +1,14 @@
+# 공급망 계층 — 남의 코드가 이 repo에 들어온 경로가 정직한지.
+name: 공급망
+description: vendor 바이트 동기화 검사와 라이선스 검사.
+runs:
+  using: composite
+  steps:
+    - name: vendor 동기화 검사
+      # okf-core/vendor/는 업스트림 바이트 그대로. 수정은 vendor/patches/로만.
+      shell: bash
+      run: python3 okf-core/scripts/vendor_sync_check.py
+
+    - name: 라이선스 검사
+      shell: bash
+      run: python3 okf-core/scripts/license_check.py
