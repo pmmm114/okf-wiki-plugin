@@ -210,6 +210,70 @@ def test_doctor_shows_recurrence(monkeypatch, tmp_path):
     assert "재등장" in okf_doctor.run(str(_project(tmp_path)))
 
 
+def test_doctor_flags_noise_candidates(monkeypatch, tmp_path):
+    # #263 — 대기 후보 중 기적재 노이즈(is_noise_snippet)가 있으면 prune 안내 1줄.
+    # 모르고 discard하면 원장(공유 원장 write-through 포함)이 노이즈 id로 비가역 오염된다.
+    vault = _valid_vault(tmp_path, {"capture": "review"})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+    rt = study_scope.user_scope_runtime()
+    study_inbox.append(rt, "fact a", "/mem/one.md")
+    study_inbox.append(rt, "--- name: x description: d ---", "/mem/two.md")
+    study_inbox.append(rt, "**How to apply:**", "/mem/two.md")
+    out = okf_doctor.run(str(_project(tmp_path)))
+    line = next(ln for ln in out.splitlines() if "노이즈" in ln)
+    # 도달 가능 배치라 실행 명령을 인용한다 — 1차 인용은 안전형(--dry-run 포함)
+    assert "노이즈 2건" in line and "prune" in line and "--dry-run" in line
+    # 현 위치 인자가 유저 스코프로 해소(vault 폴백)되므로 그대로, 따옴표로 인용(공백 경로)
+    assert f'prune "{_project(tmp_path)}"' in line
+
+
+def test_doctor_no_noise_no_advisory(monkeypatch, tmp_path):
+    # 노이즈 0건이면 안내 무출력 — 자문 소음 금지(기존 대기 요약 계약도 그대로)
+    vault = _valid_vault(tmp_path, {"capture": "review"})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+    study_inbox.append(study_scope.user_scope_runtime(), "fact a", "/mem/one.md")
+    assert "노이즈" not in okf_doctor.run(str(_project(tmp_path)))
+
+
+def test_doctor_noise_unreachable_scope_count_only(monkeypatch, tmp_path):
+    # #263 스코프 함정 — 주입 전용 vault(study 블록 없음)는 어떤 project 인자로도 prune이
+    # 유저 스코프에 닿지 않는다(resolve_capture 규칙 3 → runtime_root None). 실행 불가
+    # 명령을 인용하면 오도이므로 카운트-온리로 강등한다.
+    vault = _valid_vault(tmp_path)  # study 블록 없음
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+    study_inbox.append(study_scope.user_scope_runtime(), "--- a/f.py", "/mem/one.md")
+    out = okf_doctor.run(str(_project(tmp_path)))
+    line = next(ln for ln in out.splitlines() if "노이즈" in ln)
+    assert "노이즈 1건" in line and "okf-py" not in line
+
+
+def test_doctor_noise_delegated_scope_quotes_project_arg(monkeypatch, tmp_path):
+    # #263 DA — 위임(scope:"vault") 프로젝트는 vault가 주입 전용이라도 `prune <현위치>`가
+    # 규칙 1로 유저 스코프에 닿는다: 카운트-온리 강등이 아니라 실행 명령을 인용해야 한다.
+    vault = _valid_vault(tmp_path)  # study 블록 없음(주입 전용)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+    project = _project(tmp_path)
+    (project / ".okf-wiki.json").write_text(
+        json.dumps({"study": {"scope": "vault", "capture": "review"}}), encoding="utf-8"
+    )
+    study_inbox.append(study_scope.user_scope_runtime(), "--- a/f.py", "/mem/one.md")
+    out = okf_doctor.run(str(project))
+    line = next(ln for ln in out.splitlines() if "노이즈" in ln)
+    assert f'prune "{project}"' in line and "--dry-run" in line
+
+
+def test_doctor_noise_project_scope_line(monkeypatch, tmp_path):
+    # project 스코프(in-repo 런타임)의 노이즈도 같은 안내 — project 인자는 현재 repo
+    project = _project(tmp_path)
+    (project / ".okf-wiki.json").write_text(
+        json.dumps({"study": {"capture": "review"}}), encoding="utf-8"
+    )
+    study_inbox.append(_rt(project), "--- a/f.py", "/mem/one.md")
+    out = okf_doctor.run(str(project))
+    line = next(ln for ln in out.splitlines() if "노이즈" in ln)
+    assert "노이즈 1건" in line and "prune" in line
+
+
 def test_doctor_flags_userscope_legacy_markdown(monkeypatch, tmp_path):
     # U5 #134 — 유저 스코프 레거시 markdown 잔존을 doctor가 감지·안내
     vault = _valid_vault(tmp_path, {"capture": "review"})

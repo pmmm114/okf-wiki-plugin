@@ -33,7 +33,8 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
 1. **인자 분기**
    - `--trust`: `study_trust.py status <project>`로 해석된 handler command를 사용자에게
      보이고, 승인받으면 `study_trust.py approve <project>` 실행 후 종료.
-   - `--clear`: `study.py clear <project>`로 현재 후보를 전부 discard하고 종료.
+   - `--clear`: `study.py clear <project>`로 현재 후보를 전부 discard하고 종료 —
+     전량 원장 기록이므로, 구조 노이즈가 섞여 있으면 3단계의 prune을 먼저 실행한다.
    - 그 외(`<topic>`·`--type X`·없음): 아래 2단계부터 승격 진행.
 
 2. **후보 로드**: `study.py list <project> --by-file` → 파일 그룹 JSON
@@ -55,6 +56,14 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
    - **근사중복 자문(#133)**: `study.py near <project>`로 재서술된 근사중복 후보를
      확인할 수 있다(SimHash 해밍거리 — **자문 전용**, 자동병합 없음). 같은 지식의
      변주로 판단되면 하나만 승격하고 나머지는 discard한다. 정확 판정은 사람·모델의 몫.
+   - **노이즈 정리(#256·#263)**: 그룹에 구조 노이즈(frontmatter 펜스 조인·`--- ` 접두·
+     라벨-단독)가 보이면 discard가 **아니라** `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py"
+     "${CLAUDE_PLUGIN_ROOT}/scripts/study/study.py" prune <project>`로 정리한다 —
+     discard는 노이즈 id를 원장(공유 원장 write-through 포함)에 **비가역 기록**한다.
+     단 prune은 그룹이 아니라 **인박스 전역** 대상이다: 먼저 `--dry-run`으로 매치
+     목록을 확인해 오폭(`--- ` 접두 실사실·diff 헤더 인용)을 검토한 뒤 실행한다.
+     오폭 매치(실사실)가 있으면 그 후보를 먼저 4~6단계로 승격해 인박스에서 빼낸 뒤
+     prune한다(prune에는 선택 제외 수단이 없다).
 
 4. **개념화(판정, 후보별)**: okf 스킬 §2·§3·§6대로 배치를 정하고 개념 파일을 작성한다
    — `type` 필수, `description` 1문장, 백링크 ≥1, 답-우선 본문,
@@ -95,10 +104,13 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
 
 6. **드레인**: 검증 통과 개념마다
    `study.py resolve <project> --id <id> --status promoted --ref <경로> --layer <layer>`.
-   버릴 후보는 `--status discarded`. `--layer`로 4단계 판정 인식층을 저널·후보에
+   버릴 후보는 `--status discarded` — 단 구조 노이즈는 discarded가 아니라 3단계의
+   prune으로(원장 오염 방지). `--layer`로 4단계 판정 인식층을 저널·후보에
    provenance로 새긴다(후보 드레인 후에도 `study.py log`에 층이 남는다).
    - **파일 단위 일괄(#258)**: 한 파일 그룹을 통째로 버릴 땐
-     `study.py resolve <project> --source <경로> --status discarded` — 경로는 2단계
+     `study.py resolve <project> --source <경로> --status discarded` — 펼치지 않은
+     그룹이면 먼저 펼쳐 구조 노이즈가 섞였는지 확인한다(섞였으면 3단계의 prune 먼저 —
+     일괄 discard는 보지 못한 노이즈 id까지 원장에 기록한다). 경로는 2단계
      그룹의 `source` 값 그대로 쓴다(저장값 정확 일치 매칭이라 rename·삭제된 옛 경로의
      잔존 후보 정리에도 쓴다. 매칭 0건이면 현존 source 목록과 함께 실패한다).
      여러 후보를 **한 개념으로 병합 승격**했다면 다중 `--id`(반복) + 단일 `--ref`로
@@ -119,4 +131,5 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
      봉인되지 않으므로 여기 오지 않는다.
 
 8. **요약**: 승격/폐기/디스패치 결과를 알리고, 오래된 후보가 많으면 `/study --clear`를
-   제안한다.
+   제안한다 — `--clear`도 전량 discard(원장 기록)이므로 구조 노이즈가 남아 있으면
+   prune(3단계, `--dry-run` 선행)을 먼저 안내한다.

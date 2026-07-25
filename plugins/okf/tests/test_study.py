@@ -134,6 +134,21 @@ def test_prune_drops_noise_without_ledger(tmp_path, capsys):
     assert events[-1]["action"] == "prune" and events[-1]["count"] == 2  # 집계 1건
 
 
+def test_prune_dry_run_lists_matches_without_drop(tmp_path, capsys):
+    # #263: --dry-run은 매치 원문만 보인다 — drop·저널 무기록. is_noise_snippet은 텍스트
+    # 근사라 `--- ` 접두 실사실·diff 헤더 인용이 섞일 수 있어, 삭제 전 검토가 1차 시민이다.
+    # 출력 키는 실행 모드("pruned")와 분리 — 매치 0건 실행({"pruned": []})과 혼동 방지.
+    noise = study_inbox.append(_rt(tmp_path), "--- a/src/main.py", "M.md")
+    real = study_inbox.append(_rt(tmp_path), "real fact", "M.md")
+    study.main(["prune", str(tmp_path), "--dry-run"])
+    out = _out(capsys)
+    assert out["dry_run"] is True and "pruned" not in out
+    assert [m["id"] for m in out["matches"]] == [noise]
+    assert out["matches"][0]["snippet"] == "--- a/src/main.py"  # 오폭 검토용 원문
+    assert {c["id"] for c in study_inbox.list_candidates(_rt(tmp_path))} == {noise, real}
+    assert all(e["action"] != "prune" for e in study_inbox.read_journal(_rt(tmp_path)))
+
+
 def test_dispatch_no_handlers(tmp_path, capsys):
     _cfg(tmp_path, "off", [])
     study.main(["dispatch", str(tmp_path), "--source", "manual"])

@@ -14,7 +14,7 @@
   study near     <project> [--threshold N]                근사중복 자문(SimHash 해밍거리)
   study near-bundle <bundle> --snippet S --layer L [--threshold N]  후보↔같은 층 번들 근사중복(자문)
   study migrate  [<project>]                              vault .okf-study → 유저 스코프 멱등 이동
-  study prune    [<project>]                              기적재 노이즈 후보 정리(원장 무기록 drop)
+  study prune    [<project>] [--dry-run]                  기적재 노이즈 후보 정리(원장 무기록 drop)
 
 ``dispatch``는 trust 미승인 핸들러가 있으면 결과에 안내를 붙인다(가시적 저하) —
 개념은 이미 스킬이 로컬 번들에 승격·검증했고, 여기서 핸들러만 보류된다.
@@ -209,16 +209,22 @@ def cmd_prune(args) -> int:
     # discard(영구 원장 + 공유 원장 write-through)는 노이즈 id 오염이 된다. 저널은
     # per-id 대신 집계 1건 — doctor의 최근-이력 뷰를 수백 행으로 덮지 않는다.
     _promote, runtime = _scope(args.project)
-    removed: list[str] = []
+    matches: list[dict] = []
     if runtime:
-        noise = [
-            c["id"]
+        matches = [
+            c
             for c in study_inbox.list_candidates(runtime)
             if study_blocks.is_noise_snippet(c["snippet"])
         ]
-        removed = study_inbox.drop(runtime, noise)
-        if removed:
-            study_inbox.journal_append(runtime, "prune", "-", count=len(removed))
+    if args.dry_run:
+        # 오폭 검토(#263): is_noise_snippet은 텍스트 근사라 `--- ` 접두 실사실·diff 헤더
+        # 인용이 섞일 수 있다 — drop·저널 없이 매치 원문을 보인다. 키는 실행 모드와
+        # 분리("pruned" 미사용) — 매치 0건 실행({"pruned": []})과 혼동하지 않는다.
+        print(json.dumps({"dry_run": True, "matches": matches}, ensure_ascii=False))
+        return 0
+    removed = study_inbox.drop(runtime, [c["id"] for c in matches]) if runtime else []
+    if removed:
+        study_inbox.journal_append(runtime, "prune", "-", count=len(removed))
     print(json.dumps({"pruned": removed}, ensure_ascii=False))
     return 0
 
@@ -294,6 +300,8 @@ def _import_into(dst: str, cands: list[dict], resolutions: list, moved: dict) ->
         study_inbox.append(dst, cand["snippet"], cand["source"], date=cand["date"])
         if len(study_inbox.list_candidates(dst)) > before:
             moved["candidates"] += 1
+            if study_blocks.is_noise_snippet(cand["snippet"]):
+                moved["noise"] += 1  # 직이관은 추출 필터를 우회한다(#263) — prune 검토 신호
     for ident, status, ref in resolutions:
         if not study_inbox.is_resolved(dst, ident):
             study_inbox.record(dst, ident, status, ref)
@@ -307,7 +315,7 @@ def cmd_migrate(args) -> int:
 
     dst = str(study_scope.user_scope_runtime())
     vault, reason = okf_vault.vault_state()
-    moved = {"candidates": 0, "ledger": 0, "trust": False, "sources": []}
+    moved = {"candidates": 0, "ledger": 0, "noise": 0, "trust": False, "sources": []}
 
     # (b) 유저 스코프 자체의 옛 markdown → 같은 디렉토리 study.db로 인플레이스 이관 후 소모.
     if study_legacy.has_legacy(dst):
@@ -339,6 +347,13 @@ def cmd_migrate(args) -> int:
             moved["sources"].append("vault")
 
     result = {"migrated": bool(moved["sources"]), "moved": moved}
+    if moved["noise"]:
+        # 명령 전체 경로는 인용하지 않는다 — 이관 목적지(유저 스코프)에 닿는 project
+        # 인자가 배치마다 달라(#263 스코프 함정) 오도가 된다. doctor가 매 실행 재안내한다.
+        result["note"] = (
+            f"이관 후보(유저 스코프)에 기적재 노이즈 {moved['noise']}건 — 캡처가 유저 "
+            "스코프로 해소되는 위치에서 `study prune --dry-run`으로 확인 후 정리"
+        )
     if not moved["sources"]:
         result["reason"] = reason or "이관할 레거시 스테이징 없음"
     print(json.dumps(result, ensure_ascii=False))
@@ -428,6 +443,12 @@ def main(argv: list[str] | None = None) -> int:
 
     prn = sub.add_parser("prune", help="기적재 노이즈 후보 정리 — 원장 무기록 drop(#256)")
     prn.add_argument("project", nargs="?", default=".")
+    prn.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help="매치 목록만 출력(삭제·저널 없음) — 텍스트 근사 오폭 검토(#263)",
+    )
 
     args = ap.parse_args(argv)
     handlers = {
