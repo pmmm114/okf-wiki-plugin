@@ -130,3 +130,60 @@ def test_ruleset_drift_catches_wrong_check_context():
 def test_ruleset_drift_on_empty_ruleset():
     problems = rs.ruleset_drift([])
     assert problems, "규칙이 하나도 없으면 전부 어긋난 것이다"
+
+
+# --- Epic 통합 브랜치 룰셋 (U3) ----------------------------------------------
+
+
+def _epic_ruleset(strict=True, context="core", types=None):
+    """epic/* 룰셋 하나(conditions + rules) — 건강한 기본."""
+    if types is None:
+        types = ["deletion", "non_fast_forward", "pull_request", "required_status_checks"]
+    rules = [{"type": t} for t in types if t != "required_status_checks"]
+    if "required_status_checks" in types:
+        rules.append(
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "required_status_checks": [{"context": context}],
+                    "strict_required_status_checks_policy": strict,
+                },
+            }
+        )
+    return {"conditions": {"ref_name": {"include": ["refs/heads/epic/**/*"]}}, "rules": rules}
+
+
+def _main_ruleset():
+    """epic을 겨냥하지 않는 룰셋(main)."""
+    return {"conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"]}}, "rules": []}
+
+
+def test_targets_epic_by_include_pattern():
+    assert rs._targets_epic(_epic_ruleset()) is True
+    assert rs._targets_epic(_main_ruleset()) is False
+
+
+def test_epic_ruleset_missing_is_drift():
+    """epic/* 룰셋이 아예 없으면 그 자체가 드리프트 — 유닛이 red로 통합 브랜치에 들어간다."""
+    problems = rs.epic_ruleset_drift([_main_ruleset()])
+    assert any("epic/* 브랜치 룰셋이 없습니다" in p for p in problems), problems
+
+
+def test_epic_ruleset_healthy_no_drift():
+    assert rs.epic_ruleset_drift([_main_ruleset(), _epic_ruleset()]) == []
+
+
+def test_epic_ruleset_catches_missing_core_check():
+    problems = rs.epic_ruleset_drift([_epic_ruleset(context="build")])
+    assert any("required check에 'core'" in p for p in problems), problems
+
+
+def test_epic_ruleset_catches_non_strict_policy():
+    """최신 상태 동기(strict)를 안 걸면 통합 브랜치가 드리프트한다."""
+    problems = rs.epic_ruleset_drift([_epic_ruleset(strict=False)])
+    assert any("strict" in p for p in problems), problems
+
+
+def test_epic_ruleset_catches_missing_rule_types():
+    problems = rs.epic_ruleset_drift([_epic_ruleset(types=["required_status_checks"])])
+    assert any("없는 규칙" in p for p in problems), problems
