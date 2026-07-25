@@ -546,6 +546,17 @@ def _age_str(epoch) -> str:
     return f"{delta // 86400}일 전"
 
 
+def _has_handlers(clone_path: str | Path) -> bool:
+    """소비처가 원격 반영 핸들러를 배선했는지(``.okf-wiki.json``의 ``study.handlers``).
+
+    설정 **파일만** 읽는다 — study 모듈은 import하지 않으므로 core⊥study 경계와 무관하다.
+    핸들러 자체는 소비처 소유라 여기서 알아야 할 것은 "반영 경로가 존재하는가"뿐이다.
+    """
+    cfg = okf_vault.read_json(Path(clone_path) / ".okf-wiki.json") or {}
+    study = cfg.get("study")
+    return bool(isinstance(study, dict) and study.get("handlers"))
+
+
 def _residue_notes(clone_path: str | Path) -> list[str]:
     """잔재를 **봉인 여부로 갈라** 안내한다(#216 V3). 잔재가 없으면 빈 목록(침묵).
 
@@ -577,9 +588,13 @@ def _residue_notes(clone_path: str | Path) -> list[str]:
         else:
             notes.append(f"  잔재 {len(sealed)}건: 원격에 반영됨 — /study 진입 시 자동 정리")
     if unsealed:
-        notes.append(
-            f"  ⚠ 잔재 {len(unsealed)}건: 원격 미반영 — 디스패치(PR)로 반영하라(폐기하면 유실)"
+        # 원격 반영 경로가 없는 vault에 "디스패치하라"는 실행 불가능한 지시다(#216 V4).
+        route = (
+            "디스패치(PR)로 반영하라"
+            if _has_handlers(clone_path)
+            else "원격 반영 경로 없음(핸들러 미배선) — /okf-init --vault로 배선하라"
         )
+        notes.append(f"  ⚠ 잔재 {len(unsealed)}건: 원격 미반영 — {route}(폐기하면 유실)")
     if undecidable:
         notes.append(f"  ⚠ 잔재 {undecidable}건: 삭제·이름변경 — 판정 불가, 직접 확인 필요")
     return notes
