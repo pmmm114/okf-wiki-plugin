@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import okf_remote
@@ -412,6 +413,69 @@ def test_doctor_notes_valid_clone_shows_freshness(monkeypatch, tmp_path):
 def test_doctor_notes_bad_transport(monkeypatch, tmp_path):
     notes = okf_remote.doctor_vault_notes("ext::sh -c evil")
     assert "미지원 transport" in "\n".join(notes)
+
+
+# --- doctor 잔재 진단 (#227 V3 — 봉인 여부로 구분) ------------------------------
+
+
+def test_doctor_marks_sealed_residue_as_auto_recoverable(monkeypatch, tmp_path):
+    """원격에 반영된 잔재는 자동 정리 대상이라고 알린다 — 사용자가 손댈 일이 아니다."""
+    src = _origin(tmp_path)
+    url = _url(src)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, url)
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    body = "# sealed\n"
+    (clone_path / ".okf" / "s.md").write_text(body, encoding="utf-8")
+    _merge_into_origin(src, ".okf/s.md", body)
+    okf_remote.session_fetch()  # 원격추적 ref 갱신 + last_fetch 스탬프
+    joined = "\n".join(okf_remote.doctor_vault_notes(url))
+    assert "원격에 반영됨" in joined
+    assert "유실" not in joined  # 봉인된 것에 유실 경고를 붙이면 안 된다
+
+
+def test_doctor_warns_unsealed_residue_against_discard(monkeypatch, tmp_path):
+    """원격 미반영 잔재는 폐기하면 유실이라고 명시한다.
+
+    구 문구 '디스패치(커밋) 또는 폐기 필요'는 정반대 결과를 낳는 둘을 뭉뚱그렸다.
+    """
+    src = _origin(tmp_path)
+    url = _url(src)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, url)
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    (clone_path / ".okf" / "u.md").write_text("# never pushed\n", encoding="utf-8")
+    okf_remote.session_fetch()
+    joined = "\n".join(okf_remote.doctor_vault_notes(url))
+    assert "미반영" in joined and "유실" in joined
+
+
+def test_doctor_withholds_seal_verdict_when_fetch_is_stale(monkeypatch, tmp_path):
+    """fetch가 오래됐으면 봉인 판정을 확정으로 제시하지 않는다.
+
+    판정 근거가 **이미 fetch된** ref뿐이라, 오래된 clone에서는 실제로 미푸시인 작업을
+    '반영됨'으로 오판할 수 있다. 그 안내를 따라 폐기하면 비가역 손실이다.
+    """
+    src = _origin(tmp_path)
+    url = _url(src)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, url)
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    body = "# sealed\n"
+    (clone_path / ".okf" / "s.md").write_text(body, encoding="utf-8")
+    _merge_into_origin(src, ".okf/s.md", body)
+    okf_remote.session_fetch()
+    okf_remote._stamp(clone_path, last_fetch=time.time() - 10 * 86400)  # 10일 전으로 되돌림
+    joined = "\n".join(okf_remote.doctor_vault_notes(url))
+    assert "판정 보류" in joined
+    assert "자동 정리" not in joined
+
+
+def test_doctor_says_nothing_about_residue_when_clean(monkeypatch, tmp_path):
+    """잔재가 없으면 잔재 줄을 아예 내지 않는다(침묵 정책)."""
+    src = _origin(tmp_path)
+    url = _url(src)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, url)
+    okf_remote.clone()
+    joined = "\n".join(okf_remote.doctor_vault_notes(url))
+    assert "잔재" not in joined
 
 
 def test_dualization_detected_for_local_twin(monkeypatch, tmp_path):

@@ -39,6 +39,7 @@ import okf_vault
 
 _DEFAULT_FETCH_TTL = 900.0  # 초 — 마지막 성공 fetch 후 재fetch 억제(신선 캐시 dedup)
 _DEFAULT_FAIL_BACKOFF = 60.0  # 초 — 마지막 실패 attempt 후 재시도 억제(오프라인 반복 스톨 방지)
+_DEFAULT_SEAL_STALE = 86400.0  # 초 — 이보다 오래된 fetch 기준 봉인 판정은 확정으로 제시하지 않는다
 _CLONE_TIMEOUT = 120.0
 _FETCH_TIMEOUT = 20.0
 _LOCAL_GIT_TIMEOUT = 10.0
@@ -535,6 +536,45 @@ def _age_str(epoch) -> str:
     return f"{delta // 86400}일 전"
 
 
+def _residue_notes(clone_path: str | Path) -> list[str]:
+    """잔재를 **봉인 여부로 갈라** 안내한다(#216 V3). 잔재가 없으면 빈 목록(침묵).
+
+    "디스패치"와 "폐기"는 정반대 결과를 낳으므로 한 줄로 뭉뚱그리면 안 된다 — 사용자가
+    자기 지식이 원격에 있는지 모르는 채 파괴적 명령을 고르게 된다.
+
+    다만 판정 근거가 **이미 fetch된 ref뿐**이다(doctor는 능동 fetch 금지). fetch가
+    오래된 clone에서는 실제로 미푸시인 작업을 '반영됨'으로 오판할 수 있고, 그 안내를
+    따른 폐기는 비가역이다. 그래서 오래되면 판정을 **보류**하고 정리를 권하지 않는다.
+    """
+    entries = list_residue(clone_path)
+    if not entries:
+        return []
+    candidates = [(xy, rel) for xy, rel in entries if xy[0] not in ("R", "C") and "D" not in xy]
+    rels = [rel for _xy, rel in candidates]
+    sealed = sealed_paths(clone_path, rels)
+    unsealed = [rel for rel in rels if rel not in sealed]
+    undecidable = len(entries) - len(candidates)  # 삭제·rename·copy — 대조할 내용이 없다
+    last_fetch = _read_sync(clone_path).get("last_fetch")
+    stale = not isinstance(last_fetch, (int, float)) or (time.time() - last_fetch) > _env_float(
+        "OKF_REMOTE_SEAL_STALE", _DEFAULT_SEAL_STALE
+    )
+    notes: list[str] = []
+    if sealed:
+        if stale:
+            notes.append(
+                f"  ⚠ 잔재 {len(sealed)}건: 원격 반영된 것으로 보이나 fetch가 오래됨 — 판정 보류"
+            )
+        else:
+            notes.append(f"  잔재 {len(sealed)}건: 원격에 반영됨 — /study 진입 시 자동 정리")
+    if unsealed:
+        notes.append(
+            f"  ⚠ 잔재 {len(unsealed)}건: 원격 미반영 — 디스패치(PR)로 반영하라(폐기하면 유실)"
+        )
+    if undecidable:
+        notes.append(f"  ⚠ 잔재 {undecidable}건: 삭제·이름변경 — 판정 불가, 직접 확인 필요")
+    return notes
+
+
 def doctor_vault_notes(pointer: str) -> list[str]:
     """URL 포인터의 무네트워크 진단 — 모드·clone 상태·마지막 fetch·behind·dirty(U1-8·U4-7).
 
@@ -564,9 +604,7 @@ def doctor_vault_notes(pointer: str) -> list[str]:
         lines.append(f"  신선도: ⚠ origin보다 {behind}커밋 뒤 — /study 진입 시 갱신(refresh)")
     if ahead:
         lines.append(f"  ⚠ 로컬 {ahead}커밋 앞(ff 불가 위험) — 미푸시 승격일 수 있음")
-    dirty = _is_dirty(clone_path)
-    if dirty:
-        lines.append("  ⚠ dirty: 미커밋 승격 잔재 — 핸들러 디스패치(커밋) 또는 폐기 필요")
+    lines.extend(_residue_notes(clone_path))
     return lines
 
 
