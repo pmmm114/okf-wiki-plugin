@@ -32,6 +32,8 @@ jobs:
       # 싼 것부터. 형식으로 걸릴 PR을 느린 컨포먼스까지 끌고 가지 않는다.
       - name: 정책 (PR 이벤트 전용)
         uses: ./.github/actions/policy
+      - name: Epic 완결성 (통합 PR 전용)
+        uses: ./.github/actions/epic-completeness
       - name: 린트·포맷
         uses: ./.github/actions/lint
       - name: 빌드

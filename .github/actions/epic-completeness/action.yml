@@ -1,0 +1,16 @@
+# Epic 완결성 게이트 — epic/<n> → main 통합 PR은 모든 sub-issue가 닫혀야 머지된다.
+# 통합 PR에만 도는 스텝이라 fail-closed(네트워크). 비-통합 PR·push에는 통과한다.
+name: Epic 완결성 게이트
+description: 통합 PR(epic/<n> → main)의 Epic이 모든 sub-issue를 닫았는지 판정한다 (PR 이벤트 전용).
+runs:
+  using: composite
+  steps:
+    - name: Epic 완결성
+      # PR 이벤트에만 컨텍스트가 있다. gh api에 토큰이 필요하다.
+      if: github.event_name == 'pull_request'
+      shell: bash
+      env:
+        PR_HEAD_REF: ${{ github.head_ref }}
+        PR_BASE_REF: ${{ github.base_ref }}
+        GH_TOKEN: ${{ github.token }}
+      run: python3 scripts/epic_completeness.py --check-pr
