@@ -79,6 +79,21 @@ def test_resolved_memory_not_reappended(tmp_path):
     assert study_inbox.list_candidates(_rt(tmp_path)) == []
 
 
+def test_recapture_after_rename_updates_source(tmp_path):
+    # U1(#255): 같은 내용이 rename된 메모리 파일에서 재캡처되면 새 후보 없이(재등장)
+    # source만 새 경로로 따라온다 — 파일 그룹 보고(U3)가 죽은 경로를 세지 않는 전제.
+    _cfg(tmp_path, "review")
+    old = "/home/u/.claude/projects/proj/memory/old-name.md"
+    new = "/home/u/.claude/projects/proj/memory/new-name.md"
+    content = "* 같은 사실 한 줄\n"
+    study_hook.run({"tool_input": {"file_path": old, "content": content}}, tmp_path)
+    study_hook.run({"tool_input": {"file_path": new, "content": content}}, tmp_path)
+    cands = study_inbox.list_candidates(_rt(tmp_path))
+    assert len(cands) == 1
+    assert cands[0]["source"] == new
+    assert cands[0]["recurrence"] == 2
+
+
 def _run_hook(project, stdin: str):
     return subprocess.run(
         [str(SHIM), str(SCRIPT)],

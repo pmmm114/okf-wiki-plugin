@@ -94,6 +94,25 @@ def test_recurrence_counts_recapture(tmp_path):
     assert len(study_store.list_candidates(tmp_path)) == 1
 
 
+def test_recapture_refreshes_source_and_ingested_at(tmp_path):
+    # U1(#255): rename·이동 후 재캡처된 후보가 죽은 경로에 영구 귀속되지 않는다 —
+    # transaction-time 계열(source·ingested_at)은 최근 캡처, valid-time 계열
+    # (captured_at·captured_date)은 첫 캡처가 정본.
+    study_store.insert_candidate(
+        tmp_path, "aa", "s", "/mem/old-name.md", "2026-07-22", captured_at="t0", ingested_at="i0"
+    )
+    study_store.insert_candidate(
+        tmp_path, "aa", "s", "/mem/new-name.md", "2026-07-23", captured_at="t9", ingested_at="i9"
+    )
+    cand = study_store.list_candidates(tmp_path)[0]
+    meta = study_store.candidate_meta(tmp_path, "aa")
+    assert cand["source"] == "/mem/new-name.md"
+    assert meta["ingested_at"] == "i9"
+    assert meta["captured_at"] == "t0"
+    assert cand["date"] == "2026-07-22"  # 갱신 시 _ORDER 정렬로 목록이 재배열되는 부작용 차단
+    assert meta["recurrence"] == 2
+
+
 def test_bitemporal_timestamps_attached(tmp_path):
     study_inbox.append(tmp_path, "concept", "M.md", captured_at="2026-07-22T09:00:00")
     ident = study_inbox.content_hash("concept")[:12]

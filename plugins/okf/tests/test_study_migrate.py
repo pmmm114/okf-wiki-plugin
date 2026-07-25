@@ -186,6 +186,23 @@ def test_migrate_both_sources_together(monkeypatch, tmp_path, capsys):
     assert len(study_inbox.list_candidates(us)) == 2  # 양쪽 이관
 
 
+def test_migrate_preserves_live_candidate_source(tmp_path, capsys):
+    # U1(#255): 이관은 insert-only — 레거시 재조우가 라이브 후보의 source를 덮거나
+    # recurrence(재등장 신호)를 부풀리지 않는다. 재캡처 갱신은 캡처 경로 전용이다.
+    us = study_scope.user_scope_runtime()
+    live_src = "/home/u/.claude/projects/proj/memory/live.md"
+    study_inbox.append(us, "shared fact", live_src)
+    _write_legacy_markdown(us, [("shared fact", "OLD.md", "2026-07-01")], [])
+
+    assert study.main(["migrate"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["moved"]["candidates"] == 0  # 기존 후보 재조우는 이관 실적이 아니다
+    cands = study_inbox.list_candidates(us)
+    assert len(cands) == 1
+    assert cands[0]["source"] == live_src
+    assert cands[0]["recurrence"] == 1
+
+
 def test_migrate_legacy_markdown_ledger_continuity(monkeypatch, tmp_path):
     # 레거시 promoted 줄-id → 이관 후 그 줄만의 블록은 재부상하지 않는다(A2′)
     vault = _vault(tmp_path)
