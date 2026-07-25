@@ -28,12 +28,12 @@ OKF 번들 엔진(`okf-core/`) + Claude Code 플러그인(`plugins/okf/`) + 배�
 
 `게이트`는 위반을 CI/테스트로 차단하는 검사다.
 
-- `ci.yml` job 이름 **`core` 불변** — 브랜치 룰셋 required check 컨텍스트. 검사는 이 잡에 스텝으로 추가.
+- `ci.yml` job 이름 **`core` 불변** — 브랜치 룰셋 required check 컨텍스트. 이름이 갈리면 잡이 red가 되는 게 아니라 required check가 매칭되지 않아 **아무것도 막지 않게 된다**. 검사는 새 잡 말고 이 잡에 스텝으로 추가(게이트: `test_repo_contract` — 잡이 정확히 하나이고 이름이 `core`).
 - `okf-core/vendor/`는 업스트림 **바이트 그대로** — 수정은 `vendor/patches/`에 패치로(게이트: vendor_sync_check).
 - 판정 상수(예약 파일명·필수/권장 필드·strict 승격 집합) 하드코딩 금지 — 단일원천 `rules/v0_1.json`(게이트: 그렙).
 - 파스는 `parser.parse`로 **파일당 1회**, 소비자는 ParsedDoc 재사용(게이트: 호출 카운터).
 - 불변식 **index 소비집합 == validate §9 통과집합** — index 로직을 바꾸면 validate 판정도 함께(게이트: 불변식).
-- `plugin.json`에 **version 필드 금지**(커밋 SHA 추적) → `claude plugin validate`는 비-strict.
+- `plugin.json`에 **version 필드 금지**(커밋 SHA 추적, 소비처가 고정하는 태그가 곧 버전) → `claude plugin validate`는 비-strict(게이트: `test_repo_contract`).
 - 루트 `pyproject.toml`은 pre-commit·`pip install <루트>` 소비용 **셔틀**, 엔진 메타 단일원천은 `okf-core/pyproject.toml`. 두 버전 **동기**, main은 **버전-중립 `0.0.0.dev0`** — minor 선점(`0.(Y+1).0.dev0`) 금지, 번호는 컷 때 도출, 릴리스 컷 커밋만 dev 없는 `X.Y.Z`(게이트: `test_version_sync`; `docs/releasing.md`, #164).
 - 엔진(`okf-core/src/`)은 **Claude를 모른다** — `CLAUDE_`·claude 참조 금지, 엔진 호출은 플러그인 쪽에서만(게이트: 무참조 grep).
 - 이 repo는 **특정 소비처·목적지 repo를 모른다**(목적지 무참조) — 코드·문서·설정·이슈·커밋 어디에도 목적지 repo명 하드코딩 금지. `study` 같은 소비처 확장은 **계약만**(stdin 아이템·env var) 정의하고 핸들러·목적지는 소비처가 자기 repo에 주입(엔진이 Claude를 모르는 것과 같은 계층 원리). denylist에 repo명을 넣는 것 자체가 참조이므로 **이 CLAUDE.md가 1차 게이트** — 예시·핸들러명은 중립 placeholder로.
