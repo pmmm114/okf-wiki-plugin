@@ -110,6 +110,88 @@ def test_check_respects_rules_toggle():
 # --- 접지 후보 질의 (Epic #189 U2) -----------------------------------------
 
 
+def test_parse_context_meta_keeps_unclassified():
+    # 신호·맵은 전체 개념 우주가 필요하다 — 미분류 섹션도 layer=None으로 보존
+    ctx = (
+        "<okf-context>\n"
+        "## information\ninfo.md [Fact] — 사실 요약\n"
+        "## (unclassified)\nplain.md [Note]\nsub/other.md [] — 타입 없음\n"
+        "</okf-context>"
+    )
+    assert okf_layers.parse_context_meta(ctx) == [
+        {"path": "info.md", "type": "Fact", "description": "사실 요약", "layer": "information"},
+        {"path": "plain.md", "type": "Note", "description": None, "layer": None},
+        {"path": "sub/other.md", "type": None, "description": "타입 없음", "layer": None},
+    ]
+
+
+def test_topic_of_directory_prefix():
+    assert okf_layers.topic_of("root.md") == "."
+    assert okf_layers.topic_of("produce/tomato.md") == "produce"
+    assert okf_layers.topic_of("a/b/deep.md") == "a/b"
+
+
+def _signals_fixture():
+    meta = [
+        {"path": "produce/f1.md", "type": "Fact", "description": "사실1", "layer": "information"},
+        {"path": "produce/f2.md", "type": "Fact", "description": "사실2", "layer": "information"},
+        {"path": "produce/note.md", "type": "Note", "description": None, "layer": None},
+        {"path": "wise.md", "type": "Convention", "description": "판단", "layer": "wisdom"},
+    ]
+    graph = {
+        "nodes": [],
+        "edges": [],
+        "typed_edges": [
+            {"from": "wise.md", "to": "produce/f1.md", "via": "derived_from"},
+            {"from": "produce/f2.md", "to": "produce/f1.md", "via": "derived_from"},
+        ],
+    }
+    return meta, graph
+
+
+def test_build_signals_counts_include_unclassified():
+    meta, graph = _signals_fixture()
+    payload = okf_layers.build_signals(SPEC, meta, graph)
+    by_topic = {entry["topic"]: entry for entry in payload["topics"]}
+    assert by_topic["produce"]["counts"] == {"information": 2, "(unclassified)": 1}
+    assert by_topic["."]["counts"] == {"wisdom": 1}
+
+
+def test_build_signals_focus_descending_by_refs():
+    meta, graph = _signals_fixture()
+    payload = okf_layers.build_signals(SPEC, meta, graph)
+    by_topic = {entry["topic"]: entry for entry in payload["topics"]}
+    # f1은 파생 유입 2건(참조 집중), 그 외 유입 없음
+    assert by_topic["produce"]["focus"] == [{"path": "produce/f1.md", "refs": 2}]
+    assert by_topic["."]["focus"] == []
+
+
+def test_build_signals_surfaces_ungrounded_upper():
+    meta = [
+        {"path": "float.md", "type": "Model", "description": "떠 있는 이해", "layer": "knowledge"},
+    ]
+    graph = {"nodes": [], "edges": [], "typed_edges": []}
+    payload = okf_layers.build_signals(SPEC, meta, graph)
+    assert payload["topics"][0]["ungrounded"] == ["float.md"]
+
+
+def test_ungrounded_paths_matches_check_rule():
+    # 신호와 린트 규칙 2는 같은 판정을 공유한다 — 단일 원천 확인
+    layer_map = {"float.md": "wisdom", "info.md": "information"}
+    graph = {
+        "nodes": [{"file": "info.md", "type": "Fact", "resource": "https://ex.org"}],
+        "edges": [],
+        "typed_edges": [],
+    }
+    assert okf_layers.ungrounded_paths(SPEC, layer_map, graph) == ["float.md"]
+    lint_paths = [
+        p
+        for p, msg in okf_layers.check(SPEC, layer_map, graph)
+        if "미접지" in msg and "근거" in msg
+    ]
+    assert lint_paths == ["float.md"]
+
+
 def test_parse_layer_sections_preserves_full_lines():
     # parse_layer_map은 경로만, sections는 개념 줄 전체를 층별로 보존
     ctx = (
