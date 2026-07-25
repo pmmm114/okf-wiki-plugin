@@ -39,7 +39,7 @@ repo에 `.okf/` 번들(또는 `.okf-wiki.json`이 가리키는 번들)이 있고
 아니라 미작성 지식의 신호다 — 필요하면 대상 개념을 새로 작성해 채운다.
 하위 층 개념이 쌓였는데 이를 잇는 상위 층이 없거나 같은 판단을 반복
 재도출하고 있다면 층간 승격 신호다 — 적립·재분류 절차는 `reference/LAYERS.md`
-§9를 따른다.
+§9를 따르고, 수행은 `/okf-promote` 커맨드가 그 절차를 오케스트레이션한다.
 
 ## 4. 소비 플로우
 
@@ -87,7 +87,8 @@ repo에 `.okf/` 번들(또는 `.okf-wiki.json`이 가리키는 번들)이 있고
   (**출처·근거 날조 금지**). 접지 뒤 근거 사슬은 `okf graph <번들> --edges-from
   derived_from --chain <개념>`으로 하향 순회해 확인한다.
 - **층간 승격(적립)**: 하위 층 개념이 쌓여 상위 층을 세울 때는 재라벨이 아니라
-  `derived_from` 적립이다 — 신호·절차·재분류는 `reference/LAYERS.md` §9가 정본이다.
+  `derived_from` 적립이다 — 신호·절차·재분류는 `reference/LAYERS.md` §9가 정본이고,
+  전용 플로우는 `/okf-promote` 커맨드다(탐색 인터페이스는 `reference/EXPLORE.md` 계약).
 - **검증·드레인**: `okf validate --strict`로 컨포먼스를 확인하고, `bin/okf-py
   scripts/core/okf_layers.py <번들>`로 **접지 린트**를 돌려 정초 순서 위반·미접지·깨진
   `derived_from`("미작성 지식 신호")을 표면화한다(자문 warn — 스펙 §9 판정 불변). 뜬
