@@ -351,8 +351,8 @@ def cmd_migrate(args) -> int:
         # 명령 전체 경로는 인용하지 않는다 — 이관 목적지(유저 스코프)에 닿는 project
         # 인자가 배치마다 달라(#263 스코프 함정) 오도가 된다. doctor가 매 실행 재안내한다.
         result["note"] = (
-            f"이관 후보에 기적재 노이즈 {moved['noise']}건 — "
-            "`study prune --dry-run`으로 확인 후 정리"
+            f"이관 후보(유저 스코프)에 기적재 노이즈 {moved['noise']}건 — 캡처가 유저 "
+            "스코프로 해소되는 위치에서 `study prune --dry-run`으로 확인 후 정리"
         )
     if not moved["sources"]:
         result["reason"] = reason or "이관할 레거시 스테이징 없음"
