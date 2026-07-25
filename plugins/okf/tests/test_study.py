@@ -63,6 +63,21 @@ def test_clear_discards_all(tmp_path, capsys):
     assert study_inbox.list_candidates(_rt(tmp_path)) == []
 
 
+def test_prune_drops_noise_without_ledger(tmp_path, capsys):
+    # U2(#256): 기적재 노이즈는 원장 기록 없는 drop으로 정리 — discard는 노이즈 id로
+    # 원장(공유 원장 포함)을 비가역 오염시키고, 재유입은 추출 필터가 이미 차단한다.
+    noise = study_inbox.append(_rt(tmp_path), "--- name: x description: d ---", "M.md")
+    label = study_inbox.append(_rt(tmp_path), "**How to apply:**", "M.md")
+    real = study_inbox.append(_rt(tmp_path), "real fact", "M.md")
+    study.main(["prune", str(tmp_path)])
+    out = _out(capsys)
+    assert set(out["pruned"]) == {noise, label}
+    assert [c["id"] for c in study_inbox.list_candidates(_rt(tmp_path))] == [real]
+    assert not study_inbox.is_resolved(_rt(tmp_path), noise)  # 원장 무기록
+    events = study_inbox.read_journal(_rt(tmp_path))
+    assert events[-1]["action"] == "prune" and events[-1]["count"] == 2  # 집계 1건
+
+
 def test_dispatch_no_handlers(tmp_path, capsys):
     _cfg(tmp_path, "off", [])
     study.main(["dispatch", str(tmp_path), "--source", "manual"])

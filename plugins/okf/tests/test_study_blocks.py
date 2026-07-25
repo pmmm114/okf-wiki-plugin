@@ -65,6 +65,57 @@ def test_pure_headings_yield_nothing():
     assert study_blocks.concept_blocks("# only\n## headings\n") == []
 
 
+# --- 노이즈 필터 (#256) ------------------------------------------------------
+
+
+def test_leading_frontmatter_fence_is_skipped():
+    text = "---\nname: some-slug\ndescription: d\n---\n\n- real fact\n"
+    assert study_blocks.concept_blocks(text) == [["real fact"]]
+
+
+def test_body_attached_to_closing_fence_is_preserved():
+    # 닫는 펜스 직후 빈 줄 없이 본문이 붙어도 본문은 독립 블록으로 살아남는다 —
+    # 텍스트 패턴 판정이었다면 펜스+본문 한 블록을 통째로 버렸을 케이스
+    text = "---\nname: x\n---\nreal fact right after fence\n"
+    assert study_blocks.concept_blocks(text) == [["real fact right after fence"]]
+
+
+def test_unclosed_leading_fence_is_not_frontmatter():
+    # 닫는 펜스가 없으면 frontmatter가 아니다 — 본문은 보수적으로 유지
+    text = "---\nnot frontmatter, just prose\n"
+    assert study_blocks.concept_blocks(text) == [["not frontmatter, just prose"]]
+
+
+def test_bare_rule_is_separator_not_content():
+    text = "- fact one\n---\n- fact two\n"
+    assert study_blocks.concept_blocks(text) == [["fact one"], ["fact two"]]
+    # 산문 사이 수평선도 내용이 아니라 경계다
+    assert study_blocks.concept_blocks("para one\n----\npara two\n") == [
+        ["para one"],
+        ["para two"],
+    ]
+
+
+def test_diff_style_content_line_is_preserved():
+    # '--- a/file'처럼 내용이 있는 줄은 수평선이 아니다(위치 기준 필터의 안전 범위)
+    text = "--- a/some/file.py 헤더를 인용한 메모\n"
+    assert study_blocks.concept_blocks(text) == [["--- a/some/file.py 헤더를 인용한 메모"]]
+
+
+def test_label_only_blocks_are_dropped():
+    # 라벨-단독 고정 셋({Why, How to apply}, 콜론 볼드 안/밖 변형 포함)만 제외
+    text = (
+        "**Why:**\n\n실제 근거 설명\n\n**How to apply:**\n\n적용 방법 설명\n\n**How to apply**:\n"
+    )
+    assert study_blocks.concept_blocks(text) == [["실제 근거 설명"], ["적용 방법 설명"]]
+
+
+def test_label_like_real_fact_is_preserved():
+    # 라벨처럼 보여도 내용이 있는 단일 줄 블록은 실사실 — 일반 휴리스틱 기각의 근거
+    text = "**동기화는 merge가 상시 관례(예외 아님):**\n"
+    assert study_blocks.concept_blocks(text) == [["**동기화는 merge가 상시 관례(예외 아님):**"]]
+
+
 # --- 원자·자식(A2′) ---------------------------------------------------------
 
 
@@ -128,7 +179,8 @@ def test_hook_and_scan_agree_on_block_ids(monkeypatch, tmp_path):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
     memdir = cfg / "projects" / "p" / "memory"
     memdir.mkdir(parents=True)
-    content = "## N\n- alpha fact\n- beta fact\n  - beta detail\n"
+    # 노이즈(frontmatter·라벨-단독) 포함 픽스처 — 필터 후에도 훅·scan 동일 후보 집합(#256)
+    content = "---\nname: p\n---\n## N\n- alpha fact\n- beta fact\n  - beta detail\n\n**Why:**\n"
     memfile = memdir / "MEMORY.md"
     memfile.write_text(content, encoding="utf-8")
     _cfg(tmp_path, "review")
