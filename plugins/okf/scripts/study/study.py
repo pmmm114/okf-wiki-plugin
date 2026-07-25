@@ -3,7 +3,7 @@
 ``/study`` 커맨드·승격 스킬이 부르는 **기계적 조작**을 제공한다. 판정(어떤 후보를
 어떤 개념으로 만들지)은 모델의 몫이고, 여기서는 목록·원장·드레인·디스패치만 한다.
 
-  study list     <project>                              후보를 JSON으로 출력
+  study list     <project> [--by-file]                  후보 JSON(평탄 | 파일 그룹 뷰)
   study resolve  <project> --id ID --status S [--ref R] [--layer L]  원장 기록 + inbox 드레인
   study clear    <project>                              현재 후보 전부 discard
   study dispatch <project> --source S --concept-{path,type,topic,layer} <vals>
@@ -120,6 +120,19 @@ def _load_study(project: str | Path) -> tuple[str, list[dict]]:
 def cmd_list(args) -> int:
     _promote, runtime = _scope(args.project)
     cands = study_inbox.list_candidates(runtime) if runtime else []
+    if args.by_file:
+        # 파일 그룹 뷰(#257) — 리뷰 결정 단위(파일)로 묶되 후보 전 필드를 보존해
+        # provenance·후보별 resolve 소비를 유지한다. 그룹은 캡처 스냅샷의 누적이라
+        # 파일의 현재 상태가 아니다(같은 줄의 편집 전 후보가 공존할 수 있다).
+        groups: dict[str, list[dict]] = {}
+        for cand in cands:
+            groups.setdefault(cand["source"], []).append(cand)
+        by_file = [
+            {"source": source, "count": len(items), "candidates": items}
+            for source, items in groups.items()
+        ]
+        print(json.dumps(by_file, ensure_ascii=False, indent=2))
+        return 0
     print(json.dumps(cands, ensure_ascii=False, indent=2))
     return 0
 
@@ -332,8 +345,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="study", description="study 오케스트레이션")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    lst = sub.add_parser("list", help="후보 목록(JSON)")
+    lst = sub.add_parser("list", help="후보 목록(JSON) — --by-file이면 파일 그룹 뷰")
     lst.add_argument("project", nargs="?", default=".")
+    lst.add_argument("--by-file", action="store_true", dest="by_file")
 
     res = sub.add_parser("resolve", help="원장 기록 + inbox 드레인")
     res.add_argument("project", nargs="?", default=".")

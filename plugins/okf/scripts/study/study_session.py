@@ -23,11 +23,12 @@ def run(project: str | Path) -> str | None:
         return scope["warning"]  # 옵트인 후 고장 = 가시화(세션당 1회 수준)
     if scope["capture"] != "auto" or scope["runtime_root"] is None:
         return None
-    pending = len(study_inbox.list_candidates(scope["runtime_root"]))
-    if pending == 0:
+    cands = study_inbox.list_candidates(scope["runtime_root"])
+    if not cands:
         return None
+    files = len({c["source"] for c in cands})  # 리뷰 결정 단위 = 파일(#257)
     return (
-        f"study: 승격 대기 후보 {pending}개(capture=auto). "
+        f"study: 승격 대기 후보 {len(cands)}개(파일 {files}개, capture=auto). "
         "study 승격 플로우로 검토·승격하라 — 핸들러 실행은 로컬 trust 승인이 필요하다."
     )
 

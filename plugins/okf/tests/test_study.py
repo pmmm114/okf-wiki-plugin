@@ -112,6 +112,31 @@ def test_session_nudges_when_auto_and_pending(tmp_path):
     assert message and "1개" in message
 
 
+def test_session_nudge_includes_file_count(tmp_path):
+    # U3(#257): 넛지에 파일 수 부가 — 기존 "승격 대기 후보 N개" 접두는 보존
+    _cfg(tmp_path, "auto", [])
+    study_inbox.append(_rt(tmp_path), "a", "/mem/one.md", date="2026-07-19")
+    study_inbox.append(_rt(tmp_path), "b", "/mem/two.md", date="2026-07-19")
+    message = study_session.run(tmp_path)
+    assert message and "승격 대기 후보 2개(파일 2개" in message
+
+
+def test_list_by_file_groups_preserving_candidate_fields(tmp_path, capsys):
+    # U3(#257): 파일 그룹 뷰 — 리뷰 단위(파일)로 묶되 후보 전 필드를 보존해
+    # provenance(5단계)·후보별 resolve(6단계) 소비를 유지한다. 평탄 기본값은 불변.
+    i1 = study_inbox.append(_rt(tmp_path), "a", "/mem/one.md", date="2026-07-19")
+    i2 = study_inbox.append(_rt(tmp_path), "b", "/mem/one.md", date="2026-07-19")
+    i3 = study_inbox.append(_rt(tmp_path), "c", "/mem/two.md", date="2026-07-20")
+    study.main(["list", str(tmp_path), "--by-file"])
+    out = _out(capsys)
+    assert [g["source"] for g in out] == ["/mem/two.md", "/mem/one.md"]  # 최신 날짜 우선
+    assert [g["count"] for g in out] == [1, 2]
+    assert [c["id"] for c in out[0]["candidates"]] == [i3]
+    one = out[1]["candidates"]
+    assert {c["id"] for c in one} == {i1, i2}
+    assert set(one[0]) == {"id", "date", "snippet", "source", "recurrence"}  # 전 필드 보존
+
+
 def test_session_silent_when_review(tmp_path):
     _cfg(tmp_path, "review", [])
     study_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")

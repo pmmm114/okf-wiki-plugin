@@ -118,10 +118,13 @@ def _entrance_lines(project: str) -> list[str]:
 
 
 def _pending_summary(runtime: str) -> str:
-    """대기 수 + 재등장(recurrence>1) 후보 수 요약(#132)."""
+    """대기 수 + 파일 수(#257) + 재등장(recurrence>1) 후보 수 요약(#132)."""
     cands = study_inbox.list_candidates(runtime)
     recurring = sum(1 for c in cands if c.get("recurrence", 1) > 1)
-    return f"{len(cands)}" + (f" (재등장 {recurring})" if recurring else "")
+    parts = [f"파일 {len({c['source'] for c in cands})}"] if cands else []
+    if recurring:
+        parts.append(f"재등장 {recurring}")
+    return f"{len(cands)}" + (f" ({', '.join(parts)})" if parts else "")
 
 
 def _store_notes(project: str) -> list[str]:

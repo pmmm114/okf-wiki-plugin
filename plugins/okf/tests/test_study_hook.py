@@ -94,6 +94,20 @@ def test_recapture_after_rename_updates_source(tmp_path):
     assert cands[0]["recurrence"] == 2
 
 
+def test_message_reports_file_and_total_counts(tmp_path):
+    # U3(#257): 훅 메시지는 "이번 저장분"과 "전체 대기(파일·건)"를 분리 표기한다 —
+    # 훅은 호출당 파일 1개를 처리하므로 pending 총계만 보이면 이번 캡처량과 혼동된다
+    _cfg(tmp_path, "review")
+    other = "/home/u/.claude/projects/proj/memory/other.md"
+    study_hook.run({"tool_input": {"file_path": other, "content": "* fact from other\n"}}, tmp_path)
+    message = study_hook.run(
+        {"tool_input": {"file_path": MEM, "content": "* fact one\n* fact two\n"}}, tmp_path
+    )
+    assert message and "인박스" in message
+    assert "후보 2건" in message  # 이번 저장분(이 파일)
+    assert "파일 2개·3건" in message  # 전체 대기: 파일 2개, 후보 3건
+
+
 def _run_hook(project, stdin: str):
     return subprocess.run(
         [str(SHIM), str(SCRIPT)],
