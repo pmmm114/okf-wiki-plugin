@@ -174,6 +174,112 @@ def build_signals(spec: dict, meta: list[dict], graph: dict) -> dict:
     return {"topics": [{"topic": topic, **data} for topic, data in sorted(topics.items())]}
 
 
+def build_map(
+    spec: dict, meta: list[dict], graph: dict, topic: str = ".", layer: str | None = None
+) -> dict:
+    """주제 층 맵(Epic #197 U2) — EXPLORE 계약 map 응답(순수 함수).
+
+    주제(디렉토리 프리픽스, ``.``=전체)의 인식 지형을 한 뷰로: 개념별
+    경로·층(미분류 ``None``)·type·description·정초 재료(``derived_from``)·역링크
+    수(``refs``, 본문 링크 유입) + 주제 밖으로 나가는 정초 엣지(``edges_out``).
+    미지의 층 필터는 ValueError — 계약 소비자가 오타를 조용히 빈 맵으로 받지 않게.
+    """
+    if layer is not None and layer not in spec["order"]:
+        raise ValueError(f"미지의 층: {layer!r} (허용: {spec['order']})")
+    topic = (topic or ".").strip("/") or "."
+    derived: dict[str, list[str]] = {}
+    for edge in graph.get("typed_edges", []):
+        derived.setdefault(edge["from"], []).append(edge["to"])
+    backrefs: dict[str, int] = {}
+    for edge in graph.get("edges", []):
+        backrefs[edge["to"]] = backrefs.get(edge["to"], 0) + 1
+
+    def in_topic(path: str) -> bool:
+        if topic == ".":
+            return True
+        head = topic_of(path)
+        return head == topic or head.startswith(topic + "/")
+
+    concepts = []
+    edges_out = []
+    for m in sorted(meta, key=lambda entry: entry["path"]):
+        if not in_topic(m["path"]) or (layer is not None and m["layer"] != layer):
+            continue
+        materials = derived.get(m["path"], [])
+        concepts.append(
+            {
+                "path": m["path"],
+                "layer": m["layer"],
+                "type": m["type"],
+                "description": m["description"],
+                "derived_from": materials,
+                "refs": backrefs.get(m["path"]),
+            }
+        )
+        edges_out.extend(
+            {"from": m["path"], "to": target} for target in materials if not in_topic(target)
+        )
+    return {"topic": topic, "concepts": concepts, "edges_out": edges_out}
+
+
+def _field_errors(item: dict, where: str, types: dict) -> list[str]:
+    """선택 필드의 존재-시-타입 검사 — 검증기 공용(미지 필드는 무시)."""
+    errors = []
+    for key, expected in types.items():
+        if key in item and item[key] is not None and not isinstance(item[key], expected):
+            errors.append(f"{where}.{key} 형식 오류")
+    return errors
+
+
+def validate_signals_payload(payload) -> list[str]:
+    """signals 응답의 계약 검증(소비 측 소유) — 오류 목록, 빈 리스트면 통과.
+
+    필수는 ``topics[].topic``뿐이고 미지 필드는 무시한다(계약 §2 관용).
+    """
+    if not isinstance(payload, dict):
+        return ["payload가 객체가 아님"]
+    topics = payload.get("topics")
+    if not isinstance(topics, list):
+        return ["필수 필드 없음/형식 오류: topics(list)"]
+    errors: list[str] = []
+    for index, entry in enumerate(topics):
+        where = f"topics[{index}]"
+        if not isinstance(entry, dict) or not isinstance(entry.get("topic"), str):
+            errors.append(f"{where}.topic(str) 필수")
+            continue
+        errors.extend(
+            _field_errors(entry, where, {"counts": dict, "ungrounded": list, "focus": list})
+        )
+    return errors
+
+
+def validate_map_payload(payload) -> list[str]:
+    """map 응답의 계약 검증(소비 측 소유) — 오류 목록, 빈 리스트면 통과.
+
+    필수는 ``concepts[].path``뿐이고 미지 필드는 무시한다(계약 §2 관용).
+    """
+    if not isinstance(payload, dict):
+        return ["payload가 객체가 아님"]
+    concepts = payload.get("concepts")
+    if not isinstance(concepts, list):
+        return ["필수 필드 없음/형식 오류: concepts(list)"]
+    errors: list[str] = []
+    for index, entry in enumerate(concepts):
+        where = f"concepts[{index}]"
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+            errors.append(f"{where}.path(str) 필수")
+            continue
+        errors.extend(
+            _field_errors(
+                entry,
+                where,
+                {"layer": str, "type": str, "description": str, "derived_from": list, "refs": int},
+            )
+        )
+    errors.extend(_field_errors(payload, "payload", {"edges_out": list}))
+    return errors
+
+
 def ungrounded_paths(spec: dict, layer_map: dict, graph: dict) -> list[str]:
     """근거(``derived_from``) 없는 상위 층 개념 경로 — check() 규칙 2와 신호 리포트가
     공유하는 단일 판정(순수 함수). 규칙이 꺼져 있으면 빈 리스트."""
@@ -284,6 +390,27 @@ def _print_signals(payload: dict) -> None:
             print(f"  참조 집중: {item['path']} ({item['refs']})")
 
 
+def _print_map(payload: dict) -> None:
+    """map 응답의 사람 가독 렌더 — 계약 필드만 소비한다."""
+    print(f"## {payload.get('topic', '.')}")
+    for concept in payload.get("concepts", []):
+        layer = concept.get("layer") or _UNCLASSIFIED
+        typ = concept.get("type") or ""
+        desc = concept.get("description") or ""
+        refs = concept.get("refs")
+        parts = [f"  {concept['path']} [{typ}] ({layer}"]
+        if refs is not None:
+            parts.append(f", refs {refs}")
+        parts.append(")")
+        if desc:
+            parts.append(f" — {desc}")
+        print("".join(parts))
+        for target in concept.get("derived_from", []):
+            print(f"    ⤷ {target}")
+    for edge in payload.get("edges_out", []):
+        print(f"  주제 밖 정초: {edge['from']} → {edge['to']}")
+
+
 def contract_main(argv: list[str]) -> int:
     """탐색 계약(EXPLORE.md) 호출 규약 — ``signals <bundle>`` · ``map <bundle>``.
 
@@ -295,6 +422,11 @@ def contract_main(argv: list[str]) -> int:
     sig = sub.add_parser("signals", help="승격 신호 리포트(자문)")
     sig.add_argument("bundle", help="번들 디렉터리 경로")
     sig.add_argument("--json", action="store_true", help="계약 JSON으로 출력")
+    mp = sub.add_parser("map", help="주제 층 맵(자문)")
+    mp.add_argument("bundle", help="번들 디렉터리 경로")
+    mp.add_argument("--topic", default=".", help="주제(디렉토리 프리픽스, 기본 전체)")
+    mp.add_argument("--layer", help="이 층의 개념만(선택)")
+    mp.add_argument("--json", action="store_true", help="계약 JSON으로 출력")
     args = ap.parse_args(argv)
     if not os.path.isdir(args.bundle):
         print(f"오류: 번들 디렉터리가 아님: {args.bundle}", file=sys.stderr)
@@ -303,17 +435,26 @@ def contract_main(argv: list[str]) -> int:
     spec = load_layers_spec()
     meta = parse_context_meta(_grouped_context(args.bundle, spec))
     graph = _typed_graph(args.bundle, spec)
-    payload = build_signals(spec, meta, graph)
+    if args.op == "signals":
+        payload = build_signals(spec, meta, graph)
+        renderer = _print_signals
+    else:
+        try:
+            payload = build_map(spec, meta, graph, topic=args.topic, layer=args.layer)
+        except ValueError as exc:
+            print(f"오류: {exc}", file=sys.stderr)
+            return 2
+        renderer = _print_map
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
-        _print_signals(payload)
+        renderer(payload)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] in ("signals",):
+    if argv and argv[0] in ("signals", "map"):
         return contract_main(argv)
     ap = argparse.ArgumentParser(prog="okf_layers", description="인식층 정초·출처 접지 린트")
     ap.add_argument("bundle", help="번들 디렉터리 경로")
