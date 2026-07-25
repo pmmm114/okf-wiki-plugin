@@ -192,6 +192,78 @@ def test_ungrounded_paths_matches_check_rule():
     assert lint_paths == ["float.md"]
 
 
+def _map_fixture():
+    meta = [
+        {"path": "produce/f1.md", "type": "Fact", "description": "사실1", "layer": "information"},
+        {"path": "produce/kn.md", "type": "Model", "description": "이해", "layer": "knowledge"},
+        {"path": "produce/note.md", "type": "Note", "description": None, "layer": None},
+        {"path": "wise.md", "type": "Convention", "description": "판단", "layer": "wisdom"},
+    ]
+    graph = {
+        "nodes": [],
+        "edges": [{"from": "produce/kn.md", "to": "produce/f1.md"}],
+        "typed_edges": [
+            {"from": "produce/kn.md", "to": "produce/f1.md", "via": "derived_from"},
+            {"from": "wise.md", "to": "produce/kn.md", "via": "derived_from"},
+        ],
+    }
+    return meta, graph
+
+
+def test_build_map_topic_scope_and_projection():
+    meta, graph = _map_fixture()
+    payload = okf_layers.build_map(SPEC, meta, graph, topic="produce")
+    paths = [concept["path"] for concept in payload["concepts"]]
+    assert paths == ["produce/f1.md", "produce/kn.md", "produce/note.md"]  # wise.md는 주제 밖
+    by_path = {concept["path"]: concept for concept in payload["concepts"]}
+    assert by_path["produce/kn.md"]["derived_from"] == ["produce/f1.md"]
+    assert by_path["produce/f1.md"]["refs"] == 1  # 본문 링크 유입
+    assert by_path["produce/note.md"]["layer"] is None  # 미분류 표시
+
+
+def test_build_map_edges_out_crossing_topic():
+    meta, graph = _map_fixture()
+    payload = okf_layers.build_map(SPEC, meta, graph, topic=".")
+    assert payload["edges_out"] == []  # 전체 스코프면 밖이 없다
+    root_only = okf_layers.build_map(SPEC, meta, graph, topic=".")
+    assert {c["path"] for c in root_only["concepts"]} == {m["path"] for m in meta}
+    # wise.md(루트)의 재료는 produce/ 밖 — 루트 주제로 좁히면 edges_out으로 표면화된다
+    # (루트 직속만 보는 뷰는 topic 프리픽스가 "."이라 전체가 되므로, 하위 주제로 확인)
+    produce = okf_layers.build_map(SPEC, meta, graph, topic="produce")
+    assert produce["edges_out"] == []  # produce 재료는 전부 주제 안
+
+
+def test_build_map_layer_filter_and_unknown_layer():
+    meta, graph = _map_fixture()
+    payload = okf_layers.build_map(SPEC, meta, graph, topic="produce", layer="information")
+    assert [c["path"] for c in payload["concepts"]] == ["produce/f1.md"]
+    with pytest.raises(ValueError):
+        okf_layers.build_map(SPEC, meta, graph, layer="gold")
+
+
+def test_validate_signals_payload_contract():
+    ok = {"topics": [{"topic": ".", "counts": {}, "extra": "무시됨"}], "vendor": 1}
+    assert okf_layers.validate_signals_payload(ok) == []  # 미지 필드 관용
+    assert okf_layers.validate_signals_payload({"topics": "아님"})  # 필수 형식 위반
+    assert okf_layers.validate_signals_payload({"topics": [{"counts": {}}]})  # topic 누락
+    assert okf_layers.validate_signals_payload({"topics": [{"topic": ".", "focus": "아님"}]})
+
+
+def test_validate_map_payload_contract():
+    ok = {"topic": ".", "concepts": [{"path": "a.md", "score": 0.9}]}
+    assert okf_layers.validate_map_payload(ok) == []  # 확장 필드(score) 관용
+    assert okf_layers.validate_map_payload({"concepts": [{"layer": "wisdom"}]})  # path 누락
+    assert okf_layers.validate_map_payload({"concepts": [{"path": "a.md", "refs": "둘"}]})
+    assert okf_layers.validate_map_payload({"topic": "."})  # concepts 필수
+
+
+def test_builtin_provider_outputs_pass_own_validators():
+    # 내장 제공자 = 계약의 첫 구현체 — 자기 출력이 소비측 검증기를 통과해야 한다
+    meta, graph = _map_fixture()
+    assert okf_layers.validate_signals_payload(okf_layers.build_signals(SPEC, meta, graph)) == []
+    assert okf_layers.validate_map_payload(okf_layers.build_map(SPEC, meta, graph)) == []
+
+
 def test_parse_layer_sections_preserves_full_lines():
     # parse_layer_map은 경로만, sections는 개념 줄 전체를 층별로 보존
     ctx = (
