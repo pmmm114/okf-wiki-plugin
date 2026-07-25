@@ -11,6 +11,11 @@ requires-python = ">=3.10"
 dependencies = ["pyyaml"]
 license = "MIT"
 
+# 개발 전용 도구(PEP 735) — `pip install <루트>`와 pre-commit 소비 경로에는 따라가지
+# 않는다. 훅 매니저를 여기 두어 의존성 설치에 자연스럽게 따라오게 한다.
+[dependency-groups]
+dev = ["lefthook>=2.1"]
+
 [project.scripts]
 okf = "okf_core.cli:main"
 

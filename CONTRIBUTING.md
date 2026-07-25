@@ -36,9 +36,23 @@ CI의 `core` 잡은 아래 검사를 게이트로 겁니다. 모두 로컬에서
 ```bash
 uv run --with pytest --with pyyaml python -m pytest okf-core/tests -q   # 엔진 테스트
 uv run --no-project --with pytest python -m pytest plugins/okf/tests -q # 플러그인 테스트
+uv run --no-project --with pytest python -m pytest scripts -q           # repo-메타 게이트
 uvx ruff check . && uvx ruff format --check .                          # 린트·포맷 (CI는 0.15.8 핀)
 uv run --with pyyaml python okf-core/scripts/run_fixture_suite.py       # 픽스처 스냅샷
 ```
+
+### 로컬 훅 걸기 (선택)
+
+클론한 뒤 한 번 실행하면 커밋·push 시점에 위 검사 일부를 미리 돌려 줍니다. 훅 정의는
+`lefthook.yml`에 있고 훅 매니저는 개발 의존이라 의존성 설치에 따라옵니다. 이 repo의
+로컬 설정만 바꾸고 유저 전역 git 설정과 전역 훅 디렉터리는 읽지도 쓰지도 않습니다.
+
+```bash
+python3 scripts/install_hooks.py
+```
+
+무엇을 언제 보는지와 건너뛰는 방법은
+[브랜치 작업 전략의 로컬 훅](docs/branching.md#로컬-훅)에 있습니다.
 
 ## 엔진 CLI (`okf`)
 

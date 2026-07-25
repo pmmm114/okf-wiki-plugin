@@ -1,0 +1,31 @@
+# 로컬 git 훅 정의 (lefthook) — 배선은 `python3 scripts/install_hooks.py`.
+#
+# 훅은 판정하지 않고 scripts/에 위임한다. CI `core` 잡이 보는 것과 **같은 코드**라야
+# 로컬에서 통과한 것이 CI에서도 통과한다. 여기 규칙을 복제하면 로컬 훅은 안심이 아니라
+# 오해가 된다.
+#
+# CI 전체를 흉내 내지 않는다. 엔진·플러그인 테스트는 느리고 CI가 어차피 돌리므로,
+# 빠르고 가장 자주 깨지는 것만 본다. 막혔을 때 밀어야 하면 `--no-verify`.
+
+commit-msg:
+  jobs:
+    - name: 제목·메시지 규약
+      # {1} = git이 넘기는 커밋 메시지 파일 경로.
+      # 제목 형식·타입 어휘·선두 공백과 메시지의 모델 식별자·세션 공유 링크를 본다.
+      run: python3 scripts/branch_policy.py --subject-file {1}
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: 브랜치 이름 규칙
+      run: python3 scripts/branch_policy.py --branch "$(git branch --show-current)"
+
+    - name: repo-메타 테스트
+      # 링크 이식성·버전 동기·정책·구조 계약. CI의 `pytest scripts` 스텝과 같은 명령.
+      run: uv run --no-project --with pytest python -m pytest scripts -q
+
+    - name: 린트
+      run: uvx ruff@0.15.8 check .
+
+    - name: 포맷
+      run: uvx ruff@0.15.8 format --check .

@@ -18,6 +18,7 @@
 - [머지 전략](#머지-전략)
 - [Epic과 유닛 분해](#epic과-유닛-분해)
 - [CI 게이트](#ci-게이트)
+- [로컬 훅](#로컬-훅)
 - [릴리스 태그](#릴리스-태그)
 - [벤더와 업스트림 반영](#벤더와-업스트림-반영)
 - [금지 사항 요약](#금지-사항-요약)
@@ -237,6 +238,42 @@ python3 scripts/branch_policy.py --subject "docs: 제목 예시"
 막아야 한다"는 성격의 검사가 있습니다. 이런 검사를 **추가하거나 바꿀 때**는 일부러
 실패하는 커밋으로 실제로 CI가 막는지 확인하고, 확인한 뒤 원복해서 그 사실을 PR에
 기록합니다. "이 검사가 정말로 막아 준다"를 증명하는 이 repo의 관례입니다.
+
+## 로컬 훅
+
+CI가 막는 것 중 빠르게 판정할 수 있는 것은 로컬에서 미리 봅니다. push하고 나서
+red를 확인하는 왕복을 줄이기 위해서입니다.
+
+훅 정의는 [`lefthook.yml`](../lefthook.yml)에 있고, 훅 매니저인
+[lefthook](https://github.com/evilmartians/lefthook)은 개발 의존으로 선언돼 있어
+의존성을 설치하면 함께 따라옵니다. 클론한 뒤 한 번만 배선하면 됩니다.
+
+```bash
+python3 scripts/install_hooks.py          # 배선(여러 번 실행해도 안전)
+python3 scripts/install_hooks.py --check  # 상태만 확인
+```
+
+| 훅 | 언제 | 무엇을 |
+| --- | --- | --- |
+| `commit-msg` | 커밋할 때 | 제목 형식과 타입 어휘, 선두 공백, 메시지의 모델 식별자·세션 공유 링크 |
+| `pre-push` | push할 때 | 브랜치 이름 규칙, `pytest scripts`, ruff 린트·포맷 |
+
+훅은 스스로 판정하지 않고 [`scripts/branch_policy.py`](../scripts/branch_policy.py)와
+`pytest scripts`에 위임합니다. CI가 보는 것과 **같은 코드**라야 로컬에서 통과한 것이
+CI에서도 통과하기 때문입니다. 급할 때는 `git commit --no-verify`,
+`git push --no-verify`로 건너뛸 수 있습니다. 최종 판정은 어차피 CI가 합니다.
+
+lefthook이 만드는 훅 셸(`.githooks/`)은 커밋하지 않습니다. 그 안에 설치한 머신의
+절대경로가 박히기 때문입니다. 배선할 때마다 다시 만들어지므로 gitignore해 둡니다.
+
+> **주의.** `install_hooks.py`가 거는 것은 이 repo의 로컬 `core.hooksPath`뿐입니다.
+> 유저 전역 설정과 전역 훅 디렉터리는 **읽지도 쓰지도 않습니다.** 순서가 중요한데,
+> `lefthook install --force`는 그 시점에 해소되는 `core.hooksPath`에 훅을 쓰므로
+> 로컬을 먼저 잡지 않으면 전역 디렉터리에 씁니다. 그래서 배선 스크립트는 로컬을 걸고
+> 해소값을 확인한 다음에만 lefthook을 부릅니다.
+>
+> 다만 git은 이 값을 병합하지 않고 **교체**하므로, 전역 훅을 쓰고 있었다면 이 repo
+> 안에서는 그것이 돌지 않습니다. 무엇이 비켜가는지는 배선할 때 알려 줍니다.
 
 ## 릴리스 태그
 
