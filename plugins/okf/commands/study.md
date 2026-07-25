@@ -22,10 +22,11 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
 0a. **신선도 갱신(URL vault만, #153)**: 승격은 관리형 clone의 워킹트리에 쓴다 — 그 전에
    base를 최신화한다. `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_remote.py" refresh`를
    실행한다(**URL vault가 아니면 자동 무동작** — 로컬 경로 vault·프로젝트 스코프는 그냥 넘어간다).
-   - `refreshed: true` → clean-gate 통과 + ff-only로 최신 base. 계속.
-   - `reason: "dirty"`(`warning` 있음) → clone에 미커밋 승격 잔재가 있다. `warning`을 보이고,
-     이전 승격을 **디스패치(커밋)하거나 폐기**해 정리한 뒤 재시도하도록 안내한다(강제 stash·머지
-     금지 — clone을 wedge시킨다, U3-2).
+   - `refreshed: true` → ff-only로 최신 base. 계속. `discarded`가 있으면 **원격에 이미 담긴**
+     잔재를 폐기해 정체를 푼 것이므로(#216 V1) 그 경로 목록을 한 줄로 보인다.
+   - `reason: "미봉인 잔재"`(`warning` 있음) → 원격 어디에도 없는 잔재가 ff를 막고 있다.
+     **폐기하지 않았다**(지식 유실 금지). `warning`을 보이고, 디스패치(PR)로 반영하거나 직접
+     정리한 뒤 재시도하도록 안내한다(강제 stash·머지 금지 — clone을 wedge시킨다, U3-2).
    - `reason: "diverged" | "fetch 실패" | "offline env"` → `warning`을 보이고 **캐시로 계속**한다
      (승격은 진행되나 stale base 위일 수 있으니, 핸들러 PR 단계에서 rebase로 정리).
 
