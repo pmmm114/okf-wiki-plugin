@@ -216,9 +216,13 @@ def _import_into(dst: str, cands: list[dict], resolutions: list, moved: dict) ->
 
     옛 후보 스니펫은 단일 줄이라 id = content_hash(snippet)[:12]가 자식 줄-해시와 같다
     → 재부상 차단(A2′)이 자동으로 이어진다.
+
+    이관은 **insert-only**(#255) — dst에 이미 사는 후보를 append로 재조우시키면
+    레거시 source(구분자 없는 옛 줄이면 빈 문자열)가 라이브 값을 덮고 recurrence
+    (재등장 신호)가 부풀므로, 기존 id는 건드리지 않는다.
     """
     for cand in cands:
-        if study_inbox.is_resolved(dst, cand["id"]):
+        if study_inbox.is_resolved(dst, cand["id"]) or study_store.has_candidate(dst, cand["id"]):
             continue
         before = len(study_inbox.list_candidates(dst))
         study_inbox.append(dst, cand["snippet"], cand["source"], date=cand["date"])

@@ -159,10 +159,16 @@ def insert_candidate(
 ) -> bool:
     """후보를 적재하고 **새로 들어갔는지**(True) 재등장인지(False) 반환한다.
 
-    동일 id 재캡처는 **재등장 카운터를 올린다**(#132) — 승격 판단 신호. ``captured_at``
-    (valid-time, 첫 캡처)·``ingested_at``(transaction-time)은 후보에 부착되는 이원
-    타임스탬프다. ``line_hashes``는 자식 줄-해시(A2′, #131). ``simhash``는 근사중복
-    자문용 지문(#133).
+    동일 id 재캡처는 **재등장 카운터를 올리고 source·ingested_at을 최근 캡처값으로
+    갱신한다**(#132·#255) — rename·이동된 파일의 후보가 죽은 경로에 영구 귀속되지
+    않는다. ``captured_at``(valid-time, 첫 캡처)·``ingested_at``(transaction-time,
+    최근 적재)은 후보에 부착되는 이원 타임스탬프다. ``captured_date``는 valid-time
+    계열이라 재캡처에 불변(갱신하면 목록 정렬이 재배열된다). ``line_hashes``는 자식
+    줄-해시(A2′, #131). ``simhash``는 근사중복 자문용 지문(#133).
+
+    동일 내용 블록이 **여러 파일에 공존**하면 source는 최후 캡처 파일이 이긴다
+    (last-write-wins) — 실측상 교차-파일 중복은 전부 보일러플레이트라 노이즈 필터
+    (#256)가 선행 제거하는 전제이고, 정당 중복이 생기면 귀속은 최근 저장 기준이 된다.
     """
     with _connect(runtime) as conn:
         existed = (
@@ -171,7 +177,8 @@ def insert_candidate(
         conn.execute(
             "INSERT INTO candidate(id, snippet, source, captured_date, captured_at, ingested_at, "
             "simhash) VALUES(?,?,?,?,?,?,?) "
-            "ON CONFLICT(id) DO UPDATE SET recurrence = recurrence + 1",
+            "ON CONFLICT(id) DO UPDATE SET recurrence = recurrence + 1, "
+            "source = excluded.source, ingested_at = excluded.ingested_at",
             (ident, snippet, source, captured_date, captured_at, ingested_at, simhash),
         )
         if not existed and line_hashes:
