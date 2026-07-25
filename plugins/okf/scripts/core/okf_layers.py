@@ -16,8 +16,16 @@ frontmatter를 직접 파싱하지 않는다): ``okf graph --edges-from <derived
 개념**을 층별로 제시한다(정초 엄격 하향: 지식→정보, 지혜→지식·정보). 승격의 판정
 단계가 소비해, 같은 정보를 다시 만들지 않고 기존 개념에 맵핑하도록 돕는다.
 
+탐색 제공자(Epic #197 U1·U2) — 이 스크립트는 EXPLORE.md 탐색 계약의 **내장 기본
+제공자**이기도 하다(같은 계약의 첫 구현체일 뿐 특권 없음): ``signals <bundle>``이
+승격 신호(하위층 밀집·참조 집중·미접지·미분류 규모)를, ``map <bundle> [--topic]``이
+주제 층 맵을 계약 응답으로 낸다. 둘 다 자문 데이터 제시다 — 임계값·판정 없음
+(LAYERS §9 금지 4). 게이트(okf_promote)는 이 출력을 소비하지 않는다(계약 불변식 1).
+
 CLI: ``okf_layers.py <bundle> [--strict]``(접지 린트) · ``--candidates-for <layer>
-[--json]``(접지 후보). 기본은 자문(발견해도 exit 0), --strict면 발견 시 exit 1.
+[--json]``(접지 후보) · ``okf_layers.py signals <bundle> [--json]`` ·
+``okf_layers.py map <bundle> [--topic T] [--layer L] [--json]``(탐색 계약).
+기본은 자문(발견해도 exit 0), --strict면 발견 시 exit 1.
 엔진 실행은 bin/okf 셔틀 경유(stdlib 전용).
 """
 
@@ -86,6 +94,41 @@ def parse_layer_sections(context_output: str) -> dict[str, list[str]]:
     return sections
 
 
+def parse_context_meta(context_output: str) -> list[dict]:
+    """``okf context --group-by <field>`` 출력을 개념 메타 리스트로 파싱한다.
+
+    ``parse_layer_map``·``parse_layer_sections``와 같은 섹션 스캐너지만 **미분류
+    섹션을 버리지 않는다** — 신호(미분류 규모)·층 맵은 전체 개념 우주가 필요하다.
+    항목은 ``{path, type, description, layer}``이고 미분류는 ``layer=None``.
+    개념 줄은 엔진 형식 ``<경로> [<type>] — <핵심>``이라 각 조각을 방어적으로 뽑는다.
+    """
+    meta: list[dict] = []
+    current: str | None = None
+    for line in context_output.split("\n"):
+        if line.startswith("## "):
+            head = line[3:].strip()
+            current = None if head == _UNCLASSIFIED else head
+        elif line and line not in (_CTX_OPEN, _CTX_CLOSE):
+            path = line.split(" [", 1)[0].strip()
+            if not path:
+                continue
+            typ: str | None = None
+            desc: str | None = None
+            if " [" in line:
+                rest = line.split(" [", 1)[1]
+                typ = rest.split("]", 1)[0].strip() or None
+                if "— " in rest:
+                    desc = rest.split("— ", 1)[1].strip() or None
+            meta.append({"path": path, "type": typ, "description": desc, "layer": current})
+    return meta
+
+
+def topic_of(path: str) -> str:
+    """개념 경로의 주제(디렉토리 프리픽스). 루트 직속은 ``"."``."""
+    head = path.rsplit("/", 1)[0] if "/" in path else ""
+    return head or "."
+
+
 def lower_layers(target_layer: str, spec: dict) -> list[str]:
     """``target_layer``보다 **엄격히 낮은** 층 목록(order 순). 정초는 엄격 하향이라
     지식→[정보], 지혜→[정보, 지식], 정보→[](뿌리). 미지의 층은 ValueError."""
@@ -103,6 +146,48 @@ def select_candidates(sections: dict, target_layer: str, spec: dict) -> dict:
     return {layer: sections.get(layer, []) for layer in lower_layers(target_layer, spec)}
 
 
+def build_signals(spec: dict, meta: list[dict], graph: dict) -> dict:
+    """승격 신호 리포트(Epic #197 U1) — EXPLORE 계약 signals 응답(순수 함수).
+
+    주제(디렉토리)별로 ① 층 계수(``counts``, 미분류 포함 — 하위층 밀집·미분류 규모),
+    ② 미접지 상위 개념(``ungrounded``), ③ 파생 유입 집계(``focus``, 참조 집중 내림차순)를
+    모은다. 자문 데이터 제시가 전부다 — 임계값·판정 없음(LAYERS §9 금지 4).
+    """
+    layer_map = {m["path"]: m["layer"] for m in meta if m["layer"]}
+    refs: dict[str, int] = {}
+    for edge in graph.get("typed_edges", []):
+        refs[edge["to"]] = refs.get(edge["to"], 0) + 1
+
+    topics: dict[str, dict] = {}
+
+    def bucket(topic: str) -> dict:
+        return topics.setdefault(topic, {"counts": {}, "ungrounded": [], "focus": []})
+
+    for m in meta:
+        counts = bucket(topic_of(m["path"]))["counts"]
+        key = m["layer"] or _UNCLASSIFIED
+        counts[key] = counts.get(key, 0) + 1
+    for path in ungrounded_paths(spec, layer_map, graph):
+        bucket(topic_of(path))["ungrounded"].append(path)
+    for path, count in sorted(refs.items(), key=lambda kv: (-kv[1], kv[0])):
+        bucket(topic_of(path))["focus"].append({"path": path, "refs": count})
+    return {"topics": [{"topic": topic, **data} for topic, data in sorted(topics.items())]}
+
+
+def ungrounded_paths(spec: dict, layer_map: dict, graph: dict) -> list[str]:
+    """근거(``derived_from``) 없는 상위 층 개념 경로 — check() 규칙 2와 신호 리포트가
+    공유하는 단일 판정(순수 함수). 규칙이 꺼져 있으면 빈 리스트."""
+    if not spec.get("rules", {}).get("upper_requires_derived_from"):
+        return []
+    rank = {value: index for index, value in enumerate(spec["order"])}
+    derivers = {edge["from"] for edge in graph.get("typed_edges", [])}
+    return [
+        path
+        for path, layer in sorted(layer_map.items())
+        if rank.get(layer, 0) >= 1 and path not in derivers
+    ]
+
+
 def check(spec: dict, layer_map: dict, graph: dict) -> list[tuple[str, str]]:
     """(경로, 경고문) 목록을 반환한다 — 순수 함수(서브프로세스 없음)."""
     order = spec["order"]
@@ -111,7 +196,6 @@ def check(spec: dict, layer_map: dict, graph: dict) -> list[tuple[str, str]]:
     rules = spec.get("rules", {})
     typed = graph.get("typed_edges", [])
     resource = {n["file"]: n.get("resource") for n in graph.get("nodes", [])}
-    derivers = {edge["from"] for edge in typed}
     findings: list[tuple[str, str]] = []
 
     # 1. 정초 순서 — 파생 대상은 엄격히 낮은 층
@@ -128,10 +212,8 @@ def check(spec: dict, layer_map: dict, graph: dict) -> list[tuple[str, str]]:
                 )
 
     # 2. 접지(상위) — 지식·지혜는 근거(derived_from) 필요
-    if rules.get("upper_requires_derived_from"):
-        for path, layer in sorted(layer_map.items()):
-            if rank.get(layer, 0) >= 1 and path not in derivers:
-                findings.append((path, f"미접지: {layer} 개념에 근거(`{dfield}`) 없음"))
+    for path in ungrounded_paths(spec, layer_map, graph):
+        findings.append((path, f"미접지: {layer_map[path]} 개념에 근거(`{dfield}`) 없음"))
 
     # 3. 접지(정보) — 정보는 출처(resource) 필요
     if rules.get("information_requires_source"):
@@ -150,11 +232,19 @@ def _okf(args: list[str]) -> str:
     return proc.stdout
 
 
+def _grouped_context(bundle: str, spec: dict) -> str:
+    """층 축으로 묶은 컨텍스트 출력 — 린트·후보·신호·맵이 공유하는 엔진 호출 한 곳."""
+    return _okf(["context", bundle, "--group-by", spec["field"], "--max-chars", str(10**9)])
+
+
+def _typed_graph(bundle: str, spec: dict) -> dict:
+    """파생 타입 엣지를 포함한 그래프 JSON — bin/okf 셔틀 경유."""
+    return json.loads(_okf(["graph", bundle, "--edges-from", spec["derivation_field"], "--json"]))
+
+
 def gather(bundle: str, spec: dict) -> tuple[dict, dict]:
     """엔진 출력에서 (층 맵, 그래프)를 모은다 — bin/okf 셔틀 경유."""
-    ctx = _okf(["context", bundle, "--group-by", spec["field"], "--max-chars", str(10**9)])
-    graph = json.loads(_okf(["graph", bundle, "--edges-from", spec["derivation_field"], "--json"]))
-    return parse_layer_map(ctx), graph
+    return parse_layer_map(_grouped_context(bundle, spec)), _typed_graph(bundle, spec)
 
 
 def bundle_layer_sections(bundle: str, spec: dict | None = None) -> dict:
@@ -163,8 +253,7 @@ def bundle_layer_sections(bundle: str, spec: dict | None = None) -> dict:
     번들 층 원천이다.
     """
     spec = spec or load_layers_spec()
-    ctx = _okf(["context", bundle, "--group-by", spec["field"], "--max-chars", str(10**9)])
-    return parse_layer_sections(ctx)
+    return parse_layer_sections(_grouped_context(bundle, spec))
 
 
 def grounding_candidates(bundle: str, target_layer: str, spec: dict | None = None) -> dict:
@@ -182,7 +271,50 @@ def lint(bundle: str) -> list[tuple[str, str]]:
     return check(spec, layer_map, graph)
 
 
+def _print_signals(payload: dict) -> None:
+    """signals 응답의 사람 가독 렌더 — 계약 필드만 소비한다."""
+    for entry in payload.get("topics", []):
+        print(f"## {entry['topic']}")
+        counts = entry.get("counts", {})
+        if counts:
+            print("  층: " + " · ".join(f"{k} {v}" for k, v in sorted(counts.items())))
+        for path in entry.get("ungrounded", []):
+            print(f"  미접지: {path}")
+        for item in entry.get("focus", []):
+            print(f"  참조 집중: {item['path']} ({item['refs']})")
+
+
+def contract_main(argv: list[str]) -> int:
+    """탐색 계약(EXPLORE.md) 호출 규약 — ``signals <bundle>`` · ``map <bundle>``.
+
+    내장 기본 제공자의 진입점이다. 응답은 stdout JSON(``--json``) 또는 같은 데이터의
+    사람 가독 렌더 — 어느 쪽이든 계약 스키마의 필드만 담는다.
+    """
+    ap = argparse.ArgumentParser(prog="okf_layers", description="탐색 계약 내장 제공자")
+    sub = ap.add_subparsers(dest="op", required=True)
+    sig = sub.add_parser("signals", help="승격 신호 리포트(자문)")
+    sig.add_argument("bundle", help="번들 디렉터리 경로")
+    sig.add_argument("--json", action="store_true", help="계약 JSON으로 출력")
+    args = ap.parse_args(argv)
+    if not os.path.isdir(args.bundle):
+        print(f"오류: 번들 디렉터리가 아님: {args.bundle}", file=sys.stderr)
+        return 2
+
+    spec = load_layers_spec()
+    meta = parse_context_meta(_grouped_context(args.bundle, spec))
+    graph = _typed_graph(args.bundle, spec)
+    payload = build_signals(spec, meta, graph)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        _print_signals(payload)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ("signals",):
+        return contract_main(argv)
     ap = argparse.ArgumentParser(prog="okf_layers", description="인식층 정초·출처 접지 린트")
     ap.add_argument("bundle", help="번들 디렉터리 경로")
     ap.add_argument("--strict", action="store_true", help="발견 시 exit 1(기본은 자문 exit 0)")
