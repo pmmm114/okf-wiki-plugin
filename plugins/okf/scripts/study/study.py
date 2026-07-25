@@ -173,7 +173,14 @@ def cmd_resolve(args) -> int:
         dropped = study_inbox.drop(runtime, ids)
     print(
         json.dumps(
-            {"ids": ids, "status": args.status, "layer": args.layer, "dropped": dropped},
+            {
+                # "id"는 기존 단일-호출 출력 계약의 하위호환 — 배치에서는 null(DA #262)
+                "id": ids[0] if len(ids) == 1 else None,
+                "ids": ids,
+                "status": args.status,
+                "layer": args.layer,
+                "dropped": dropped,
+            },
             ensure_ascii=False,
         )
     )

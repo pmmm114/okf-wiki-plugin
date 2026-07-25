@@ -48,7 +48,9 @@ def test_resolve_records_and_drops(tmp_path, capsys):
     study.main(
         ["resolve", str(tmp_path), "--id", ident, "--status", "promoted", "--ref", ".okf/x.md"]
     )
-    assert _out(capsys)["dropped"] == [ident]
+    out = _out(capsys)
+    assert out["dropped"] == [ident]
+    assert out["id"] == ident  # 단일-호출 출력의 "id" 키는 하위호환 계약(DA #262)
     assert study_inbox.is_resolved(_rt(tmp_path), ident)
     assert study_inbox.list_candidates(_rt(tmp_path)) == []
 
@@ -62,6 +64,7 @@ def test_resolve_by_source_batch(tmp_path, capsys):
     study.main(["resolve", str(tmp_path), "--source", "/mem/one.md", "--status", "discarded"])
     out = _out(capsys)
     assert set(out["ids"]) == {i1, i2} and set(out["dropped"]) == {i1, i2}
+    assert out["id"] is None  # 배치 출력의 "id"는 null — 단일 호출만 값(하위호환)
     assert study_inbox.is_resolved(_rt(tmp_path), i1)
     assert study_inbox.is_resolved(_rt(tmp_path), i2)
     assert [c["id"] for c in study_inbox.list_candidates(_rt(tmp_path))] == [i3]
