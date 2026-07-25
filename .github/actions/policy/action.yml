@@ -1,0 +1,20 @@
+# 브랜치·PR 정책 게이트 — 스쿼시 때 main에 새겨지는 것(PR 제목 + 커밋 메시지)을 판정한다.
+name: 정책 게이트
+description: 브랜치 이름·PR 제목·본문 구조를 docs/branching.md 규약으로 판정한다 (PR 이벤트 전용).
+runs:
+  using: composite
+  steps:
+    - name: 브랜치·PR 정책 게이트
+      # PR 이벤트에만 컨텍스트가 있다. 가드를 호출자가 아니라 여기 두는 이유는 이 액션이
+      # 재사용 단위이기 때문이다 — 밖에 두면 다음 호출자가 빠뜨릴 수 있다.
+      #
+      # 값은 env로 넘긴다 — run에 ${{ }}를 직접 펼치면 PR 제목이 셸로 주입될 수 있다.
+      if: github.event_name == 'pull_request'
+      shell: bash
+      env:
+        PR_HEAD_REF: ${{ github.head_ref }}
+        PR_TITLE: ${{ github.event.pull_request.title }}
+        PR_BODY: ${{ github.event.pull_request.body }}
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: python3 scripts/branch_policy.py --check-pr

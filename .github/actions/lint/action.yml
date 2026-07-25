@@ -1,0 +1,22 @@
+# 형식 계층 — 코드가 도는지와 무관하게 소스·선언 파일의 모양만 본다.
+name: 린트·포맷
+description: ruff 린트·포맷 검사와 JSON 선언 파일 파싱 검사.
+runs:
+  using: composite
+  steps:
+    - name: JSON 스텁 파싱 검사
+      # 선언 파일이 깨지면 소비처가 로드 시점에 죽는다. 파싱만으로 그걸 앞당겨 잡는다.
+      shell: bash
+      run: |
+        python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
+        python3 -m json.tool plugins/okf/.claude-plugin/plugin.json > /dev/null
+        python3 -m json.tool plugins/okf/hooks/hooks.json > /dev/null
+        python3 -m json.tool okf-core/vendor/vendor.lock > /dev/null
+        python3 -m json.tool okf-core/src/okf_core/rules/v0_1.json > /dev/null
+
+    - name: 린트·포맷 검사 (ruff)
+      # 버전을 핀한다 — ruff 기본 규칙이 바뀌면 코드를 안 고쳐도 CI가 갈린다.
+      shell: bash
+      run: |
+        uvx ruff@0.15.8 check .
+        uvx ruff@0.15.8 format --check .

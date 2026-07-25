@@ -28,7 +28,7 @@ OKF 번들 엔진(`okf-core/`) + Claude Code 플러그인(`plugins/okf/`) + 배�
 
 `게이트`는 위반을 CI/테스트로 차단하는 검사다.
 
-- `ci.yml` job 이름 **`core` 불변** — 브랜치 룰셋 required check 컨텍스트. 이름이 갈리면 잡이 red가 되는 게 아니라 required check가 매칭되지 않아 **아무것도 막지 않게 된다**. 검사는 새 잡 말고 이 잡에 스텝으로 추가(게이트: `test_repo_contract` — 잡이 정확히 하나이고 이름이 `core`).
+- `ci.yml` job 이름 **`core` 불변** — 브랜치 룰셋 required check 컨텍스트. 이름이 갈리면 잡이 red가 되는 게 아니라 required check가 매칭되지 않아 **아무것도 막지 않게 된다**. 검사는 새 잡 말고 카테고리 composite action(`.github/actions/<이름>/action.yml`)에 스텝으로 추가하고 `core`에서 `uses:`로 부른다 — **reusable workflow(`uses: ./.github/workflows/x.yml`)는 잡 레벨 호출이라 금지**(잡이 늘고 컨텍스트가 `core / <피호출자>`로 갈림). composite은 스텝 레벨이라 잡이 하나로 남는다(게이트: `test_repo_contract` — 잡이 정확히 하나이고 이름이 `core`, 액션 참조 정합, 액션 파일에 `jobs:` 금지).
 - `okf-core/vendor/`는 업스트림 **바이트 그대로** — 수정은 `vendor/patches/`에 패치로(게이트: vendor_sync_check).
 - 판정 상수(예약 파일명·필수/권장 필드·strict 승격 집합) 하드코딩 금지 — 단일원천 `rules/v0_1.json`(게이트: 그렙).
 - 파스는 `parser.parse`로 **파일당 1회**, 소비자는 ParsedDoc 재사용(게이트: 호출 카운터).

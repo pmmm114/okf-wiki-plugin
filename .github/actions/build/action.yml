@@ -1,0 +1,11 @@
+# 패키징 계층 — 엔진이 배포 가능한 아티팩트로 빌드되는지.
+name: 빌드
+description: okf-core 배포 아티팩트(sdist·wheel) 빌드.
+runs:
+  using: composite
+  steps:
+    - name: okf-core 빌드
+      shell: bash
+      run: |
+        cd okf-core
+        uv build

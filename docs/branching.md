@@ -187,24 +187,32 @@ Epic이 아니라 유닛입니다. 유닛마다 브랜치를 따고 유닛마다
 ## CI 게이트
 
 - CI는 [.github/workflows/ci.yml](../.github/workflows/ci.yml)에 정의된 단일 잡
-  **`core`** 로 돕니다(`on: [push, pull_request]`). 스텝은 다음 순서로 실행됩니다.
+  **`core`** 로 돕니다(`on: [push, pull_request]`). `ci.yml`은 순서만 정하고 실제
+  검사는 카테고리별 composite action에 있습니다. 실행 순서는 싼 것부터입니다 —
+  형식으로 걸릴 PR을 느린 컨포먼스까지 끌고 가지 않습니다.
 
-  1. 브랜치·PR 정책 게이트(PR 이벤트에서만)
-  2. 자기 번들(`.okf`) 검증
-  3. JSON 스텁 파싱
-  4. 린트·포맷(ruff 0.15.8 핀)
-  5. 빌드
-  6. 테스트
-  7. 픽스처 스위트
-  8. 오라클 차동(리포트)
-  9. 벤더 동기화
-  10. 라이선스
-  11. 플러그인 검증
+  | 순서 | 카테고리 | 검사 |
+  | --- | --- | --- |
+  | 1 | [policy](../.github/actions/policy/action.yml) | 브랜치·PR 정책 게이트(PR 이벤트에서만) |
+  | 2 | [lint](../.github/actions/lint/action.yml) | JSON 스텁 파싱, 린트·포맷(ruff 0.15.8 핀) |
+  | 3 | [build](../.github/actions/build/action.yml) | okf-core 빌드 |
+  | 4 | [test](../.github/actions/test/action.yml) | 엔진·플러그인·repo 메타 테스트, 훅 py3.10 하한 |
+  | 5 | [conformance](../.github/actions/conformance/action.yml) | 자기 번들(`.okf`) 검증, 픽스처 스위트, 오라클 차동(리포트) |
+  | 6 | [supply-chain](../.github/actions/supply-chain/action.yml) | 벤더 동기화, 라이선스 |
+  | 7 | [plugin](../.github/actions/plugin/action.yml) | 플러그인 검증 |
 
 - 잡 이름 **`core`는 절대 바꾸지 않습니다.** `main` 브랜치 룰셋의 required status
   check 컨텍스트가 바로 이 이름이라, 이름을 바꾸면 게이트가 통째로 풀립니다.
-- 검사를 추가할 때는 새 잡을 만들지 말고 `core` 잡에 스텝으로 붙입니다. required
-  check 컨텍스트를 하나로 유지하기 위해서입니다.
+- 검사를 추가할 때는 새 잡을 만들지 말고 카테고리 액션에 스텝으로 붙입니다. 맞는
+  카테고리가 없으면 `.github/actions/<이름>/action.yml`을 새로 만들고 `core` 잡에서
+  `uses:`로 부릅니다.
+- **파일을 나눌 때 reusable workflow(`uses: ./.github/workflows/x.yml`)를 쓰지
+  않습니다.** 그건 잡 레벨 호출이라 잡이 늘고 체크 컨텍스트가 `core / <피호출자>`로
+  갈립니다. 그러면 잡이 red가 되는 게 아니라 required check가 매칭되지 않아 게이트가
+  조용히 풀립니다. composite action은 스텝 레벨 호출이라 잡이 `core` 하나로 남습니다.
+- 이 구조는 [`scripts/test_repo_contract.py`](../scripts/test_repo_contract.py)가
+  지킵니다: 잡이 정확히 하나이고 이름이 `core`, 정의된 액션은 모두 참조되고, 참조된
+  액션은 모두 존재하며, 액션 파일에 `jobs:`가 없을 것.
 
 ### 브랜치·PR 정책 게이트
 
@@ -356,5 +364,5 @@ git push -u origin feat/T-P3-2-fixture-suite
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | 컨포먼스와 회귀 계약, 엔진 CLI, 로컬에서 재현하기 |
 | [CLAUDE.md](../CLAUDE.md) | 에이전트가 지켜야 할 작업 규칙과 어겨서는 안 되는 불변식의 정본 |
 | [PR 템플릿](../.github/pull_request_template.md) | PR 본문에 채워야 할 네 섹션 |
-| [ci.yml](../.github/workflows/ci.yml) | `core` 잡의 실제 스텝 정의 |
+| [ci.yml](../.github/workflows/ci.yml) | `core` 잡의 카테고리 실행 순서 (검사 본문은 `.github/actions/`) |
 | [README](../README.md) | 프로젝트 전체 개요와 시작 가이드 |

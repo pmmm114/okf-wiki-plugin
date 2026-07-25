@@ -1,0 +1,28 @@
+# 테스트 계층 — 엔진·플러그인·repo 툴링 세 소비층을 각자의 환경으로 돌린다.
+name: 테스트
+description: 엔진·플러그인·repo 메타 테스트와 훅의 파이썬 하한 게이트.
+runs:
+  using: composite
+  steps:
+    - name: 테스트
+      shell: bash
+      run: uv run --with pytest --with pyyaml python -m pytest okf-core/tests -q
+
+    - name: 플러그인 테스트
+      # --no-project — 플러그인은 엔진 패키지 없이 서므로 그 전제 그대로 돌린다.
+      shell: bash
+      run: uv run --no-project --with pytest python -m pytest plugins/okf/tests -q
+
+    - name: 릴리스 노트 생성기 테스트
+      shell: bash
+      run: uv run --no-project --with pytest python -m pytest scripts -q
+
+    - name: 훅 py3.10 하한 게이트
+      # 훅은 소비처의 파이썬으로 도는데 그게 몇인지 모른다. 하한을 3.10으로 잡고
+      # 컴파일만 확인한다 — 상위 문법이 섞이면 소비처에서 SyntaxError로 죽는다.
+      shell: bash
+      run: |
+        uv run --python 3.10 --no-project python -m py_compile \
+          plugins/okf/scripts/core/okf_hooks.py \
+          plugins/okf/scripts/core/okf_vault.py \
+          plugins/okf/scripts/core/okf_remote.py

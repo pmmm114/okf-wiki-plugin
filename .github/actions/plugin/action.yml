@@ -1,0 +1,13 @@
+# 배포면 계층 — 플러그인이 Claude Code에 실제로 로드되는 모양인지.
+name: 플러그인 검증
+description: claude plugin validate로 플러그인 매니페스트를 검증한다 (비-strict).
+runs:
+  using: composite
+  steps:
+    - name: 플러그인 검증
+      # 비-strict다 — strict는 plugin.json의 version 필드를 요구하는데, 이 repo는
+      # 플러그인 버전을 커밋 SHA로 추적하고 소비처가 고정하는 태그를 버전으로 삼는다.
+      shell: bash
+      run: |
+        npm install -g @anthropic-ai/claude-code
+        claude plugin validate ./plugins/okf
