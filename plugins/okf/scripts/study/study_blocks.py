@@ -31,7 +31,8 @@ _TOP_BULLET_RE = re.compile(r"^[*+-]\s+")  # 들여쓰기 없는 최상위 불�
 _BULLET_STRIP_RE = re.compile(r"^[*+-]\s+")  # 줄 앞 불릿 마커 제거(정규화)
 _FENCE_OPEN_RE = re.compile(r"^---\s*$")  # frontmatter 여는 펜스(파일 1행 전용)
 _FENCE_CLOSE_RE = re.compile(r"^(?:---|\.\.\.)\s*$")  # 닫는 펜스(YAML은 ...도 허용)
-_RULE_RE = re.compile(r"^\s*-{3,}\s*$")  # bare 수평선 — 내용을 가질 수 없는 줄
+_RULE_RE = re.compile(r"^-{3,}\s*$")  # bare 수평선 — **최상위만**(들여쓴 ---는 블록 내용:
+# 다중 줄 블록을 중간에서 쪼개면 블록 id가 바뀌어 기존 인박스·원장 dedup과 어긋난다)
 _NOISE_LABELS = frozenset({"why", "how to apply"})  # 라벨-단독 고정 셋(#256, 실측 위양성 0)
 
 
@@ -41,13 +42,14 @@ def _strip_bullet(line: str) -> str:
 
 
 def _label_key(line: str) -> str:
-    """볼드 마커·꼬리 콜론 변형(``**X:**``/``**X**:``)을 벗긴 라벨 본문(소문자)."""
-    key = line.strip()
-    for _ in range(2):  # 콜론이 볼드 안/밖 어느 쪽이든 두 바퀴면 정규화된다
-        key = key.removesuffix(":").rstrip()
-        if key.startswith("**") and key.endswith("**") and len(key) > 4:
-            key = key[2:-2].strip()
-    return key.lower()
+    """볼드·이탤릭 마커(개수 무관)와 꼬리 콜론 변형을 벗긴 라벨 본문(소문자).
+
+    ``**X:**``·``**X**:``·``***X:***``·``*X*`` 전부 같은 키로 정규화된다 — 판정은
+    고정 셋 멤버십이라 마커를 공격적으로 벗겨도 실사실 라벨은 셋에 없어 안전하다.
+    """
+    key = line.strip().strip("*").strip()
+    key = key.removesuffix(":").rstrip()
+    return key.strip("*").strip().lower()
 
 
 def _body_lines(text: str) -> list[str]:
@@ -57,6 +59,8 @@ def _body_lines(text: str) -> list[str]:
     닫는 펜스가 없으면 frontmatter가 아니므로 전체를 본문으로 남긴다(보수적).
     """
     lines = text.splitlines()
+    if lines and lines[0].startswith("﻿"):
+        lines[0] = lines[0].lstrip("﻿")  # UTF-8 BOM 파일에서 펜스 판정 무력화 방지
     if lines and _FENCE_OPEN_RE.match(lines[0]):
         for j in range(1, len(lines)):
             if _FENCE_CLOSE_RE.match(lines[j]):

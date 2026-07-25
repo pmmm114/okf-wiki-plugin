@@ -110,6 +110,25 @@ def test_label_only_blocks_are_dropped():
     assert study_blocks.concept_blocks(text) == [["실제 근거 설명"], ["적용 방법 설명"]]
 
 
+def test_indented_rule_stays_in_block():
+    # 들여쓴 '---'는 블록 내용의 일부 — 최상위 수평선만 구분자다. 다중 줄 블록을
+    # 중간에서 쪼개면 블록 id가 바뀌어 기존 인박스·원장 dedup과 어긋난다(DA 재현)
+    text = "- fact\n  - detail A\n  ---\n  - detail B\n"
+    assert study_blocks.concept_blocks(text) == [["fact", "detail A", "---", "detail B"]]
+
+
+def test_bom_prefixed_frontmatter_is_skipped():
+    # UTF-8 BOM이 붙은 파일에서도 선두 펜스 판정이 무력화되지 않는다(DA 재현)
+    text = "﻿---\nname: x\n---\n- real fact\n"
+    assert study_blocks.concept_blocks(text) == [["real fact"]]
+
+
+def test_label_marker_variants_are_dropped():
+    # 마커 개수 변형(***X:***·*X*)도 같은 라벨 키로 정규화돼 필터를 우회하지 못한다(DA 재현)
+    assert study_blocks.concept_blocks("***Why:***\n") == []
+    assert study_blocks.concept_blocks("*Why*\n") == []
+
+
 def test_label_like_real_fact_is_preserved():
     # 라벨처럼 보여도 내용이 있는 단일 줄 블록은 실사실 — 일반 휴리스틱 기각의 근거
     text = "**동기화는 merge가 상시 관례(예외 아님):**\n"
