@@ -8,3 +8,7 @@ oracle-diff-report.md
 .claude/settings.local.json
 .claude/worktrees/
 .remember-plugin/
+
+# lefthook이 생성하는 훅 셸(설치한 머신의 경로가 박히므로 커밋하지 않는다).
+# `python3 scripts/install_hooks.py`가 다시 만든다.
+.githooks/
