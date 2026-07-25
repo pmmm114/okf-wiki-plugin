@@ -62,7 +62,7 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
      지혜→지식·정보). 근거 사실이 후보에 함께 있으면 정보를 먼저 승격하고, 번들에 없으면
      `derived_from`을 남겨 접지 린트가 "미작성 지식 신호"로 잡게 둔다(출처·근거 날조 금지).
      하위층 개념이 쌓여 상위층 신설(층간 승격)이 필요해 보이면 LAYERS.md §9의 승격
-     절차를 따른다(자문 — 재라벨이 아니라 적립).
+     절차를 따른다(자문 — 재라벨이 아니라 적립, 전용 플로우는 `/okf-promote`).
 
 5. **로그·색인·검증**: `okf log append <dir> -m "<요약> (layer <layer>, captured <후보 date>)" --kind Promotion`
    → `okf index <bundle> --write` → `okf validate <bundle> --strict`(error·warn 0까지)
