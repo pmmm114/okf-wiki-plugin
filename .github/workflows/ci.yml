@@ -15,6 +15,13 @@ on:
     # 멀쩡한 제목으로 열어 green을 받은 뒤 제목·본문만 고쳐도 정책 게이트가 다시
     # 돌지 않아, 스쿼시 때 그 제목이 그대로 main에 새겨진다.
     types: [opened, synchronize, reopened, edited]
+
+# 최소권한을 워크플로에 적어 둔다. 생략하면 `GITHUB_TOKEN` 권한이 repo·org 기본값에
+# 위임되는데, 그 기본값은 이 파일 밖에서 조용히 바뀔 수 있다. 이 잡은 코드를 읽어
+# 검사만 하므로 읽기 하나면 충분하다 (게이트: scripts/security_scan.py).
+permissions:
+  contents: read
+
 jobs:
   core:
     runs-on: ubuntu-latest
@@ -34,6 +41,10 @@ jobs:
         uses: ./.github/actions/policy
       - name: Epic 완결성 (통합 PR 전용)
         uses: ./.github/actions/epic-completeness
+      # 형식 검사보다 앞이다. 시크릿이나 올라가면 안 되는 파일이 섞인 PR은 가장 먼저
+      # 알아야 한다. 위 둘보다 뒤인 이유는 그쪽이 PR 컨텍스트만 읽어 더 싸기 때문이다.
+      - name: 보안
+        uses: ./.github/actions/security
       - name: 린트·포맷
         uses: ./.github/actions/lint
       - name: 빌드

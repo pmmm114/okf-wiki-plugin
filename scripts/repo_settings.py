@@ -13,9 +13,10 @@ merge·rebase가 모두 열려 있었고 required status check 규칙 자체가 
 `gh` CLI의 인증을 그대로 쓴다(토큰을 따로 받거나 저장하지 않는다). 대상 repo는
 `origin` 리모트에서 도출하므로 이름을 하드코딩하지 않는다.
 
-**브랜치 룰셋은 확인만 하고 고치지 않는다.** 룰셋 갱신은 PUT이라 전체를 교체하는데,
-한 번 잘못 쓰면 main 보호가 통째로 풀린다. 무엇이 어긋났는지 알려 주고 사람이
-판단하게 두는 편이 안전하다.
+**브랜치 룰셋과 보안 기능은 확인만 하고 고치지 않는다.** 룰셋 갱신은 PUT이라 전체를
+교체하는데, 한 번 잘못 쓰면 main 보호가 통째로 풀린다. 보안 기능은 반대 방향의
+이유다 — 켜는 순간 전체 히스토리 스캔과 push 거절이 걸려 남의 작업 흐름을 바꾸므로
+사람이 알고 눌러야 한다. 둘 다 무엇이 어긋났는지 알려 주고 판단은 넘긴다.
 
 종료코드: 0 일치 / 1 드리프트·검증 실패 / 2 실행 오류.
 """
@@ -60,6 +61,23 @@ EPIC_EXPECTED_RULE_TYPES = {
     "non_fast_forward",
     "pull_request",
     "required_status_checks",
+}
+
+# GitHub 쪽 보안 기능 — 확인만 한다(룰셋과 같은 이유로 고치지 않는다).
+#
+# CI 게이트(`.github/actions/security`)는 **PR을 막는** 계층이라 이미 push된 커밋은
+# 손대지 못한다. push protection은 그보다 앞, push 시점에서 거절한다. 두 계층은
+# 대체가 아니라 순서다 — 그래서 CI를 붙였다고 이쪽을 비워 두면 가장 이른 방어선이
+# 없는 채로 남는다. public repo에서는 둘 다 무료다.
+DESIRED_SECURITY: dict[str, tuple[str, str]] = {
+    "secret_scanning": (
+        "enabled",
+        "커밋된 시크릿을 GitHub이 탐지 — 이미 들어간 것을 찾는 유일한 경로",
+    ),
+    "secret_scanning_push_protection": (
+        "enabled",
+        "시크릿이 든 push를 거절 — CI 게이트보다 앞선 방어선(CI는 이미 push된 뒤다)",
+    ),
 }
 
 _REMOTE = re.compile(
@@ -147,6 +165,24 @@ def epic_ruleset_drift(rulesets: list[dict]) -> list[str]:
     return problems
 
 
+def security_drift(current: dict) -> list[str]:
+    """GitHub 보안 기능에서 어긋난 점(문장). 비면 일치.
+
+    `security_and_analysis`는 권한이나 repo 종류에 따라 통째로 빠질 수 있다. 그때
+    "일치"로 넘기면 꺼져 있는 것과 구분되지 않으므로 못 읽었다는 사실을 그대로 말한다.
+    """
+    section = current.get("security_and_analysis")
+    if not isinstance(section, dict):
+        return ["security_and_analysis를 읽지 못했습니다 — 토큰 권한(admin)을 확인하세요"]
+
+    problems = []
+    for key, (want, why) in DESIRED_SECURITY.items():
+        got = section.get(key, {}).get("status")
+        if got != want:
+            problems.append(f"{key}: {got!r} → {want!r} — {why}")
+    return problems
+
+
 # --- gh 호출 ------------------------------------------------------------------
 
 
@@ -223,7 +259,21 @@ def _report(settings: dict, rules: list[dict], rulesets: list[dict]) -> int:
     else:
         print("Epic 통합 브랜치 룰셋 일치")
 
-    return 1 if (drift or rule_problems or epic_problems) else 0
+    sec_problems = security_drift(settings)
+    if sec_problems:
+        print("\n보안 기능 드리프트(확인만 — 직접 고치지 않습니다):")
+        for p in sec_problems:
+            print(f"  - {p}")
+        print("  켜려면 GitHub UI의 Settings → Code security에서 조정하거나:")
+        print(
+            '    printf \'%s\' \'{"security_and_analysis":{"secret_scanning":{"status":'
+            '"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}}\' \\'
+        )
+        print("      | gh api --method PATCH repos/<owner>/<repo> --input -")
+    else:
+        print("보안 기능 일치")
+
+    return 1 if (drift or rule_problems or epic_problems or sec_problems) else 0
 
 
 def _apply(repo: str, drift: list[tuple[str, object, object, str]]) -> int:

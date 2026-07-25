@@ -147,7 +147,12 @@ def test_installer_sets_local_pointer_before_calling_lefthook():
 
 def test_every_job_delegates_to_shared_judgment():
     """훅이 스스로 판정하지 않고 scripts/·CI와 같은 명령을 부른다."""
-    allowed = ("scripts/branch_policy.py", "pytest scripts", "ruff")
+    allowed = (
+        "scripts/branch_policy.py",
+        "scripts/security_scan.py",
+        "pytest scripts",
+        "ruff",
+    )
     for cmd in run_commands(_config_text()):
         assert any(a in cmd for a in allowed), (
             f"job이 공유 판정을 부르지 않습니다: {cmd!r} — 훅에 규칙을 복제하지 않습니다."
@@ -174,6 +179,19 @@ def test_meta_test_command_matches_ci():
         f"훅의 명령이 CI에 없습니다: {hook_cmd!r} — 로컬과 CI가 다른 것을 돌리면 "
         f"로컬 통과가 CI 통과를 뜻하지 않습니다. CI 명령은 ci.yml과 "
         f".github/actions/*/action.yml에 있습니다."
+    )
+
+
+def test_security_gate_command_matches_ci():
+    """보안 게이트도 훅과 CI가 같은 명령이어야 한다.
+
+    이 게이트는 로컬-CI 동형이 설계의 일부다 — 무네트워크·무의존으로 만든 이유가
+    push 전에 같은 판정을 받자는 것이라, 명령이 갈리면 그 이유가 사라진다.
+    """
+    hook_cmd = next(c for c in run_commands(_config_text()) if "security_scan.py" in c)
+    assert hook_cmd in ci_command_surface(), (
+        f"훅의 명령이 CI에 없습니다: {hook_cmd!r} — 보안 게이트는 "
+        f".github/actions/security/action.yml에서 같은 명령으로 돌아야 합니다."
     )
 
 

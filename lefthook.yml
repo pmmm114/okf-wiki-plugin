@@ -20,6 +20,13 @@ pre-push:
     - name: 브랜치 이름 규칙
       run: python3 scripts/branch_policy.py --branch "$(git branch --show-current)"
 
+    - name: 보안 게이트
+      # `pytest scripts`가 이 게이트를 이미 부르지만 따로 둔다. 이유는 출력이다 —
+      # 무엇이 왜 막혔는지는 assertion repr이 아니라 게이트 자기 메시지로 읽어야
+      # 한다(추적에서 빼는 명령까지 알려 준다). 무의존이라 따로 불러도 즉시 끝난다.
+      # 시크릿 **값** 탐지는 여기 없다 — gitleaks는 CI 전용이다(네트워크가 필요).
+      run: python3 scripts/security_scan.py
+
     - name: repo-메타 테스트
       # 링크 이식성·버전 동기·정책·구조 계약. CI의 `pytest scripts` 스텝과 같은 명령.
       run: uv run --no-project --with pytest python -m pytest scripts -q
