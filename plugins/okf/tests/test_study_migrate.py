@@ -57,6 +57,33 @@ def test_migrate_moves_runtime_to_user_scope(monkeypatch, tmp_path, capsys):
     assert study_inbox.is_resolved(us, "bbbb33334444")
 
 
+def test_migrate_counts_noise_and_notes_prune(monkeypatch, tmp_path, capsys):
+    # #263 — 직이관(_import_into)은 추출 노이즈 필터를 우회한다(설계 그대로). 이관분 중
+    # 노이즈 수를 moved["noise"]로 세고(additive 키), 있으면 prune 검토를 note로 안내한다.
+    vault = _vault(tmp_path)
+    legacy = vault / ".okf-study"
+    study_inbox.append(legacy, "---", "MEMORY.md")
+    study_inbox.append(legacy, "**Why:**", "MEMORY.md")
+    study_inbox.append(legacy, "real fact", "MEMORY.md")
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+
+    assert study.main(["migrate"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["moved"]["candidates"] == 3 and out["moved"]["noise"] == 2
+    assert "prune" in out["note"] and "--dry-run" in out["note"]
+
+
+def test_migrate_no_noise_no_note(monkeypatch, tmp_path, capsys):
+    # 노이즈 0건 이관은 note 무출력 — 기존 출력 계약(migrated/moved) 그대로
+    vault = _vault(tmp_path)
+    study_inbox.append(vault / ".okf-study", "clean fact", "MEMORY.md")
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
+
+    assert study.main(["migrate"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["moved"]["noise"] == 0 and "note" not in out
+
+
 def test_migrate_copies_trust(monkeypatch, tmp_path, capsys):
     vault = _vault(tmp_path)
     monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))

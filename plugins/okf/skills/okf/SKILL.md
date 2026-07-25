@@ -109,5 +109,5 @@ repo에 `.okf/` 번들(또는 `.okf-wiki.json`이 가리키는 번들)이 있고
   후보는 discarded로 기록(동일 스니펫 재적재 방지).
 - **디스패치**: 승격 개념을 소비처 핸들러로 넘긴다. 핸들러 실행은 **로컬 trust
   승인**이 필요하고, 미승인이면 개념은 승격되되 핸들러만 보류된다(`/study --trust`).
-- 실행은 전부 `study.py`(list/resolve/clear/dispatch)·`study_trust.py`·`okf` CLI에
+- 실행은 전부 `study.py`(list/resolve/clear/dispatch/scan/prune)·`study_trust.py`·`okf` CLI에
   위임한다 — 이 스킬은 판정만 한다(§5 원칙).

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import okf_vault
 import study as study_cli
+import study_blocks
 import study_inbox
 import study_legacy
 import study_scope
@@ -147,15 +148,44 @@ def _store_notes(project: str) -> list[str]:
     return lines
 
 
+def _prune_cmd(project_arg: str) -> str:
+    plugin = Path(__file__).resolve().parent.parent.parent
+    return f'"{plugin}/bin/okf-py" "{plugin}/scripts/study/study.py" prune {project_arg}'
+
+
+def _noise_advisory(runtime: str, cmd: str | None) -> list[str]:
+    """기적재 노이즈가 있으면 prune 자문 1줄(#263) — discard 오폭(원장 비가역 오염) 방지.
+
+    is_noise_snippet은 prune과 같은 텍스트 근사(#256) — 안내 대상과 prune 매치가 일치한다.
+    cmd가 None이면 어떤 project 인자로도 prune이 이 런타임에 닿지 않는 배치(주입 전용
+    vault 등) — 실행 불가 명령 인용은 오도라 카운트만 보인다.
+    """
+    cands = study_inbox.list_candidates(runtime)
+    noise = sum(1 for c in cands if study_blocks.is_noise_snippet(c["snippet"]))
+    if not noise:
+        return []
+    if cmd is None:
+        return [f"  노이즈 {noise}건(기적재 구조 노이즈) — discard가 아니라 `study prune` 대상"]
+    return [
+        f"  노이즈 {noise}건 — `{cmd}`로 원장 오염 없이 정리"
+        "(--dry-run 선행으로 오폭 검토, discard는 원장 영구 기록)"
+    ]
+
+
 def _inbox_lines(project: str) -> list[str]:
     lines = []
     scope = study_scope.resolve_capture(project)
     if scope["runtime_root"] and scope["scope"] == "project":
         lines.append(f"  project 대기: {_pending_summary(scope['runtime_root'])}")
+        lines += _noise_advisory(scope["runtime_root"], _prune_cmd(project))
     vault, _reason = okf_vault.vault_state()
     if vault is not None:
         shared = str(study_scope.user_scope_runtime())
         lines.append(f"  vault(유저 스코프) 대기: {_pending_summary(shared)}")
+        # 도달성 게이트(#263): vault 경로를 project 인자로 준 prune이 유저 스코프로
+        # 해소될 때만 명령을 인용한다 — 주입 전용 vault는 어떤 인자로도 닿지 않는다.
+        reachable = study_scope.resolve_capture(str(vault))["runtime_root"] == shared
+        lines += _noise_advisory(shared, _prune_cmd(str(vault)) if reachable else None)
     return lines or ["  (활성 inbox 없음)"]
 
 
