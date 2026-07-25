@@ -3,3 +3,8 @@ __pycache__/
 dist/
 uv.lock
 oracle-diff-report.md
+
+# 로컬 전용 — repo의 일부가 아니다(문서 링크 게이트 스코프도 git 추적 기준).
+.claude/settings.local.json
+.claude/worktrees/
+.remember-plugin/
