@@ -44,3 +44,24 @@ def test_staging_modules_import_only_stdlib_and_local():
         assert not (imported & FORBIDDEN), f"{name}: 금지 의존 {imported & FORBIDDEN}"
         extra = imported - stdlib - LOCAL
         assert not extra, f"{name}: stdlib·로컬 아닌 import {extra}"
+
+
+# 무의존 계약의 나머지 절반 — **인터프리터 하한**. `bin/okf-py`는 pyproject가 아니라
+# 시스템에서 python3를 찾아 exec하고(#108), 훅 spawn은 로그인 쉘 PATH를 보장하지 않아
+# `/usr/bin/python3`(구 버전)로 떨어질 수 있다. 루트 `requires-python`은 엔진·pip 소비용
+# 셔틀의 계약이지 이 경로를 덮지 않으므로, 스테이징 모듈에는 신 버전 전용 API를 쓰지 않는다.
+NEWER_ONLY_ATTRS = {"bit_count"}  # int.bit_count()는 3.10+
+
+
+def _attribute_names(path: Path) -> set[str]:
+    return {
+        node.attr
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Attribute)
+    }
+
+
+def test_staging_modules_avoid_newer_only_builtin_apis():
+    for name in STAGING:
+        used = _attribute_names(SCRIPTS / name) & NEWER_ONLY_ATTRS
+        assert not used, f"{name}: 인터프리터 하한 위반 API {used} — bin/okf-py 경로에서 죽는다"
