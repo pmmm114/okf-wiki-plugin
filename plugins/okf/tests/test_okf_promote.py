@@ -95,6 +95,70 @@ def test_gate_rejects_relabel_of_existing_file(bundle):
     assert any("신설 아님" in r for r in reasons)
 
 
+def test_gate_rejects_path_escaping_bundle(bundle):
+    # `..`가 든 path는 번들 밖에 쓰인다 — 엔진은 번들 안만 보므로 탐지도 롤백도 없다(#267)
+    reasons = okf_promote.gate_proposal(
+        SPEC, LAYERS, str(bundle), _proposal(bundle, path="../escaped.md")
+    )
+    assert any("번들 경계" in r for r in reasons)
+
+
+def test_gate_rejects_absolute_path_escaping_bundle(bundle):
+    # norm_rel은 선두 `/`만 벗기므로 남은 `..`가 그대로 트리를 벗어난다
+    reasons = okf_promote.gate_proposal(
+        SPEC, LAYERS, str(bundle), _proposal(bundle, path="/../../x.md")
+    )
+    assert any("번들 경계" in r for r in reasons)
+
+
+def test_gate_rejects_symlink_escape(bundle, tmp_path_factory):
+    # 문자열엔 `..`가 없지만 실제 쓰기는 번들 밖 — 엔진의 번들 순회는 심링크 디렉터리로
+    # 내려가지 않아 이렇게 쓰인 개념을 영영 보지 못한다(`..` 탈출과 동급의 침묵 실패).
+    (bundle / "link").symlink_to(tmp_path_factory.mktemp("outside"))
+    reasons = okf_promote.gate_proposal(
+        SPEC, LAYERS, str(bundle), _proposal(bundle, path="link/x.md")
+    )
+    assert any("번들 경계" in r for r in reasons)
+
+
+def test_gate_accepts_bundle_under_symlink(tmp_path):
+    # 번들 **자체**가 심링크 아래인 배치는 정상이다 — 루트도 함께 해소하므로 오탐이 없다.
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "info.md").write_text(
+        "---\ntype: fact\ndescription: 사실.\nlayer: information\n"
+        "resource: https://ex.org\n---\n\n# 답\n",
+        encoding="utf-8",
+    )
+    link = tmp_path / "via-link"
+    link.symlink_to(real, target_is_directory=True)
+    proposal = _proposal(real, path="/model.md")
+    assert okf_promote.gate_proposal(SPEC, LAYERS, str(link), proposal) == []
+
+
+@pytest.mark.parametrize("path", ["/model.md", "model.md", "sub/model.md", "./model.md"])
+def test_gate_accepts_in_bundle_paths(bundle, path):
+    # LAYERS 권장 절대표기·엔진 출력 표기 모두 번들 안 — 경계 검사가 삼키면 안 된다
+    assert okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), _proposal(bundle, path=path)) == []
+
+
+def test_gate_rejects_escaping_material_paths(bundle):
+    # 재료 경로도 같은 판정 — 번들 밖을 근거로 인정하면 사슬이 트리를 벗어난다
+    reasons = okf_promote.gate_proposal(
+        SPEC,
+        LAYERS,
+        str(bundle),
+        _proposal(
+            bundle,
+            derived_from=["../outside.md"],
+            materials=[{"path": "../outside.md", "sha256": "0" * 64}],
+            allow_dangling=["../outside.md"],
+        ),
+    )
+    for field in ("derived_from", "materials", "allow_dangling"):
+        assert any("번들 경계" in r and field in r for r in reasons), field
+
+
 def test_gate_rejects_modified_material(bundle):
     proposal = _proposal(bundle)
     (bundle / "info.md").write_text("변조", encoding="utf-8")  # snapshot 이후 수정(§9 금지 3)
@@ -242,6 +306,19 @@ def test_apply_gate_reject_skips_engine_execution(bundle):
     assert report["promoted"] == [] and len(report["rejected"]) == 1
     ops = [call[0] for call in engine.calls]
     assert "validate" not in ops  # 게이트가 집행 전에 죽인다
+
+
+def test_apply_escaping_path_writes_nothing_outside_bundle(bundle):
+    # 롤백은 번들 밖을 되돌리지 못한다(validate가 그 파일을 못 보므로 실패조차 안 한다) —
+    # 쓰기 0건이 유일한 답이라, 게이트가 집행 전에 죽이는지를 잠근다.
+    engine = FakeEngine(bundle)
+    report = okf_promote.apply_proposals(
+        str(bundle), [_proposal(bundle, path="../escaped.md")], run=engine
+    )
+    assert report["promoted"] == [] and len(report["rejected"]) == 1
+    assert not (bundle.parent / "escaped.md").exists()
+    ops = [call[0] for call in engine.calls]
+    assert "validate" not in ops and "log" not in ops and "index" not in ops
 
 
 def test_apply_cascade_grounds_on_same_batch_promotion(bundle):
