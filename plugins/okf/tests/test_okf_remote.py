@@ -683,3 +683,25 @@ def test_local_residue_notes_does_not_promise_auto_cleanup(tmp_path):
     assert "자동 정리" not in joined
     assert "fetch가 오래됨" not in joined  # 이력이 없는 것이지 낡은 게 아니다
     assert "fetch 이력이 없어" in joined
+
+
+def test_local_pointer_to_managed_clone_uses_clone_wording(tmp_path):
+    """로컬 경로 포인터가 **관리형 clone**을 가리켜도 문구가 사실과 맞는다(#266 U5).
+
+    DA 리뷰가 제기한 경로다 — 라우팅은 포인터 형식으로 갈리는데 판정은 vault 성질에
+    달려 있다. 그 vault엔 fetch 스탬프가 있으므로 '이력 없음'이 아니라 정상 판정이
+    나와야 하고, 자동 정리 안내도 실제로 맞다(`/study`가 그 clone을 회수한다).
+    """
+    origin = _origin(tmp_path)
+    vault = tmp_path / "clone-like"
+    _git(tmp_path, "clone", str(origin), str(vault))
+    okf_remote._stamp(vault, last_fetch=time.time())  # 관리형 clone처럼 스탬프
+    (origin / ".okf" / "shared.md").write_text("# shared\n", encoding="utf-8")
+    _git(origin, "add", "-A")
+    _git(origin, "commit", "-m", "advance")
+    _git(vault, "fetch")
+    (vault / ".okf" / "shared.md").write_text("# shared\n", encoding="utf-8")
+
+    joined = "\n".join(okf_remote.local_residue_notes(vault, pathspec=".okf"))
+    assert "fetch 이력이 없어" not in joined  # 스탬프가 있으므로 거짓이 아니어야 한다
+    assert "자동 정리" in joined  # 실제로 회수되므로 이 안내가 맞다

@@ -599,8 +599,11 @@ def local_residue_notes(vault: str | Path, pathspec: str | None = None) -> list[
     ``pathspec``을 **반드시** 주는 것이 안전 요건이다 — 로컬 vault는 repo가 번들보다 넓을
     수 있어, 범위를 안 주면 사용자의 실작업이 잔재로 보고된다(#266 U4가 그 인자를 열었다).
 
-    "자동 정리" 문구는 여기서 나올 수 없다 — 그 분기는 fetch 스탬프가 있을 때만 도달하고,
-    스탬프는 관리형 clone만 남긴다. 별도 플래그로 막을 필요가 없다(자연히 배타적이다).
+    문구는 vault의 **성질**(fetch 스탬프 유무)로 갈리지 별도 플래그로 정하지 않는다. 포인터가
+    로컬 경로여도 그 대상이 관리형 clone일 수 있어서다(사용자가 clone 경로를 직접 가리키는
+    경우 — ``dualization_note``가 다루는 상황). 그때는 스탬프가 있으므로 "자동 정리" 문구가
+    나오고, 실제로 ``/study``가 회수하므로 **그 안내가 맞다**. 라우팅이 아니라 성질로 갈리는
+    덕에 어느 경로로 들어와도 사실과 어긋나지 않는다.
     """
     return _residue_notes(vault, pathspec=pathspec)
 
