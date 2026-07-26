@@ -35,9 +35,9 @@ import argparse
 import hashlib
 import json
 import os
-import posixpath
 import subprocess
 import sys
+from pathlib import Path
 
 import okf_layers
 
@@ -60,14 +60,24 @@ def norm_rel(path: str) -> str:
     return path.strip().lstrip("/")
 
 
-def escapes_bundle(rel: str) -> bool:
-    """정규화된 번들 상대 경로가 트리를 벗어나는가(#267).
+def escapes_bundle(bundle: str, rel: str) -> bool:
+    """쓰기 대상이 번들 루트를 벗어나는가(#267) — 루트 기준 **실체** 판정.
 
-    엔진과 **같은 판정**이다 — `validate`의 크로스링크 검사도, `graph`의 대상 정규화도
-    `posixpath.normpath` 후 선두 `..`로 본다. 심링크는 해소하지 않는다: 계층마다 답이
-    갈리면 "게이트는 통과하는데 검증은 보지 못하는" 상태가 다시 생긴다.
+    문자열 정규화(`..` 선두 검사)로는 부족하다. 심링크를 타고 나가는 경로는 문자열에
+    `..`가 없지만 실제 쓰기는 밖이고, 엔진의 번들 순회는 심링크 디렉터리로 내려가지
+    않아 그렇게 쓰인 파일을 **영영 보지 못한다** — `..` 탈출과 같은 등급의 침묵 실패다.
+
+    엔진의 크로스링크 검사도 `..`를 보지만 그쪽은 *문서 안 링크 대상*이라 파일시스템을
+    건드리지 않는다. 여기는 *실제 쓰기 위치*라 도메인이 다르다 — 같은 도메인인
+    ``study_dispatch.resolve_command``(핸들러 실행 경로)와 같은 형태를 쓴다.
+    루트도 함께 해소하므로 번들 자체가 심링크 아래 있어도 오탐이 없다.
     """
-    return posixpath.normpath(rel).startswith("..")
+    root = Path(bundle).resolve()
+    try:
+        (root / rel).resolve().relative_to(root)
+    except ValueError:
+        return True
+    return False
 
 
 def sha256_file(fs_path: str) -> str:
@@ -124,7 +134,7 @@ def gate_proposal(
     target_rel = norm_rel(proposal.get("path") or "")
     if not target_rel or not target_rel.endswith(".md"):
         reasons.append(f"경로 형식 오류: {proposal.get('path')!r} (번들 상대 .md 경로)")
-    elif escapes_bundle(target_rel):
+    elif escapes_bundle(bundle, target_rel):
         reasons.append(f"번들 경계 탈출: path {target_rel} — 번들 밖은 validate·index가 못 본다")
     elif os.path.exists(os.path.join(bundle, target_rel)):
         reasons.append(f"신설 아님: {target_rel} 이미 존재 — 재라벨·덮어쓰기 금지(§9 금지 2)")
@@ -145,7 +155,7 @@ def gate_proposal(
         ("allow_dangling", sorted(allow_dangling)),
     ):
         for rel in rels:
-            if rel and escapes_bundle(rel):
+            if rel and escapes_bundle(bundle, rel):
                 reasons.append(f"번들 경계 탈출: {field} {rel}")
 
     if (

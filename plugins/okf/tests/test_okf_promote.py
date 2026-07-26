@@ -111,6 +111,31 @@ def test_gate_rejects_absolute_path_escaping_bundle(bundle):
     assert any("번들 경계" in r for r in reasons)
 
 
+def test_gate_rejects_symlink_escape(bundle, tmp_path_factory):
+    # 문자열엔 `..`가 없지만 실제 쓰기는 번들 밖 — 엔진의 번들 순회는 심링크 디렉터리로
+    # 내려가지 않아 이렇게 쓰인 개념을 영영 보지 못한다(`..` 탈출과 동급의 침묵 실패).
+    (bundle / "link").symlink_to(tmp_path_factory.mktemp("outside"))
+    reasons = okf_promote.gate_proposal(
+        SPEC, LAYERS, str(bundle), _proposal(bundle, path="link/x.md")
+    )
+    assert any("번들 경계" in r for r in reasons)
+
+
+def test_gate_accepts_bundle_under_symlink(tmp_path):
+    # 번들 **자체**가 심링크 아래인 배치는 정상이다 — 루트도 함께 해소하므로 오탐이 없다.
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "info.md").write_text(
+        "---\ntype: fact\ndescription: 사실.\nlayer: information\n"
+        "resource: https://ex.org\n---\n\n# 답\n",
+        encoding="utf-8",
+    )
+    link = tmp_path / "via-link"
+    link.symlink_to(real, target_is_directory=True)
+    proposal = _proposal(real, path="/model.md")
+    assert okf_promote.gate_proposal(SPEC, LAYERS, str(link), proposal) == []
+
+
 @pytest.mark.parametrize("path", ["/model.md", "model.md", "sub/model.md", "./model.md"])
 def test_gate_accepts_in_bundle_paths(bundle, path):
     # LAYERS 권장 절대표기·엔진 출력 표기 모두 번들 안 — 경계 검사가 삼키면 안 된다
