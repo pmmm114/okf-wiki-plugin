@@ -618,3 +618,90 @@ def test_discard_paths_keeps_managed_clone_guard(tmp_path):
 
     src = inspect.getsource(okf_remote.reclaim_sealed)
     assert "pathspec" not in src, "reclaim_sealed가 pathspec을 받으면 폐기 범위가 넓어진다"
+
+
+def _local_vault_with_residue(tmp_path):
+    """로컬 경로 vault — 번들 안 잔재 1건 + 번들 밖 사용자 실작업 1건."""
+    vault = tmp_path / "kb"
+    (vault / ".okf").mkdir(parents=True)
+    _git(vault, "init")
+    _git(vault, "config", "user.email", "t@e.com")
+    _git(vault, "config", "user.name", "t")
+    (vault / ".okf-wiki.json").write_text("{}", encoding="utf-8")
+    (vault / ".okf" / "residue.md").write_text("# 미반영\n", encoding="utf-8")
+    (vault / "draft.txt").write_text("사용자 실작업", encoding="utf-8")
+    return vault
+
+
+def test_local_residue_notes_scopes_to_bundle(tmp_path):
+    """로컬 경로 vault도 잔재 회계를 받는다 — 단 **번들 범위 안에서만**(#277, Epic #266 U5).
+
+    pathspec 없이 켜면 repo 전체가 열거돼 사용자의 번들 밖 실작업이 잔재로 보고된다.
+    """
+    vault = _local_vault_with_residue(tmp_path)
+    joined = "\n".join(okf_remote.local_residue_notes(vault, pathspec=".okf"))
+    assert "잔재 1건" in joined
+    assert "draft.txt" not in joined
+
+
+def test_local_residue_notes_does_not_claim_stale_fetch(tmp_path):
+    """로컬 vault에 "fetch가 오래됨"은 **거짓**이다 — 동기화 이력 자체가 없다.
+
+    `.git/okf-sync.json`은 okf 관리형 clone만 스탬프한다. 로컬 vault는 `last_fetch`가
+    없어 stale이 항상 참이 되는데, 그 사유를 '노후'로 말하면 사용자가 fetch를 시도하게
+    된다 — Epic #266이 없애려는 '실행 불가능한 지시'와 같은 부류다.
+    """
+    vault = _local_vault_with_residue(tmp_path)
+    joined = "\n".join(okf_remote.local_residue_notes(vault, pathspec=".okf"))
+    assert "fetch가 오래됨" not in joined
+
+
+def test_local_residue_notes_does_not_promise_auto_cleanup(tmp_path):
+    """봉인 분기를 **실제로 태워** 자동 정리를 약속하지 않음을 확인한다.
+
+    이전 판은 sealed가 0이라 notes가 비어 통과했다 — 잘못된 이유로 녹색이었다(DA 지적).
+    여기서는 원격이 앞선 뒤 fetch하고, 그 경로를 로컬에 **같은 내용**으로 미리 둬서
+    `sealed_paths`가 실제로 잡게 만든다(경로별 blob 일치가 판정 단위다).
+
+    그때 나와야 하는 것은 "okf에 fetch 이력이 없어 판정 보류"다. 로컬 vault는 okf가
+    스탬프하지 않으므로 '노후'가 아니라 '이력 부재'이고, 자동 정리는 관리형 clone의
+    성질이라 약속할 수 없다.
+    """
+    origin = _origin(tmp_path)
+    vault = tmp_path / "kb"
+    _git(tmp_path, "clone", str(origin), str(vault))
+    (origin / ".okf" / "shared.md").write_text("# shared\n", encoding="utf-8")
+    _git(origin, "add", "-A")
+    _git(origin, "commit", "-m", "advance")
+    _git(vault, "fetch")
+    (vault / ".okf" / "shared.md").write_text("# shared\n", encoding="utf-8")
+
+    rels = [rel for _xy, rel in okf_remote.list_residue(vault, pathspec=".okf")]
+    assert okf_remote.sealed_paths(vault, rels), "봉인 분기를 타지 못했다 — 테스트가 무의미하다"
+
+    joined = "\n".join(okf_remote.local_residue_notes(vault, pathspec=".okf"))
+    assert "자동 정리" not in joined
+    assert "fetch가 오래됨" not in joined  # 이력이 없는 것이지 낡은 게 아니다
+    assert "fetch 이력이 없어" in joined
+
+
+def test_local_pointer_to_managed_clone_uses_clone_wording(tmp_path):
+    """로컬 경로 포인터가 **관리형 clone**을 가리켜도 문구가 사실과 맞는다(#266 U5).
+
+    DA 리뷰가 제기한 경로다 — 라우팅은 포인터 형식으로 갈리는데 판정은 vault 성질에
+    달려 있다. 그 vault엔 fetch 스탬프가 있으므로 '이력 없음'이 아니라 정상 판정이
+    나와야 하고, 자동 정리 안내도 실제로 맞다(`/study`가 그 clone을 회수한다).
+    """
+    origin = _origin(tmp_path)
+    vault = tmp_path / "clone-like"
+    _git(tmp_path, "clone", str(origin), str(vault))
+    okf_remote._stamp(vault, last_fetch=time.time())  # 관리형 clone처럼 스탬프
+    (origin / ".okf" / "shared.md").write_text("# shared\n", encoding="utf-8")
+    _git(origin, "add", "-A")
+    _git(origin, "commit", "-m", "advance")
+    _git(vault, "fetch")
+    (vault / ".okf" / "shared.md").write_text("# shared\n", encoding="utf-8")
+
+    joined = "\n".join(okf_remote.local_residue_notes(vault, pathspec=".okf"))
+    assert "fetch 이력이 없어" not in joined  # 스탬프가 있으므로 거짓이 아니어야 한다
+    assert "자동 정리" in joined  # 실제로 회수되므로 이 안내가 맞다
