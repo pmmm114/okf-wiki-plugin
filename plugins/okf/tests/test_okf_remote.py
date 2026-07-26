@@ -526,3 +526,182 @@ def test_dualization_detected_for_local_twin(monkeypatch, tmp_path):
     _git(tmp_path, "clone", url, str(local))
     note = okf_remote.dualization_note(str(local), str(local))
     assert note is not None and "이원화" in note
+
+
+def test_recovery_route_is_wiring_aware(tmp_path):
+    """회복 라우트가 배선 여부로 갈린다 — 단일원천(#275, Epic #266 U3).
+
+    미배선 vault에 "디스패치로 반영하라"는 실행 불가능한 지시다(#216 V4). doctor 경로는
+    이미 그렇게 갈리는데(#239) ff 정체 경고는 그 분기를 못 받았다. 두 소비처가 같은
+    헬퍼를 쓰게 해서 한쪽만 고쳐지는 드리프트를 없앤다.
+    """
+    vault = tmp_path / "v"
+    vault.mkdir()
+    (vault / ".okf-wiki.json").write_text("{}", encoding="utf-8")
+    assert "배선" in okf_remote._recovery_route(vault)
+    assert "디스패치" not in okf_remote._recovery_route(vault)
+
+    (vault / ".okf-wiki.json").write_text(
+        '{"study": {"handlers": [{"name": "h", "command": "x"}]}}', encoding="utf-8"
+    )
+    assert "디스패치" in okf_remote._recovery_route(vault)
+
+
+def test_ff_stall_warning_routes_by_wiring(tmp_path, monkeypatch):
+    """미배선 clone의 ff 정체 경고가 못 하는 일을 시키지 않는다.
+
+    현행은 배선 여부와 무관하게 "디스패치(PR)로 반영하라"를 낸다 — 반영 경로가 없는
+    사용자에게는 막다른 안내다.
+    """
+    src = _origin(tmp_path)  # 기본 config엔 study.handlers 없음
+    url = _url(src)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, url)
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    (clone_path / ".okf" / "stale.md").write_text("# never pushed\n", encoding="utf-8")
+    result = okf_remote._recover_and_ff(clone_path, 5.0)
+    assert result["refreshed"] is False and result["reason"] == "미봉인 잔재"  # 기계 축 불변
+    assert "디스패치" not in result["warning"]
+    assert "배선" in result["warning"]
+
+
+def _residue_repo(tmp_path):
+    """번들 안팎에 잔재가 있는 repo — pathspec 범위 한정 검증용."""
+    okf_remote._run_git(["init"], cwd=str(tmp_path))
+    (tmp_path / ".okf" / "sub").mkdir(parents=True)
+    (tmp_path / ".okf" / "a.md").write_text("x", encoding="utf-8")
+    (tmp_path / ".okf" / "sub" / "b.md").write_text("y", encoding="utf-8")
+    (tmp_path / "src.txt").write_text("사용자 실작업", encoding="utf-8")
+    return tmp_path
+
+
+def test_list_residue_default_is_unchanged(tmp_path):
+    """pathspec 미지정은 **현행 그대로** — 기본값이 동작을 바꾸지 않는다."""
+    repo = _residue_repo(tmp_path)
+    rels = {rel for _xy, rel in okf_remote.list_residue(repo)}
+    assert rels == {".okf/a.md", ".okf/sub/b.md", "src.txt"}
+
+
+def test_list_residue_pathspec_scopes_to_bundle(tmp_path):
+    """pathspec을 주면 그 하위만 — 번들 밖 사용자 실작업이 잔재 목록에 오르지 않는다.
+
+    #277(U5)이 로컬 경로 vault로 회계를 넓힐 때 이 범위 한정이 없으면 repo 전체가
+    열거되고, 그 목록이 폐기 후보로 흐른다. 잘못된 폐기는 비가역이다.
+    """
+    repo = _residue_repo(tmp_path)
+    rels = {rel for _xy, rel in okf_remote.list_residue(repo, pathspec=".okf")}
+    assert rels == {".okf/a.md", ".okf/sub/b.md"}
+    assert "src.txt" not in rels
+
+
+def test_list_residue_pathspec_is_literal(tmp_path):
+    """glob 문자가 든 디렉터리명도 **문자 그대로** 매칭한다(`:(literal)` 매직).
+
+    번들 경로는 소비처가 정하므로 `[`·`*`가 들어갈 수 있다. glob으로 해석되면 엉뚱한
+    범위가 잡히고, 그 목록이 폐기로 흐른다.
+    """
+    repo = tmp_path
+    okf_remote._run_git(["init"], cwd=str(repo))
+    (repo / "b[1]").mkdir()
+    (repo / "b[1]" / "x.md").write_text("x", encoding="utf-8")
+    (repo / "b1").mkdir()
+    (repo / "b1" / "y.md").write_text("y", encoding="utf-8")
+    rels = {rel for _xy, rel in okf_remote.list_residue(repo, pathspec="b[1]")}
+    assert rels == {"b[1]/x.md"}  # glob이면 b1/y.md가 잡힌다
+
+
+def test_discard_paths_keeps_managed_clone_guard(tmp_path):
+    """폐기 경로의 관리형 clone 가드는 **손대지 않는다** — 일반화는 열거에서만.
+
+    #216이 배운 비대칭: 잘못된 폐기는 비가역이고 잘못된 보존은 재현 가능한 소음이다.
+    """
+    import inspect
+
+    src = inspect.getsource(okf_remote.reclaim_sealed)
+    assert "pathspec" not in src, "reclaim_sealed가 pathspec을 받으면 폐기 범위가 넓어진다"
+
+
+def _local_vault_with_residue(tmp_path):
+    """로컬 경로 vault — 번들 안 잔재 1건 + 번들 밖 사용자 실작업 1건."""
+    vault = tmp_path / "kb"
+    (vault / ".okf").mkdir(parents=True)
+    _git(vault, "init")
+    _git(vault, "config", "user.email", "t@e.com")
+    _git(vault, "config", "user.name", "t")
+    (vault / ".okf-wiki.json").write_text("{}", encoding="utf-8")
+    (vault / ".okf" / "residue.md").write_text("# 미반영\n", encoding="utf-8")
+    (vault / "draft.txt").write_text("사용자 실작업", encoding="utf-8")
+    return vault
+
+
+def test_local_residue_notes_scopes_to_bundle(tmp_path):
+    """로컬 경로 vault도 잔재 회계를 받는다 — 단 **번들 범위 안에서만**(#277, Epic #266 U5).
+
+    pathspec 없이 켜면 repo 전체가 열거돼 사용자의 번들 밖 실작업이 잔재로 보고된다.
+    """
+    vault = _local_vault_with_residue(tmp_path)
+    joined = "\n".join(okf_remote.local_residue_notes(vault, pathspec=".okf"))
+    assert "잔재 1건" in joined
+    assert "draft.txt" not in joined
+
+
+def test_local_residue_notes_does_not_claim_stale_fetch(tmp_path):
+    """로컬 vault에 "fetch가 오래됨"은 **거짓**이다 — 동기화 이력 자체가 없다.
+
+    `.git/okf-sync.json`은 okf 관리형 clone만 스탬프한다. 로컬 vault는 `last_fetch`가
+    없어 stale이 항상 참이 되는데, 그 사유를 '노후'로 말하면 사용자가 fetch를 시도하게
+    된다 — Epic #266이 없애려는 '실행 불가능한 지시'와 같은 부류다.
+    """
+    vault = _local_vault_with_residue(tmp_path)
+    joined = "\n".join(okf_remote.local_residue_notes(vault, pathspec=".okf"))
+    assert "fetch가 오래됨" not in joined
+
+
+def test_local_residue_notes_does_not_promise_auto_cleanup(tmp_path):
+    """봉인 분기를 **실제로 태워** 자동 정리를 약속하지 않음을 확인한다.
+
+    이전 판은 sealed가 0이라 notes가 비어 통과했다 — 잘못된 이유로 녹색이었다(DA 지적).
+    여기서는 원격이 앞선 뒤 fetch하고, 그 경로를 로컬에 **같은 내용**으로 미리 둬서
+    `sealed_paths`가 실제로 잡게 만든다(경로별 blob 일치가 판정 단위다).
+
+    그때 나와야 하는 것은 "okf에 fetch 이력이 없어 판정 보류"다. 로컬 vault는 okf가
+    스탬프하지 않으므로 '노후'가 아니라 '이력 부재'이고, 자동 정리는 관리형 clone의
+    성질이라 약속할 수 없다.
+    """
+    origin = _origin(tmp_path)
+    vault = tmp_path / "kb"
+    _git(tmp_path, "clone", str(origin), str(vault))
+    (origin / ".okf" / "shared.md").write_text("# shared\n", encoding="utf-8")
+    _git(origin, "add", "-A")
+    _git(origin, "commit", "-m", "advance")
+    _git(vault, "fetch")
+    (vault / ".okf" / "shared.md").write_text("# shared\n", encoding="utf-8")
+
+    rels = [rel for _xy, rel in okf_remote.list_residue(vault, pathspec=".okf")]
+    assert okf_remote.sealed_paths(vault, rels), "봉인 분기를 타지 못했다 — 테스트가 무의미하다"
+
+    joined = "\n".join(okf_remote.local_residue_notes(vault, pathspec=".okf"))
+    assert "자동 정리" not in joined
+    assert "fetch가 오래됨" not in joined  # 이력이 없는 것이지 낡은 게 아니다
+    assert "fetch 이력이 없어" in joined
+
+
+def test_local_pointer_to_managed_clone_uses_clone_wording(tmp_path):
+    """로컬 경로 포인터가 **관리형 clone**을 가리켜도 문구가 사실과 맞는다(#266 U5).
+
+    DA 리뷰가 제기한 경로다 — 라우팅은 포인터 형식으로 갈리는데 판정은 vault 성질에
+    달려 있다. 그 vault엔 fetch 스탬프가 있으므로 '이력 없음'이 아니라 정상 판정이
+    나와야 하고, 자동 정리 안내도 실제로 맞다(`/study`가 그 clone을 회수한다).
+    """
+    origin = _origin(tmp_path)
+    vault = tmp_path / "clone-like"
+    _git(tmp_path, "clone", str(origin), str(vault))
+    okf_remote._stamp(vault, last_fetch=time.time())  # 관리형 clone처럼 스탬프
+    (origin / ".okf" / "shared.md").write_text("# shared\n", encoding="utf-8")
+    _git(origin, "add", "-A")
+    _git(origin, "commit", "-m", "advance")
+    _git(vault, "fetch")
+    (vault / ".okf" / "shared.md").write_text("# shared\n", encoding="utf-8")
+
+    joined = "\n".join(okf_remote.local_residue_notes(vault, pathspec=".okf"))
+    assert "fetch 이력이 없어" not in joined  # 스탬프가 있으므로 거짓이 아니어야 한다
+    assert "자동 정리" in joined  # 실제로 회수되므로 이 안내가 맞다

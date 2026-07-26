@@ -14,7 +14,7 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
 
 0a. **신선도 갱신(URL vault만, #153)**: 승격은 관리형 clone의 워킹트리에 쓴다 — 그 전에 base를 최신화한다. `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_remote.py" refresh`를 실행한다(**URL vault가 아니면 자동 무동작** — 로컬 경로 vault·프로젝트 스코프는 그냥 넘어간다).
    - `refreshed: true` → ff-only로 최신 base. 계속. `discarded`가 있으면 **원격에 이미 담긴** 잔재를 폐기해 정체를 푼 것이므로(#216 V1) 그 경로 목록을 한 줄로 보인다.
-   - `reason: "미봉인 잔재"`(`warning` 있음) → 원격 어디에도 없는 잔재가 ff를 막고 있다. **폐기하지 않았다**(지식 유실 금지). `warning`을 보이고, 디스패치(PR)로 반영하거나 직접 정리한 뒤 재시도하도록 안내한다(강제 stash·머지 금지 — clone을 wedge시킨다, U3-2).
+   - `reason: "미봉인 잔재"`(`warning` 있음) → 원격 어디에도 없는 잔재가 ff를 막고 있다. **폐기하지 않았다**(지식 유실 금지). `warning`을 **그대로** 보이고 그 지시대로 처리한 뒤 재시도하도록 안내한다 — `warning`은 배선 여부로 갈린다(배선됨 → 디스패치로 반영 / 미배선 → `/okf-init --vault`로 배선). 여기서 임의로 "디스패치하라"를 덧붙이지 않는다(반영 경로가 없는 vault에는 실행 불가능한 지시다). 강제 stash·머지 금지 — clone을 wedge시킨다(U3-2).
    - `reason: "diverged" | "fetch 실패" | "offline env"` → `warning`을 보이고 **캐시로 계속**한다 (승격은 진행되나 stale base 위일 수 있으니, 핸들러 PR 단계에서 rebase로 정리).
 
 1. **인자 분기**
@@ -44,7 +44,9 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
    - **파일 단위 일괄(#258)**: 한 파일 그룹을 통째로 버릴 땐 `study.py resolve <project> --source <경로> --status discarded` — 펼치지 않은 그룹이면 먼저 펼쳐 구조 노이즈가 섞였는지 확인한다(섞였으면 3단계의 prune 먼저 — 일괄 discard는 보지 못한 노이즈 id까지 원장에 기록한다). 경로는 2단계 그룹의 `source` 값 그대로 쓴다(저장값 정확 일치 매칭이라 rename·삭제된 옛 경로의 잔존 후보 정리에도 쓴다. 매칭 0건이면 현존 source 목록과 함께 실패한다). 여러 후보를 **한 개념으로 병합 승격**했다면 다중 `--id`(반복) + 단일 `--ref`로 일괄 promoted 처리한다 — 단일 `--ref`는 "N후보 → 1개념 병합"의 의미다. 개념별 개별 승격은 종전대로 후보당 resolve가 기본이다.
    - **교차 승격 규약(#91 §4)**: 프로젝트 inbox의 후보를 vault 번들로 승격했다면 `resolve`는 **후보가 잡힌 스코프**(그 프로젝트)에 대해 실행하고 `--ref`에 vault 개념 경로를 준다 — 기록은 원 스코프 원장이 정본, 유효 vault가 있으면 vault 원장에도 자동 write-through된다(시간축 재큐 방지).
 
-7. **디스패치**: 승격 개념마다 `study.py dispatch <project> --source manual --concept-path <경로> --concept-type <type> --concept-topic <topic> --concept-layer <layer>`. 결과 `note`에 "핸들러 미승인"이 오면 (가시적 저하) 사용자에게 `/study --trust`를 안내한다 — 개념은 이미 로컬 번들에 승격됐고 핸들러만 보류된 상태다.
+7. **디스패치**: 승격 개념마다 `study.py dispatch <project> --source manual --concept-path <경로> --concept-type <type> --concept-topic <topic> --concept-layer <layer>`. 결과의 **기계 필드**로 분기한다(한국어 `note`를 매칭하지 말 것 — 문구가 바뀌면 조용히 깨진다).
+   - `reflected: true` → 원격 반영 경로를 탔다. 다음으로.
+   - `reflected: false` → `blockers[]`의 각 항목에 `code`와 **실행 가능한 복구 지시**(`recovery`)가 있다. 그 지시를 그대로 사용자에게 보인다. 코드별 의미: `unwired`(배선 없음 — `/okf-init --vault`) · `untracked`(핸들러 미커밋 — vault repo에 커밋, 관리형 clone이면 브랜치→PR) · `untrusted`(이 머신 미승인 — `/study --trust`) · `escape`(command가 repo 밖 — 설정 수정). **어느 경우든 개념은 이미 로컬 번들에 승격·검증됐고 원격 반영만 보류된 상태다**(가시적 저하 — 승격을 되돌리지 않는다).
    - `reclaimed`(관리형 clone에서만 옴)가 비어 있지 않으면 **원격에 반영이 확인된** 잔재를 정리한 것이다(#216 V2). 경로 수만 한 줄로 보이고 넘어간다 — 미푸시 승격은 봉인되지 않으므로 여기 오지 않는다.
 
 8. **요약**: 승격/폐기/디스패치 결과를 알리고, 오래된 후보가 많으면 `/study --clear`를 제안한다 — `--clear`도 전량 discard(원장 기록)이므로 구조 노이즈가 남아 있으면 prune(3단계, `--dry-run` 선행)을 먼저 안내한다.

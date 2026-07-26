@@ -11,7 +11,9 @@
 - URL vault(관리형 clone)면 여기 커밋이 origin과 diverge하므로 **커밋하지 않고**
   브랜치→PR 절차만 안내한다(로컬 경로 vault는 그냥 커밋). trust는 별도(머신별 보안 동의).
 
-study feature 층 — import는 study→okf_vault 단방향(#145 경계). stdlib 전용, 실패는 관용.
+study feature 층 — import는 study→core 단방향(#145 경계). 준비 상태 판정은 디스패처와
+**같은 게이트**를 쓴다(``study_dispatch.dispatchability``) — 설정 존재 여부라는 프록시로
+답하면 스캐폴드 직후 구간이 통과로 읽힌다(#266 U1). 실패는 관용.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ import stat
 from pathlib import Path
 
 import okf_vault
+import study_dispatch
 
 DEFAULT_NAME = "kb-pr"
 DEFAULT_COMMAND = "scripts/okf-open-pr.py"
@@ -186,17 +189,33 @@ def _read_config(vault: str | Path) -> tuple[dict, Path]:
 
 
 def writable_state(vault: str | Path) -> dict:
-    """vault의 writable 준비 상태 — 마법사가 스캐폴드 제안 여부를 기계 판정하는 데 쓴다."""
+    """vault의 writable 준비 상태 — 마법사가 스캐폴드 제안 여부를 기계 판정하는 데 쓴다.
+
+    ``handler_wired``·``ready``는 **설정 존재** 축이고 의미를 바꾸지 않는다(재정의하면
+    스캐폴드 직후 ``ready:false``가 되어 마법사가 멱등 스캐폴드를 무한 재제안한다).
+    ``dispatchable``·``blockers``는 **실제 게이트** 축으로 가산한다 — 스캐폴드 직후는
+    핸들러가 미커밋이라 배선은 참인데 나가지는 못한다(#266 U1).
+
+    ``dispatchable``은 trust 축을 **제외한** 판정이다(경로·git추적 2축). trust는 머신별
+    승인이라 마법사가 별도 단계로 안내한다.
+    """
     config = okf_vault.load_config(vault) or {}
     block = config.get("study")
     study = block if isinstance(block, dict) else {}
     handlers = study.get("handlers") or []
     capture = study.get("capture", "off")
+    blocked = [
+        {"name": v["name"], "code": v["code"], "reason": v["reason"]}
+        for v in study_dispatch.dispatchability(vault, handlers)
+        if v["code"] != study_dispatch.CODE_OK
+    ]
     return {
         "handler_wired": bool(handlers),
         "capture": capture,
         "ready": bool(handlers) and capture in ("review", "auto"),
         "managed": okf_vault.is_managed_clone(vault),
+        "dispatchable": bool(handlers) and not blocked,
+        "blockers": blocked,
     }
 
 

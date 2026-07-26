@@ -181,7 +181,9 @@ def _parse_status_z(out: str) -> list[tuple[str, str]]:
     return entries
 
 
-def list_residue(clone_path: str | Path) -> list[tuple[str, str]] | None:
+def list_residue(
+    clone_path: str | Path, pathspec: str | None = None
+) -> list[tuple[str, str]] | None:
     """워킹트리 잔재를 (XY, 경로) 목록으로 연다. 판정 불가는 None.
 
     두 플래그가 정확성의 전제다.
@@ -190,10 +192,21 @@ def list_residue(clone_path: str | Path) -> list[tuple[str, str]] | None:
       내보낸다. 그 경로를 지우려 하면 OSError라 폐기가 **조용히 무동작**한다.
     - ``-z`` — 기본 출력은 비ASCII·공백 경로를 따옴표로 감싸고 이스케이프한다. 인용된
       문자열을 그대로 경로로 쓰면 폐기가 엉뚱한 곳을 향한다.
+
+    ``pathspec``을 주면 그 하위만 연다. 관리형 clone은 repo ≈ 번들이라 범위가 문제되지
+    않았지만, 로컬 경로 vault·프로젝트 스코프로 넓히면 repo 전체가 열거되어 **사용자의
+    번들 밖 실작업이 잔재로 보고된다**(#266 U4). ``:(literal)`` 매직으로 감싸는 이유는
+    번들 경로를 소비처가 정하기 때문이다 — ``[``·``*``가 들어가면 glob으로 해석돼 엉뚱한
+    범위가 잡히고, 그 목록이 폐기로 흐른다.
+
+    **범위 한정은 열거에서만 한다.** 폐기 경로(``reclaim_sealed``·``discard_paths``)의
+    관리형 clone 가드는 건드리지 않는다 — 잘못된 폐기는 비가역이고 잘못된 보존은 재현
+    가능한 소음이라는 비대칭(#216)이 그대로 적용된다.
     """
-    rc, out, _err = _run_git(
-        ["status", "--porcelain", "-z", "--untracked-files=all"], cwd=str(clone_path)
-    )
+    args = ["status", "--porcelain", "-z", "--untracked-files=all"]
+    if pathspec:
+        args += ["--", f":(literal){pathspec}"]
+    rc, out, _err = _run_git(args, cwd=str(clone_path))
     if rc != 0:
         return None
     return _parse_status_z(out)
@@ -457,6 +470,21 @@ def _ff(clone_path: str | Path, timeout: float) -> int | None:
     return rc
 
 
+def _recovery_route(clone_path: str | Path) -> str:
+    """미반영 잔재를 어떻게 처리하라고 안내할지 — **배선 여부로 갈리는 단일원천**(#266 U3).
+
+    반영 경로가 없는 vault에 "디스패치하라"는 실행 불가능한 지시다(#216 V4). doctor가 이미
+    그렇게 갈렸는데(#239) ff 정체 경고는 그 분기를 못 받아 막다른 안내를 냈다. 두 소비처가
+    이 헬퍼를 공유해 한쪽만 고쳐지는 드리프트를 없앤다.
+
+    ``_has_handlers``를 부르는 **유일한 곳**이다 — 그 함수는 설정 존재 여부(프록시)일 뿐이라
+    소비처가 늘면 판정으로 승격될 위험이 커진다. 호출처는 테스트가 이름으로 고정한다.
+    """
+    if _has_handlers(clone_path):
+        return "디스패치(PR)로 반영하라"
+    return "원격 반영 경로 없음(핸들러 미배선) — /okf-init --vault로 배선하라"
+
+
 def _recover_and_ff(clone_path: str | Path, timeout: float) -> dict:
     """ff가 **경로 충돌**로 거부됐을 때 — 봉인된 잔재만 폐기하고 재시도한다(#216 V1).
 
@@ -465,7 +493,7 @@ def _recover_and_ff(clone_path: str | Path, timeout: float) -> dict:
     가능하므로 정체를 푼다. 봉인되지 않았으면 **아무것도 지우지 않는다** — 오탐 폐기는
     비가역 지식 유실이지만, 미폐기는 알려진 정체를 재현할 뿐이고 진단 경로가 남는다.
     """
-    unsealed_warning = "원격에 없는 잔재가 ff를 막고 있다 — 디스패치(PR)로 반영하거나 직접 정리하라"
+    unsealed_warning = f"원격에 없는 잔재가 ff를 막고 있다 — {_recovery_route(clone_path)}"
     discarded = reclaim_sealed(clone_path)
     if not discarded:
         return {"refreshed": False, "reason": "미봉인 잔재", "warning": unsealed_warning}
@@ -547,17 +575,40 @@ def _age_str(epoch) -> str:
 
 
 def _has_handlers(clone_path: str | Path) -> bool:
-    """소비처가 원격 반영 핸들러를 배선했는지(``.okf-wiki.json``의 ``study.handlers``).
+    """소비처가 원격 반영 핸들러를 **배선했는지**(``.okf-wiki.json``의 ``study.handlers``).
 
     설정 **파일만** 읽는다 — study 모듈은 import하지 않으므로 core⊥study 경계와 무관하다.
-    핸들러 자체는 소비처 소유라 여기서 알아야 할 것은 "반영 경로가 존재하는가"뿐이다.
+
+    **디스패치 가능성이 아니다.** 실제 게이트는 경로·git추적·trust 3축이고 그 판정은
+    ``study_dispatch.dispatchability`` 하나에만 있다(#266 U1). 여기 참인데 나가지 못하는
+    구간이 실재한다 — 스캐폴드 직후는 핸들러가 미커밋이다. 그래서 이 함수는 **안내 문구
+    라우팅**에만 쓴다(반영 경로가 존재하는가 → 배선하라 vs 디스패치하라). 게이트 입력으로
+    승격시키지 말 것 — 호출처는 테스트가 이름으로 고정한다.
     """
     cfg = okf_vault.read_json(Path(clone_path) / ".okf-wiki.json") or {}
     study = cfg.get("study")
     return bool(isinstance(study, dict) and study.get("handlers"))
 
 
-def _residue_notes(clone_path: str | Path) -> list[str]:
+def local_residue_notes(vault: str | Path, pathspec: str | None = None) -> list[str]:
+    """로컬 경로 vault의 잔재 안내 — doctor가 부르는 **공개 API**(#266 U5).
+
+    지금까지 잔재 회계는 URL 모드에만 있었다(`doctor_vault_notes` 경유). 로컬 경로 vault는
+    미반영 산출물이 쌓여도 doctor가 한 줄도 말하지 않았다.
+
+    ``pathspec``을 **반드시** 주는 것이 안전 요건이다 — 로컬 vault는 repo가 번들보다 넓을
+    수 있어, 범위를 안 주면 사용자의 실작업이 잔재로 보고된다(#266 U4가 그 인자를 열었다).
+
+    문구는 vault의 **성질**(fetch 스탬프 유무)로 갈리지 별도 플래그로 정하지 않는다. 포인터가
+    로컬 경로여도 그 대상이 관리형 clone일 수 있어서다(사용자가 clone 경로를 직접 가리키는
+    경우 — ``dualization_note``가 다루는 상황). 그때는 스탬프가 있으므로 "자동 정리" 문구가
+    나오고, 실제로 ``/study``가 회수하므로 **그 안내가 맞다**. 라우팅이 아니라 성질로 갈리는
+    덕에 어느 경로로 들어와도 사실과 어긋나지 않는다.
+    """
+    return _residue_notes(vault, pathspec=pathspec)
+
+
+def _residue_notes(clone_path: str | Path, pathspec: str | None = None) -> list[str]:
     """잔재를 **봉인 여부로 갈라** 안내한다(#216 V3). 잔재가 없으면 빈 목록(침묵).
 
     "디스패치"와 "폐기"는 정반대 결과를 낳으므로 한 줄로 뭉뚱그리면 안 된다 — 사용자가
@@ -567,7 +618,7 @@ def _residue_notes(clone_path: str | Path) -> list[str]:
     오래된 clone에서는 실제로 미푸시인 작업을 '반영됨'으로 오판할 수 있고, 그 안내를
     따른 폐기는 비가역이다. 그래서 오래되면 판정을 **보류**하고 정리를 권하지 않는다.
     """
-    entries = list_residue(clone_path)
+    entries = list_residue(clone_path, pathspec=pathspec)
     if not entries:
         return []
     candidates = [(xy, rel) for xy, rel in entries if xy[0] not in ("R", "C") and "D" not in xy]
@@ -576,24 +627,33 @@ def _residue_notes(clone_path: str | Path) -> list[str]:
     unsealed = [rel for rel in rels if rel not in sealed]
     undecidable = len(entries) - len(candidates)  # 삭제·rename·copy — 대조할 내용이 없다
     last_fetch = _read_sync(clone_path).get("last_fetch")
-    stale = not isinstance(last_fetch, (int, float)) or (time.time() - last_fetch) > _env_float(
+    # 사유를 '기록 부재'와 '노후'로 가른다(#266 U5). 둘 다 판정 보류지만 사용자가 할 일이
+    # 다르다 — 노후는 fetch가 답이고, 기록 부재는 fetch해도 안 생긴다(okf가 그 vault의
+    # 동기화를 관리하지 않는다). 뭉뚱그리면 로컬 vault 사용자에게 실행 불가능한 지시가 된다.
+    has_record = isinstance(last_fetch, (int, float))
+    stale = not has_record or (time.time() - last_fetch) > _env_float(
         "OKF_REMOTE_SEAL_STALE", _DEFAULT_SEAL_STALE
     )
     notes: list[str] = []
     if sealed:
-        if stale:
+        if not has_record:
+            # 사유를 '노후'와 가른다(#266 U5). 로컬 경로 vault는 okf가 스탬프하지 않으므로
+            # 여기로 온다 — "fetch가 오래됐다"고 말하면 사용자가 fetch를 시도하는데,
+            # 해도 스탬프는 안 생긴다. 말할 수 있는 것은 "okf에 이력이 없다"까지다:
+            # 사용자가 직접 fetch했을 수도 있으므로 원격 동기화 자체를 부정하지 않는다.
+            notes.append(f"  ⚠ 잔재 {len(sealed)}건: okf에 이 vault의 fetch 이력이 없어 판정 보류")
+        elif stale:
             notes.append(
                 f"  ⚠ 잔재 {len(sealed)}건: 원격 반영된 것으로 보이나 fetch가 오래됨 — 판정 보류"
             )
         else:
+            # 자동 정리는 관리형 clone의 성질이고, 그 clone만 스탬프를 남긴다 —
+            # 즉 여기 도달했다는 것 자체가 관리형이라는 뜻이다.
             notes.append(f"  잔재 {len(sealed)}건: 원격에 반영됨 — /study 진입 시 자동 정리")
     if unsealed:
         # 원격 반영 경로가 없는 vault에 "디스패치하라"는 실행 불가능한 지시다(#216 V4).
-        route = (
-            "디스패치(PR)로 반영하라"
-            if _has_handlers(clone_path)
-            else "원격 반영 경로 없음(핸들러 미배선) — /okf-init --vault로 배선하라"
-        )
+        # 같은 판단을 ff 정체 경고와 공유한다(#266 U3) — 한쪽만 고쳐지지 않도록.
+        route = _recovery_route(clone_path)
         notes.append(f"  ⚠ 잔재 {len(unsealed)}건: 원격 미반영 — {route}(폐기하면 유실)")
     if undecidable:
         notes.append(f"  ⚠ 잔재 {undecidable}건: 삭제·이름변경 — 판정 불가, 직접 확인 필요")

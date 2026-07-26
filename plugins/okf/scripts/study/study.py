@@ -360,6 +360,44 @@ def cmd_migrate(args) -> int:
     return 0
 
 
+def _verdict_payload(
+    skipped: list[dict], *, ran: list | None = None, failed: list | None = None, unwired=False
+) -> dict:
+    """미반영 판결 — ``reflected``·``blockers``·``note``(#266 U2).
+
+    두 쓰기 경로(``/study``·``/okf-promote``)가 이 지점으로 수렴하므로 여기가 "왜 원격에
+    안 갔는가"를 말할 유일한 자리다. 그런데 지금까지 note를 붙이는 조건이 trust 하나뿐이라
+    **가장 흔한 상태**(스캐폴드 직후 = 미추적)가 완전 무음이었다.
+
+    ``blockers[].code``가 소비처의 분기 축이다 — 자연어 ``note``는 사람용 표시로 남긴다.
+    문자열을 판정에 쓰면 문구를 다듬는 일이 고장이 되고, 게이트로 잠글 수도 없다.
+
+    ``reflected``는 "차단 없이 전 핸들러가 exit 0"이다 — **push 영수증이 아니다**(#237:
+    계약상 0은 성공일 뿐이고 정본 템플릿조차 '변경 0'이면 push 없이 0을 낸다).
+    """
+    codes = (
+        [{"code": study_dispatch.CODE_UNWIRED, "reason": "핸들러 없음", "name": None}]
+        if unwired
+        else [
+            {"code": s.get("code", ""), "reason": s.get("reason", ""), "name": s.get("name")}
+            for s in skipped
+        ]
+    )
+    blockers = [dict(c, recovery=study_dispatch.BLOCKERS.get(c["code"], "")) for c in codes]
+    payload = {
+        "reflected": bool(ran) and not blockers and not failed,
+        "blockers": blockers,
+    }
+    if unwired:
+        payload.update({"ran": [], "failed": [], "skipped": []})
+    if blockers:
+        # 사람용 한 줄 — 같은 사유가 여러 핸들러에 걸리면 한 번만 말한다.
+        payload["note"] = " / ".join(
+            dict.fromkeys(b["recovery"] for b in blockers if b["recovery"])
+        )
+    return payload
+
+
 def cmd_dispatch(args) -> int:
     # 설정·핸들러·해시 루트는 승격 대상 repo, trust 파일은 런타임 루트(#114).
     promote, runtime = _scope(args.project)
@@ -367,7 +405,10 @@ def cmd_dispatch(args) -> int:
     rt = runtime or str(Path(args.project) / ".okf-study")
     capture, handlers = _load_study(repo)
     if not handlers:
-        print(json.dumps({"ran": [], "failed": [], "skipped": [], "note": "핸들러 없음"}))
+        # 조기 종료는 유지한다 — 걷어내면 `note` 계약과 그 문자열에 걸린 소비처가 깨진다.
+        # 대신 그 자리의 payload를 채운다: 이 상태(미배선)가 Epic이 지목한 본체인데
+        # 지금까지 "무엇을 하면 되는지"가 없었다(#266 U2).
+        print(json.dumps(_verdict_payload([], unwired=True), ensure_ascii=False))
         return 0
     item = {
         "source": args.source,
@@ -381,10 +422,7 @@ def cmd_dispatch(args) -> int:
     }
     check = study_trust.make_trust_check(repo, handlers, capture, rt)
     result = study_dispatch.dispatch(repo, item, handlers, check)
-    if any(s.get("reason") == "trust 미승인" for s in result["skipped"]):
-        result["note"] = (
-            "핸들러 로컬 미승인 — `/study --trust`(study_trust approve)로 승인 후 재실행"
-        )
+    result.update(_verdict_payload(result["skipped"], ran=result["ran"], failed=result["failed"]))
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

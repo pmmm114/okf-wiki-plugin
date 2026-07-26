@@ -8,6 +8,7 @@ import subprocess
 import okf_vault
 import pytest
 import study
+import study_dispatch
 import study_inbox
 import study_session
 
@@ -150,9 +151,19 @@ def test_prune_dry_run_lists_matches_without_drop(tmp_path, capsys):
 
 
 def test_dispatch_no_handlers(tmp_path, capsys):
+    """미배선 판결 — 계약은 기계 필드다(#266 U2).
+
+    이전에는 `note == "핸들러 없음"` 정확일치였다. 그 단언은 문구를 잠글 뿐 "사용자가
+    무엇을 해야 하는지"는 검사하지 못했고, 실제로 그 자리에 복구 지시가 없었다.
+    계약이 `blockers[].code`로 옮겨갔으므로 검사도 그쪽을 본다 — 문구는 자유롭게 다듬되
+    코드와 복구 지시는 잠긴다.
+    """
     _cfg(tmp_path, "off", [])
     study.main(["dispatch", str(tmp_path), "--source", "manual"])
-    assert _out(capsys)["note"] == "핸들러 없음"
+    out = _out(capsys)
+    assert out["reflected"] is False
+    assert [b["code"] for b in out["blockers"]] == [study_dispatch.CODE_UNWIRED]
+    assert out["blockers"][0]["recovery"].strip()
 
 
 def test_dispatch_untrusted_reports_note(tmp_path, capsys):

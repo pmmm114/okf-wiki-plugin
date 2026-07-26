@@ -70,6 +70,9 @@ def test_writable_state_absent(tmp_path):
         "capture": "off",
         "ready": False,
         "managed": False,
+        # 실제 게이트 축(#266 U1) — 설정 존재 여부와 구분된다. 배선이 없으면 나갈 것도 없다.
+        "dispatchable": False,
+        "blockers": [],
     }
 
 
@@ -80,6 +83,10 @@ def test_writable_state_ready_after_scaffold(tmp_path):
     assert st["handler_wired"] is True
     assert st["capture"] == "review"
     assert st["ready"] is True
+    # 배선(설정)은 끝났지만 핸들러가 아직 미커밋이라 실제로는 나가지 못한다 —
+    # Epic #266이 지목한 '가장 흔한 무음' 구간이 여기서 가시화된다.
+    assert st["dispatchable"] is False
+    assert [b["code"] for b in st["blockers"]] == ["untracked"]
 
 
 # --- scaffold 오케스트레이션 -------------------------------------------------

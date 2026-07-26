@@ -292,3 +292,51 @@ def test_doctor_flags_missing_sqlite(monkeypatch, tmp_path):
     monkeypatch.setattr(study_store, "sqlite3", None)
     out = okf_doctor.run(str(_project(tmp_path)))
     assert "sqlite3" in out and "OKF_PYTHON" in out
+
+
+def test_bundle_rel_refuses_paths_outside_vault(tmp_path):
+    """`bundlePath` 선언이 vault 밖을 가리키면 쓰지 않는다(#266 U5).
+
+    이 값은 진단 문구뿐 아니라 **잔재 열거의 범위**로도 간다. 절대경로·상위 탈출을 그대로
+    넘기면 사용자의 vault 밖 작업이 잔재로 열거된다 — 그 목록이 폐기 안내로 흐르는 경로다.
+    """
+    vault = tmp_path / "kb"
+    vault.mkdir()
+    for declared in ("/etc", "../outside", "../../x"):
+        (vault / ".okf-wiki.json").write_text(
+            json.dumps({"bundlePath": declared}), encoding="utf-8"
+        )
+        assert okf_doctor._bundle_rel(str(vault)) == ".okf", f"탈출 선언을 통과시킴: {declared}"
+    (vault / ".okf-wiki.json").write_text(
+        json.dumps({"bundlePath": "bundle/okf"}), encoding="utf-8"
+    )
+    assert okf_doctor._bundle_rel(str(vault)) == "bundle/okf"  # 정상 선언은 존중
+
+
+def test_bundle_notes_surface_rejected_declaration(tmp_path):
+    """탈출 선언을 **거부했다는 사실**이 진단에 나온다(#288 통합 리뷰).
+
+    거부 자체는 옳지만 조용히 `.okf`로 갈아타면 doctor가 "번들 .okf 없음"이라고만 말한다.
+    선언을 `../shared`로 써 둔 사용자에게 이건 사실과 다른 안내다 — 도구가 자기 선언을
+    무시한 것을 모른 채 존재하지도 않는 `.okf`를 만들러 간다. 이 파일 도입부가 못박은
+    "진단 도구가 자기 절반의 결손을 은폐하면 안 된다"와 같은 원리다.
+    """
+    vault = tmp_path / "kb"
+    vault.mkdir()
+    (vault / ".okf-wiki.json").write_text(
+        json.dumps({"bundlePath": "../shared-bundle"}), encoding="utf-8"
+    )
+    joined = "\n".join(okf_doctor._bundle_notes(str(vault)))
+    assert "../shared-bundle" in joined, "거부된 선언이 진단에 없다"
+    assert ".okf" in joined  # 대신 무엇을 쓰는지도 함께
+
+
+def test_bundle_notes_stay_quiet_for_valid_declaration(tmp_path):
+    """정상 선언에는 거부 문구가 붙지 않는다 — 경고는 실제 거부에만."""
+    vault = tmp_path / "kb"
+    (vault / "bundle" / "okf").mkdir(parents=True)
+    (vault / ".okf-wiki.json").write_text(
+        json.dumps({"bundlePath": "bundle/okf"}), encoding="utf-8"
+    )
+    joined = "\n".join(okf_doctor._bundle_notes(str(vault)))
+    assert "무시" not in joined and "vault 밖" not in joined
