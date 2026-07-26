@@ -47,16 +47,17 @@ def _inject_trace(project: str) -> list[str]:
     return lines
 
 
-def _bundle_rel(vault: str) -> str:
-    """vault 안 번들의 상대 경로 — 설정이 없으면 기본 ``.okf``.
+def _resolve_bundle(vault: str) -> tuple[str, str | None]:
+    """(쓸 상대경로, 거부된 선언). 설정이 없거나 정상이면 두 번째는 ``None``.
 
-    잔재 회계의 범위 인자로도 쓴다(#266 U5) — 두 소비처가 같은 해소를 써야 진단이
-    가리키는 번들과 열거하는 범위가 갈리지 않는다.
+    거부를 **반환값에 실어** 보내는 이유: 조용히 갈아타면 doctor가 "번들 .okf 없음"만
+    말하고, `../shared`로 선언한 사용자는 자기 선언이 무시된 줄 모른 채 없는 `.okf`를
+    만들러 간다. 판정은 여기 하나에 두고 문구만 호출처가 붙인다.
     """
     config = okf_vault.load_config(vault)
     declared = config.get("bundlePath") if isinstance(config, dict) else None
     if not isinstance(declared, str) or not declared.strip():
-        return ".okf"
+        return ".okf", None
     # vault 밖을 가리키는 선언은 쓰지 않는다 — 이 값이 잔재 열거의 **범위**로도 가므로
     # 절대경로·상위 탈출을 그대로 넘기면 사용자의 vault 밖 작업이 열거된다(#266 U5).
     candidate = declared.strip()
@@ -64,18 +65,32 @@ def _bundle_rel(vault: str) -> str:
     try:
         (root / candidate).resolve().relative_to(root)
     except ValueError:
-        return ".okf"
-    return candidate
+        return ".okf", candidate
+    return candidate, None
+
+
+def _bundle_rel(vault: str) -> str:
+    """vault 안 번들의 상대 경로 — 잔재 회계의 범위 인자로도 쓴다(#266 U5).
+
+    두 소비처가 같은 해소를 써야 진단이 가리키는 번들과 열거하는 범위가 갈리지 않는다.
+    거부 사실은 ``_bundle_notes``가 말하므로 여기선 쓸 경로만 낸다.
+    """
+    return _resolve_bundle(vault)[0]
 
 
 def _bundle_notes(vault: str) -> list[str]:
     """Vault 부합(#114 U3) — 번들 존재 진단(vault repo엔 큐레이션 번들이 필요)."""
-    bundle_path = _bundle_rel(vault)
+    bundle_path, rejected = _resolve_bundle(vault)
+    lines = []
+    if rejected is not None:
+        lines.append(f"  ⚠ bundlePath 선언 `{rejected}`은 vault 밖 — 무시하고 {bundle_path} 사용")
     if (Path(vault) / bundle_path).is_dir():
-        return [
+        lines.append(
             f"  부합: 번들 {bundle_path} 있음(`okf validate {bundle_path} --strict`로 건강 확인)"
-        ]
-    return [f"  부합: ⚠ 번들 {bundle_path} 없음 — vault repo엔 큐레이션 번들이 필요"]
+        )
+    else:
+        lines.append(f"  부합: ⚠ 번들 {bundle_path} 없음 — vault repo엔 큐레이션 번들이 필요")
+    return lines
 
 
 def _vault_notes(project: str) -> list[str]:
