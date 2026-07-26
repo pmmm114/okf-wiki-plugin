@@ -27,7 +27,9 @@ from __future__ import annotations
 import argparse
 import json
 import posixpath
+import string
 import sys
+import unicodedata
 from pathlib import Path
 
 from okf_core.bundle import ParsedBundle, dir_tree, partition, rules_for
@@ -41,6 +43,17 @@ KIND_LIST = "list"
 KIND_OTHER = "other"
 SOURCE_FRONTMATTER = "frontmatter"
 SOURCE_BODY = "body"
+
+# 렌더 전용 표시 어휘. payload의 기계 어휘(``str``·``list``)를 그대로 화면에 내면
+# 읽는 쪽이 엔진 내부 표현을 알아야 하므로, 표시 계층에서만 옮긴다.
+KIND_LABELS = {KIND_STR: "문자열", KIND_LIST: "목록", KIND_OTHER: "기타"}
+INDENT = "  "
+
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+DEFAULT_TEMPLATE = TEMPLATES_DIR / "census.json"
+ALIGN_RIGHT = "right"
+AXES_CELL = "axes"  # 축 개수만큼 열로 펼쳐지는 지시자
+AXIS_PREFIX = "axis:"  # 특정 축 하나만 열로 세울 때
 
 
 def _dir_name(rel: str) -> str:
@@ -298,55 +311,346 @@ def build_census(root: str | Path, axes: list[str] | None = None) -> dict:
     return payload
 
 
-def render(payload: dict) -> str:
-    """사람 가독 렌더 — 계산하지 않고 payload의 수치를 그대로 옮긴다(이중 원천 금지)."""
-    b = payload["bundle"]
-    lines = [
-        f"개념 {b['concepts']} · 디렉터리 {b['dirs']} · 개념간 링크 {b['links']} · "
-        f"예약 {b['reserved']} · §9 탈락 {b['failing']}"
+def _display_width(text: str) -> int:
+    """터미널 표시 폭. 한글·전각 문자는 두 칸을 차지하므로 ``len``으로 재면 열이 어긋난다."""
+    return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text)
+
+
+def _pad(text: str, width: int, right: bool = False) -> str:
+    gap = " " * max(0, width - _display_width(text))
+    return gap + text if right else text + gap
+
+
+def _table(
+    headers: list[str],
+    rows: list[list[str]],
+    right: frozenset[int] = frozenset(),
+    notes: list[str] | None = None,
+) -> list[str]:
+    """헤더·구분선·본문 표. 열 폭은 **내용에서 도출하고 절단하지 않는다**(관측 계약).
+
+    ``right``는 우측 정렬할 열 인덱스 — 수치는 자릿수가 맞아야 크기 차이가 눈에 든다.
+    ``notes``는 행마다 딸린 부가 줄(빈 문자열이면 생략)로, 표 폭 계산에서 제외해
+    긴 원문 한 줄이 표 전체를 밀어내지 않게 한다.
+    """
+    if not rows:
+        return []
+    widths = [
+        max(_display_width(headers[i]), *(_display_width(row[i]) for row in rows))
+        for i in range(len(headers))
     ]
-    if "notice" in b:
-        lines.append(f"알림: {b['notice']}")
 
-    lines.append("")
-    lines.append("## 필드")
-    for row in payload["fields"]:
-        kinds = " ".join(f"{k}:{n}" for k, n in row["kinds"].items())
-        lines.append(
-            f"  {row['field']:<16} {row['present']:>3}/{row['concepts']:<3} "
-            f"값 {row['values']:>3}  [{kinds}]"
+    def line(cells: list[str]) -> str:
+        padded = (
+            _pad(cell, width, i in right)
+            for i, (cell, width) in enumerate(zip(cells, widths, strict=True))
         )
+        return (INDENT + "  ".join(padded)).rstrip()
 
+    out = [line(headers), INDENT + "  ".join("─" * w for w in widths)]
+    for i, row in enumerate(rows):
+        out.append(line(row))
+        note = notes[i] if notes else ""
+        if note:
+            out.append(INDENT * 2 + note)
+    return out
+
+
+def _summary_note(item: dict) -> str:
+    """개념 행에 딸리는 요약 줄. 본문 발췌는 길이 상한이 걸리므로 출처를 밝힌다 —
+    읽는 쪽이 "짧은 것"과 "잘린 것"을 구분할 수 있어야 관측이 정직하다."""
+    if not item["summary"]:
+        return ""
+    mark = "" if item["summary_from"] == SOURCE_FRONTMATTER else " (본문 발췌)"
+    return item["summary"] + mark
+
+
+def _counts(mapping: dict[str, int]) -> str:
+    """``{값: 수}``를 한 셀에 담는 표시 — 값이 어디에 얼마나 있는지가 한 줄에 보이게."""
+    return " · ".join(f"{key} {n}" for key, n in mapping.items())
+
+
+# --- 셀 조립자 —— 템플릿이 이름으로 고르는 표시 계약 -------------------------
+#
+# 값 계산은 전부 이쪽에 있고 템플릿은 "어느 것을 어느 자리에"만 정한다. 그래서
+# 템플릿에는 행을 거르거나 자르거나 순위로 다시 정렬하는 **문법 자체가 없다** —
+# 표시를 아무리 바꿔도 관측(절단 없음·판정 없음)은 줄어들지 않는다.
+
+_BUNDLE_VALUES = ("concepts", "dirs", "links", "reserved", "failing")
+
+_FIELD_CELLS = {
+    "field": lambda row: row["field"],
+    "present": lambda row: str(row["present"]),
+    "total": lambda row: str(row["concepts"]),
+    "present_of_total": lambda row: f"{row['present']} / {row['concepts']}",
+    "values": lambda row: str(row["values"]),
+    "kinds": lambda row: _counts({KIND_LABELS.get(k, k): n for k, n in row["kinds"].items()}),
+}
+
+_AXIS_CELLS = {
+    "value": lambda row: row["value"],
+    "count": lambda row: str(row["count"]),
+    "dirs": lambda row: _counts(row["dirs"]),
+}
+
+_DIR_CELLS = {
+    "path": lambda row: row["path"],
+    "depth": lambda row: str(row["depth"]),
+    "concepts": lambda row: str(row["concepts"]),
+    "subtree": lambda row: str(row["subtree"]),
+    "concepts_with_subtree": lambda row: f"{row['concepts']} ({row['subtree']})",
+    "links_internal": lambda row: str(row["links"]["internal"]),
+    "links_outbound": lambda row: str(row["links"]["outbound"]),
+    "links_inbound": lambda row: str(row["links"]["inbound"]),
+    "links_flow": lambda row: (
+        f"{row['links']['internal']} / {row['links']['outbound']} / {row['links']['inbound']}"
+    ),
+}
+
+_CONCEPT_CELLS = {
+    "file": lambda item: posixpath.basename(item["path"]),
+    "path": lambda item: item["path"],
+    "refs": lambda item: str(item["refs"]),
+}
+
+# 축 열을 쓸 수 있는 섹션과, 그 섹션에서 축 값을 읽는 법.
+_AXIS_READERS = {
+    "dirs": lambda row, axis: _counts(row["axes"].get(axis, {})),
+    "concepts": lambda item, axis: ", ".join(item["axes"].get(axis, ())),
+}
+
+# 헤딩 문구에서 쓸 수 있는 치환 이름. 나머지 섹션 헤딩은 고정 문구다.
+_HEADING_FIELDS = {
+    "axes": ("axis", "present", "missing", "valueless"),
+    "concepts": ("path", "depth", "concepts", "subtree"),
+}
+
+
+def _columns(section: dict, axis_keys: list[str]) -> tuple[list[str], list[str], frozenset[int]]:
+    """템플릿 열 정의를 (헤더, 셀 이름, 우측 정렬 인덱스)로 편다.
+
+    ``axes`` 셀은 축 개수만큼 펼쳐진다 — 축은 ``--axis``로 실행 때 정해지므로
+    템플릿이 열 개수를 미리 적을 수 없다.
+    """
+    headers: list[str] = []
+    names: list[str] = []
+    right: set[int] = set()
+    for col in section["columns"]:
+        cell = col.get("cell", "")
+        expanded = (
+            [(axis, AXIS_PREFIX + axis) for axis in axis_keys]
+            if cell == AXES_CELL
+            else [(col.get("label", ""), cell)]
+        )
+        for label, name in expanded:
+            if col.get("align") == ALIGN_RIGHT:
+                right.add(len(headers))
+            headers.append(label)
+            names.append(name)
+    return headers, names, frozenset(right)
+
+
+def _cell(name: str, item: dict, cells: dict, reader) -> str:
+    if name.startswith(AXIS_PREFIX):
+        return reader(item, name[len(AXIS_PREFIX) :])
+    return cells[name](item)
+
+
+def _rows_table(
+    section: dict,
+    items: list[dict],
+    cells: dict,
+    axis_keys: list[str],
+    reader=None,
+    notes: list[str] | None = None,
+) -> list[str]:
+    headers, names, right = _columns(section, axis_keys)
+    rows = [[_cell(name, item, cells, reader) for name in names] for item in items]
+    return _table(headers, rows, right, notes)
+
+
+def _heading(section: dict, key: str, source: dict, kind: str) -> str:
+    fields = {name: source[name] for name in _HEADING_FIELDS.get(kind, ())}
+    return section.get(key, section["heading"]).format(**fields)
+
+
+def _render_bundle(payload: dict, section: dict, _axis_keys: list[str]) -> list[list[str]]:
+    bundle = payload["bundle"]
+    headers, _names, right = _columns(section, [])
+    rows = [[row["label"], str(bundle[row["value"]])] for row in section["rows"]]
+    blocks = [[section["heading"], *_table(headers, rows, right)]]
+    if "notice" in bundle:
+        blocks.append([f"{section.get('notice_label', '알림')}: {bundle['notice']}"])
+    return blocks
+
+
+def _render_fields(payload: dict, section: dict, axis_keys: list[str]) -> list[list[str]]:
+    table = _rows_table(section, payload["fields"], _FIELD_CELLS, axis_keys)
+    return [[section["heading"], *table]]
+
+
+def _render_axes(payload: dict, section: dict, _axis_keys: list[str]) -> list[list[str]]:
+    blocks = []
     for axis in payload["axes"]:
-        lines.append("")
-        head = f"## 축 `{axis['axis']}` — 기재 {axis['present']} · 미기재 {axis['missing']}"
-        if axis["valueless"]:
-            lines.append(f"{head} · 비문자열 {axis['valueless']}")
-        else:
-            lines.append(head)
-        for value in axis["values"]:
-            dirs = "  ".join(f"{d}:{n}" for d, n in value["dirs"].items())
-            lines.append(f"  {value['value']:<20} {value['count']:>3}   {dirs}")
+        key = "heading_with_valueless" if axis["valueless"] else "heading"
+        table = _rows_table(section, axis["values"], _AXIS_CELLS, [])
+        blocks.append([_heading(section, key, axis, "axes"), *table])
+    return blocks
 
-    lines.append("")
-    lines.append("## 디렉터리   깊이 · 직속(하위) · 링크 안/밖/들어옴")
+
+def _render_dirs(payload: dict, section: dict, axis_keys: list[str]) -> list[list[str]]:
+    table = _rows_table(section, payload["dirs"], _DIR_CELLS, axis_keys, _AXIS_READERS["dirs"])
+    return [[section["heading"], *table]]
+
+
+def _render_concepts(payload: dict, section: dict, axis_keys: list[str]) -> list[list[str]]:
+    blocks = []
     for row in payload["dirs"]:
-        axes_text = "  ".join(
-            f"{axis}={','.join(f'{v}:{n}' for v, n in values.items())}"
-            for axis, values in row["axes"].items()
-            if values
+        if not row["items"]:
+            continue
+        table = _rows_table(
+            section,
+            row["items"],
+            _CONCEPT_CELLS,
+            axis_keys,
+            _AXIS_READERS["concepts"],
+            # 요약은 원문 그대로라 길이가 제각각이다 — 열로 세우면 표가 무너지므로
+            # 행 아래 딸린 줄로 내린다. 표시 여부는 템플릿이 정하지 못한다(절단 금지).
+            notes=[_summary_note(item) for item in row["items"]],
         )
-        lines.append(
-            f"  {row['path']:<30} d{row['depth']} {row['concepts']:>3}"
-            f"({row['subtree']:>3}) {row['links']['internal']:>3}/"
-            f"{row['links']['outbound']:>2}/{row['links']['inbound']:>2}  {axes_text}"
+        blocks.append([_heading(section, "heading", row, "concepts"), *table])
+    return blocks
+
+
+_SECTION_RENDERERS = {
+    "bundle": _render_bundle,
+    "fields": _render_fields,
+    "axes": _render_axes,
+    "dirs": _render_dirs,
+    "concepts": _render_concepts,
+}
+
+_SECTION_CELLS = {
+    "fields": _FIELD_CELLS,
+    "axes": _AXIS_CELLS,
+    "dirs": _DIR_CELLS,
+    "concepts": _CONCEPT_CELLS,
+}
+
+
+def _cell_errors(kind: str, columns: list, where: str) -> list[str]:
+    cells = _SECTION_CELLS[kind]
+    dynamic = kind in _AXIS_READERS
+    allowed = sorted([*cells] + ([AXES_CELL] if dynamic else []))
+    errors = []
+    for j, col in enumerate(columns):
+        name = col.get("cell")
+        if name in allowed or (dynamic and isinstance(name, str) and name.startswith(AXIS_PREFIX)):
+            continue
+        hint = f" (또는 `{AXIS_PREFIX}<축 이름>`)" if dynamic else ""
+        errors.append(
+            f"{where}.columns[{j}]: 미지 셀 {name!r} — 쓸 수 있는 이름: {', '.join(allowed)}{hint}"
         )
-        for item in row["items"]:
-            marker = "" if item["summary_from"] == SOURCE_FRONTMATTER else " (본문 발췌)"
-            lines.append(f"      - {item['path']} (refs {item['refs']}){marker}")
-            if item["summary"]:
-                lines.append(f"        {item['summary']}")
-    return "\n".join(lines)
+    return errors
+
+
+def _bundle_errors(section: dict, columns: list, where: str) -> list[str]:
+    errors = []
+    if len(columns) != 2:
+        errors.append(f"{where}: bundle 섹션은 열이 2개(항목·수)여야 한다 — 현재 {len(columns)}개")
+    rows = section.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return [*errors, f"{where}: `rows`가 비었거나 목록이 아님"]
+    for j, row in enumerate(rows):
+        if not isinstance(row.get("label"), str):
+            errors.append(f"{where}.rows[{j}]: `label` 문자열이 필요하다")
+        if row.get("value") not in _BUNDLE_VALUES:
+            errors.append(
+                f"{where}.rows[{j}]: 미지 값 {row.get('value')!r} — "
+                f"쓸 수 있는 이름: {', '.join(_BUNDLE_VALUES)}"
+            )
+    return errors
+
+
+def _heading_errors(section: dict, kind: str, where: str) -> list[str]:
+    allowed = set(_HEADING_FIELDS.get(kind, ()))
+    errors = []
+    for key in ("heading", "heading_with_valueless"):
+        text = section.get(key)
+        if not isinstance(text, str):
+            continue
+        for _literal, field, _spec, _conv in string.Formatter().parse(text):
+            if field is None or field in allowed:
+                continue
+            usable = f"쓸 수 있는 이름: {', '.join(sorted(allowed))}" if allowed else "치환 불가"
+            errors.append(f"{where}.{key}: 미지 치환 {{{field}}} — {usable}")
+    return errors
+
+
+def _section_errors(section: dict, where: str) -> list[str]:
+    kind = section.get("kind")
+    if kind not in _SECTION_RENDERERS:
+        return [f"{where}: 미지 kind {kind!r} — 쓸 수 있는 값: {', '.join(_SECTION_RENDERERS)}"]
+    errors = []
+    if not isinstance(section.get("heading"), str):
+        errors.append(f"{where}: `heading` 문자열이 필요하다")
+    columns = section.get("columns")
+    if not isinstance(columns, list) or not columns:
+        errors.append(f"{where}: `columns`가 비었거나 목록이 아님")
+        columns = []
+    errors += (
+        _bundle_errors(section, columns, where)
+        if kind == "bundle"
+        else _cell_errors(kind, columns, where)
+    )
+    return errors + _heading_errors(section, kind, where)
+
+
+def template_errors(template: dict) -> list[str]:
+    """템플릿 계약 위반 목록(빈 목록이면 통과).
+
+    메시지는 무엇이 틀렸는지와 **대신 쓸 수 있는 이름**을 함께 낸다 — 커스텀 템플릿을
+    쓰는 쪽은 엔진 코드를 읽지 않으므로, 오류 자체가 유일한 계약 문서다.
+    """
+    sections = template.get("sections")
+    if not isinstance(sections, list) or not sections:
+        return ["`sections`가 비었거나 목록이 아님 — 섹션을 하나 이상 둔다"]
+    errors: list[str] = []
+    for i, section in enumerate(sections):
+        errors += _section_errors(section, f"sections[{i}]")
+    return errors
+
+
+def load_template(path: str | Path | None = None) -> dict:
+    """렌더 템플릿을 읽는다. 미지정이면 엔진 기본 템플릿.
+
+    위반은 렌더 전에 **전부 모아** 올린다 — 렌더 도중에 터지면 출력이 반쯤 나온 채
+    실패해 무엇이 잘못됐는지 읽기 어렵다.
+    """
+    source = Path(path) if path else DEFAULT_TEMPLATE
+    template = json.loads(source.read_text(encoding="utf-8"))
+    errors = template_errors(template)
+    if errors:
+        detail = "\n".join(f"  - {error}" for error in errors)
+        raise ValueError(f"템플릿 계약 위반: {source}\n{detail}")
+    return template
+
+
+def render(payload: dict, template: dict | None = None) -> str:
+    """사람 가독 렌더 — 계산하지 않고 payload의 수치를 그대로 옮긴다(이중 원천 금지).
+
+    **표시는 템플릿이 정하고 관측은 엔진이 지킨다.** 템플릿이 바꾸는 것은 섹션 순서·
+    헤딩 문구·열의 라벨/순서/선택/정렬뿐이고, 행 집합과 행 순서는 payload 그대로다.
+
+    스펙 조항 번호·엔진 내부 어휘는 라벨에 쓰지 않는다. 이 출력의 독자는 번들을 다루는
+    사람이지 엔진 구현자가 아니므로, 화면에서 뜻이 닫히지 않는 참조는 라벨이 아니다.
+    """
+    spec = template if template is not None else load_template()
+    axis_keys = payload["bundle"]["axes"]
+    blocks: list[list[str]] = []
+    for section in spec["sections"]:
+        blocks += _SECTION_RENDERERS[section["kind"]](payload, section, axis_keys)
+    return "\n\n".join("\n".join(block) for block in blocks if block)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -359,6 +663,14 @@ def main(argv: list[str] | None = None) -> int:
         help="교차 집계할 frontmatter 축(반복 가능). 미지정이면 규칙의 필수 필드",
     )
     ap.add_argument("--json", action="store_true", help="payload를 JSON으로 출력")
+    ap.add_argument(
+        "--template",
+        metavar="PATH",
+        help=(
+            "렌더 템플릿 JSON(섹션·라벨·열 구성). 미지정이면 엔진 기본 — "
+            "`okf_core/templates/census.json`을 복사해 고쳐 쓴다"
+        ),
+    )
     args = ap.parse_args(argv)
 
     bundle = Path(args.bundle)
@@ -369,8 +681,13 @@ def main(argv: list[str] | None = None) -> int:
     payload = build_census(bundle, axes=args.axis)
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
-    else:
-        print(render(payload))
+        return 0
+    try:
+        template = load_template(args.template)
+    except (OSError, ValueError) as exc:
+        print(f"오류: 템플릿을 쓸 수 없음 — {exc}", file=sys.stderr)
+        return 2
+    print(render(payload, template))
     return 0  # 관측은 판정하지 않는다 — 발견이 있어도 1을 내지 않는다
 
 

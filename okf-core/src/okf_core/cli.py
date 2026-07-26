@@ -4,7 +4,7 @@
   okf index    <path> [--write]
   okf graph    <path> --json [--linked-to P] [--edges-from KEY] [--chain C]
   okf context  <path> [--max-chars N] [--group-by KEY] [--filter KEY=VALUE]
-  okf census   <path> [--axis KEY]... [--json]
+  okf census   <path> [--axis KEY]... [--json] [--template PATH]
   okf log      append <path> -m MSG
   okf init     <dir>
 

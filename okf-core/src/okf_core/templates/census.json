@@ -1,0 +1,61 @@
+{
+  "template_version": "1",
+  "sections": [
+    {
+      "kind": "bundle",
+      "heading": "## 번들",
+      "columns": [
+        { "label": "항목" },
+        { "label": "수", "align": "right" }
+      ],
+      "rows": [
+        { "label": "개념", "value": "concepts" },
+        { "label": "디렉터리", "value": "dirs" },
+        { "label": "개념 사이 링크", "value": "links" },
+        { "label": "예약 파일", "value": "reserved" },
+        { "label": "필수 필드가 없어 개념에서 빠진 문서", "value": "failing" }
+      ],
+      "notice_label": "알림"
+    },
+    {
+      "kind": "fields",
+      "heading": "## frontmatter 필드",
+      "columns": [
+        { "label": "필드", "cell": "field" },
+        { "label": "쓰는 개념", "cell": "present_of_total", "align": "right" },
+        { "label": "서로 다른 값", "cell": "values", "align": "right" },
+        { "label": "값 형태", "cell": "kinds" }
+      ]
+    },
+    {
+      "kind": "axes",
+      "heading": "## 축 `{axis}` — 기재 {present}개 · 미기재 {missing}개",
+      "heading_with_valueless": "## 축 `{axis}` — 기재 {present}개 · 미기재 {missing}개 · 값 없음 {valueless}개",
+      "columns": [
+        { "label": "값", "cell": "value" },
+        { "label": "개념", "cell": "count", "align": "right" },
+        { "label": "디렉터리 분포", "cell": "dirs" }
+      ]
+    },
+    {
+      "kind": "dirs",
+      "heading": "## 디렉터리",
+      "columns": [
+        { "label": "경로", "cell": "path" },
+        { "label": "깊이", "cell": "depth", "align": "right" },
+        { "label": "개념 직속(하위)", "cell": "concepts_with_subtree", "align": "right" },
+        { "label": "링크 안/밖/받음", "cell": "links_flow", "align": "right" },
+        { "cell": "axes" }
+      ]
+    },
+    {
+      "kind": "concepts",
+      "heading": "## 개념 — {path} ({concepts}개)",
+      "columns": [
+        { "label": "파일", "cell": "file" },
+        { "cell": "axes" },
+        { "label": "받은 링크", "cell": "refs", "align": "right" }
+      ]
+    }
+  ]
+}

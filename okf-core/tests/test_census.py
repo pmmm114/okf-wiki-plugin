@@ -5,10 +5,12 @@
 (값 목록은 번들에서 귀납). 아래 테스트는 그 셋을 각각 회귀로 고정한다.
 """
 
+import json
+import unicodedata
 from pathlib import Path
 
 from okf_core.bundle import load_rules, partition
-from okf_core.census import build_census, render
+from okf_core.census import DEFAULT_TEMPLATE, build_census, render, template_errors
 from okf_core.index import generate_indexes
 from okf_core.parser import walk_bundle
 from okf_core.validate import validate_bundle
@@ -16,6 +18,7 @@ from okf_core.validate import validate_bundle
 FIXTURES = Path(__file__).parent / "fixtures"
 APPENDIX_A = FIXTURES / "appendix-a"
 VIOLATIONS = FIXTURES / "violations"
+TAXONOMY = FIXTURES / "taxonomy"  # 본문·요약 원문에 스펙 조항 인용이 없는 번들
 
 
 def _dirs(payload: dict) -> dict[str, dict]:
@@ -156,6 +159,144 @@ def test_census_never_judges(capsys):
     assert main([str(VIOLATIONS), "--json"]) == 0
     capsys.readouterr()
     assert main([str(FIXTURES / "no-such-bundle")]) == 2  # 실행 오류만 2
+
+
+def _visual_width(text: str) -> int:
+    """터미널에서 실제로 차지하는 칸 수 — 전각은 2칸(``len``과 다르다)."""
+    return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text)
+
+
+def _table_block(text: str, heading: str) -> list[str]:
+    lines = text.splitlines()
+    start = lines.index(heading) + 1
+    return lines[start : lines.index("", start)]
+
+
+def test_render_labels_close_without_the_spec():
+    """렌더 라벨은 화면 안에서 뜻이 닫힌다 — 스펙 조항 번호는 읽는 사람의 주소가 아니다.
+
+    번들 원문(요약)에 든 조항 인용은 관측 대상이라 그대로 실린다. 그래서 원문에
+    인용이 없는 번들로 **렌더가 스스로 만든 문구만** 본다.
+    """
+    text = render(build_census(TAXONOMY))
+    assert "§" not in text
+    assert "탈락" not in text
+
+
+def test_render_aligns_full_width_labels():
+    """한글 라벨이 든 표도 열이 맞는다 — ``len``으로 채우면 전각만큼 밀린다.
+
+    번들 요약 표는 마지막 열이 우측 정렬 수치라, 열이 맞으면 모든 행의 표시 폭이 같다.
+    """
+    block = _table_block(render(build_census(TAXONOMY)), "## 번들")
+    assert len(block) == 7  # 헤더 + 구분선 + 5개 항목
+    assert len({_visual_width(line) for line in block}) == 1
+
+
+def test_render_keeps_summaries_unabridged():
+    """표가 원문을 자르지 않는다 — 요약은 열이 아니라 행에 딸린 줄로 실린다."""
+    text = render(build_census(TAXONOMY))
+    for _rel, doc in walk_bundle(TAXONOMY):
+        description = (doc.frontmatter or {}).get("description")
+        if isinstance(description, str) and description.strip():
+            assert description.strip() in text
+
+
+def _concepts_only(columns: list[dict]) -> dict:
+    """개념 섹션 하나만 둔 최소 템플릿 — 표시를 최대한 줄여도 관측이 남는지 보는 도구."""
+    return {"sections": [{"kind": "concepts", "heading": "## {path}", "columns": columns}]}
+
+
+def test_default_template_satisfies_its_own_contract():
+    """엔진 기본 템플릿이 계약 검사를 통과한다 — 계약을 어긴 기본값은 예시가 못 된다."""
+    assert template_errors(json.loads(DEFAULT_TEMPLATE.read_text(encoding="utf-8"))) == []
+
+
+def test_template_customizes_sections_labels_and_columns():
+    """템플릿이 바꾸는 것: 섹션 선택·헤딩 문구·열 라벨·열 순서."""
+    text = render(
+        build_census(TAXONOMY),
+        _concepts_only(
+            [
+                {"label": "Kind", "cell": "axis:type"},
+                {"label": "File", "cell": "file"},
+            ]
+        ),
+    )
+    assert "## cluster" in text
+    header = next(line for line in text.splitlines() if "File" in line)
+    assert header.index("Kind") < header.index("File")  # 기본 템플릿은 파일이 먼저다
+    assert "frontmatter 필드" not in text and "## 디렉터리" not in text  # 고르지 않은 섹션
+    assert "받은 링크" not in text  # 고르지 않은 열
+
+
+def test_template_cannot_drop_rows():
+    """어떤 템플릿으로도 관측은 줄지 않는다 — 열을 하나만 남겨도 개념은 전량 실린다.
+
+    템플릿에 행 필터·상한 문법이 아예 없다는 것이 census의 "절단 없음" 계약이다.
+    """
+    payload = build_census(TAXONOMY)
+    text = render(payload, _concepts_only([{"label": "F", "cell": "file"}]))
+    listed = [item["path"] for row in payload["dirs"] for item in row["items"]]
+    assert len(listed) == payload["bundle"]["concepts"]
+    for path in listed:
+        assert Path(path).name in text
+
+
+def test_template_cannot_hide_summaries():
+    """요약 표시는 템플릿 소관이 아니다 — 원문을 감추면 관측이 거짓말이 된다."""
+    text = render(build_census(TAXONOMY), _concepts_only([{"label": "F", "cell": "file"}]))
+    assert "한 번에 들어온 묶음의 첫 개념." in text
+    assert "(본문 발췌)" in text  # 잘린 요약의 출처 표시도 템플릿이 못 끈다
+
+
+def test_template_errors_name_what_can_be_used():
+    """오류가 곧 계약 문서다 — 커스텀하는 쪽은 엔진 코드를 읽지 않는다."""
+    unknown_cell = template_errors(
+        {"sections": [{"kind": "fields", "heading": "x", "columns": [{"cell": "nope"}]}]}
+    )
+    assert len(unknown_cell) == 1
+    assert "nope" in unknown_cell[0] and "present_of_total" in unknown_cell[0]
+
+    unknown_kind = template_errors({"sections": [{"kind": "nope", "heading": "x"}]})
+    assert "bundle" in unknown_kind[0] and "concepts" in unknown_kind[0]
+
+    unknown_value = template_errors(
+        {
+            "sections": [
+                {
+                    "kind": "bundle",
+                    "heading": "x",
+                    "columns": [{"label": "a"}, {"label": "b"}],
+                    "rows": [{"label": "L", "value": "nope"}],
+                }
+            ]
+        }
+    )
+    assert "nope" in unknown_value[0] and "reserved" in unknown_value[0]
+
+    unknown_field = template_errors(
+        {"sections": [{"kind": "fields", "heading": "{oops}", "columns": [{"cell": "field"}]}]}
+    )
+    assert "oops" in unknown_field[0]
+
+    # 축 열은 축을 가진 섹션(dirs·concepts)에서만 — fields 행에는 축이 없다
+    assert template_errors(
+        {"sections": [{"kind": "fields", "heading": "x", "columns": [{"cell": "axes"}]}]}
+    )
+
+
+def test_main_rejects_unusable_template(tmp_path, capsys):
+    """템플릿 문제는 실행 오류(2)다 — 판정 실패(1)와 뭉개지 않는다."""
+    from okf_core.census import main
+
+    broken = tmp_path / "broken.json"
+    broken.write_text(json.dumps({"sections": [{"kind": "nope"}]}), encoding="utf-8")
+    assert main([str(TAXONOMY), "--template", str(broken)]) == 2
+    assert "nope" in capsys.readouterr().err
+
+    assert main([str(TAXONOMY), "--template", str(tmp_path / "absent.json")]) == 2
+    capsys.readouterr()
 
 
 def test_render_does_not_recompute_payload():
