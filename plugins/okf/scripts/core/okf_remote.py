@@ -181,7 +181,9 @@ def _parse_status_z(out: str) -> list[tuple[str, str]]:
     return entries
 
 
-def list_residue(clone_path: str | Path) -> list[tuple[str, str]] | None:
+def list_residue(
+    clone_path: str | Path, pathspec: str | None = None
+) -> list[tuple[str, str]] | None:
     """워킹트리 잔재를 (XY, 경로) 목록으로 연다. 판정 불가는 None.
 
     두 플래그가 정확성의 전제다.
@@ -190,10 +192,21 @@ def list_residue(clone_path: str | Path) -> list[tuple[str, str]] | None:
       내보낸다. 그 경로를 지우려 하면 OSError라 폐기가 **조용히 무동작**한다.
     - ``-z`` — 기본 출력은 비ASCII·공백 경로를 따옴표로 감싸고 이스케이프한다. 인용된
       문자열을 그대로 경로로 쓰면 폐기가 엉뚱한 곳을 향한다.
+
+    ``pathspec``을 주면 그 하위만 연다. 관리형 clone은 repo ≈ 번들이라 범위가 문제되지
+    않았지만, 로컬 경로 vault·프로젝트 스코프로 넓히면 repo 전체가 열거되어 **사용자의
+    번들 밖 실작업이 잔재로 보고된다**(#266 U4). ``:(literal)`` 매직으로 감싸는 이유는
+    번들 경로를 소비처가 정하기 때문이다 — ``[``·``*``가 들어가면 glob으로 해석돼 엉뚱한
+    범위가 잡히고, 그 목록이 폐기로 흐른다.
+
+    **범위 한정은 열거에서만 한다.** 폐기 경로(``reclaim_sealed``·``discard_paths``)의
+    관리형 clone 가드는 건드리지 않는다 — 잘못된 폐기는 비가역이고 잘못된 보존은 재현
+    가능한 소음이라는 비대칭(#216)이 그대로 적용된다.
     """
-    rc, out, _err = _run_git(
-        ["status", "--porcelain", "-z", "--untracked-files=all"], cwd=str(clone_path)
-    )
+    args = ["status", "--porcelain", "-z", "--untracked-files=all"]
+    if pathspec:
+        args += ["--", f":(literal){pathspec}"]
+    rc, out, _err = _run_git(args, cwd=str(clone_path))
     if rc != 0:
         return None
     return _parse_status_z(out)
