@@ -1,0 +1,99 @@
+name: Epic (트래커)
+description: 유닛 여러 개로 분해되는 큰 작업. 이 이슈 자체로는 PR을 열지 않습니다
+labels: ["enhancement", "epic"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        제목은 문제를 서술하고 끝에 `(Epic)`을 붙입니다 — 예: `미반영 판결이 누락된다 — 수렴점이 세 상태 중 하나만 말한다 (Epic)`.
+
+        Epic은 **트래커**입니다. 실제 작업은 유닛(sub-issue)마다 브랜치·PR로 나갑니다. 유닛을 본문 체크박스가 아니라 **GitHub sub-issue로 연결**해야 합니다 — 완결성 게이트(`scripts/epic_completeness.py`)가 읽는 신호는 `sub_issues_summary`이고, 체크박스는 보지 않습니다.
+
+        공개 repo이므로 소비 조직·저장소 실명과 내부 정보는 본문에 넣지 않습니다.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 문제
+      description: |
+        무엇이 왜 지금 상태로는 안 되는지. 상태가 여럿이면 표로 나열합니다 — 어떤 상태가 어떻게 처리되고 무엇이 결함인지가 유닛 분해의 근거가 됩니다.
+      placeholder: |
+        | 상태 | 현재 출력 | 결함 |
+        | --- | --- | --- |
+        | A. 핸들러 미추적 | note 없음 · exit 0 | **완전 무음** |
+        | B. trust 미승인 | note + 복구 지시 | 정상 |
+        | C. 핸들러 미배선 | note만 · 복구 지시 없음 | 반쪽 |
+    validations:
+      required: true
+
+  - type: textarea
+    id: rejected
+    attributes:
+      label: 기각한 대안 · 폐기 이력
+      description: |
+        검토했다가 접은 설계를 사유와 함께 남깁니다. 같은 선택지를 다시 검토할 때 재료가 되고, 뒤집힌 이력 자체가 "그럴듯함"을 근거로 쓰지 못하게 막습니다.
+    validations:
+      required: false
+
+  - type: textarea
+    id: units
+    attributes:
+      label: 유닛 분해
+      description: |
+        유닛 하나 = PR 하나입니다. 각 유닛이 단독으로 착지 가능한지, 선행이 있는지를 함께 적습니다. 이슈를 만든 뒤 각 유닛을 sub-issue로 연결합니다.
+      value: |
+        - U1: (단독 착지 가능)
+        - U2: (U1 선행)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: base
+    attributes:
+      label: 유닛 PR의 base
+      description: |
+        유닛들이 다 되기 전에는 하나도 `main`에 나가면 안 되는(원자적 착지) 경우에만 통합 브랜치를 씁니다. 통합 브랜치로 머지된 유닛 PR은 `Closes`가 sub-issue를 자동으로 닫지 못한다는 대가가 있습니다.
+      options:
+        - "main 직접 (기본 — 유닛이 서로 독립이고 각자 착지해도 된다)"
+        - "epic/<이슈번호> 통합 브랜치 (원자적 착지가 필요하거나 단일 브랜치 제약과 충돌)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: convergence
+    attributes:
+      label: Epic 완료 기준
+      description: |
+        유닛별 완료 기준은 각 sub-issue에 있습니다. 여기에는 **유닛이 다 모였을 때 성립해야 하는 것**만 적습니다 — 유닛 하나로는 증명되지 않는 횡단 성질.
+      value: |
+        - [ ] 모든 sub-issue 닫힘
+        - [ ]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 영역
+      description: |
+        대응하는 `type:*` 라벨을 **이슈 생성 후 직접 붙입니다** — 이슈 폼은 고정 라벨(`enhancement`·`epic`)만 자동으로 붙이고 이 선택을 라벨로 바꿔주지는 않습니다.
+      options:
+        - "엔진 (okf-core/src) — type:core"
+        - "플러그인 (plugins/okf) — type:plugin"
+        - "CI·워크플로 — type:ci"
+        - "배포·릴리스 — type:dist"
+        - "문서 — type:docs"
+        - "벤더 (okf-core/vendor) — type:vendor"
+        - "규약·거버넌스 — type:governance"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: 확인
+      options:
+        - label: 유닛을 GitHub sub-issue로 연결한다 (본문 체크박스만으로는 완결성 게이트가 통과하지 않는다)
+          required: true
+        - label: 소비 조직·저장소 실명과 내부 정보가 본문에 없다
+          required: true
