@@ -526,3 +526,39 @@ def test_dualization_detected_for_local_twin(monkeypatch, tmp_path):
     _git(tmp_path, "clone", url, str(local))
     note = okf_remote.dualization_note(str(local), str(local))
     assert note is not None and "이원화" in note
+
+
+def test_recovery_route_is_wiring_aware(tmp_path):
+    """회복 라우트가 배선 여부로 갈린다 — 단일원천(#275, Epic #266 U3).
+
+    미배선 vault에 "디스패치로 반영하라"는 실행 불가능한 지시다(#216 V4). doctor 경로는
+    이미 그렇게 갈리는데(#239) ff 정체 경고는 그 분기를 못 받았다. 두 소비처가 같은
+    헬퍼를 쓰게 해서 한쪽만 고쳐지는 드리프트를 없앤다.
+    """
+    vault = tmp_path / "v"
+    vault.mkdir()
+    (vault / ".okf-wiki.json").write_text("{}", encoding="utf-8")
+    assert "배선" in okf_remote._recovery_route(vault)
+    assert "디스패치" not in okf_remote._recovery_route(vault)
+
+    (vault / ".okf-wiki.json").write_text(
+        '{"study": {"handlers": [{"name": "h", "command": "x"}]}}', encoding="utf-8"
+    )
+    assert "디스패치" in okf_remote._recovery_route(vault)
+
+
+def test_ff_stall_warning_routes_by_wiring(tmp_path, monkeypatch):
+    """미배선 clone의 ff 정체 경고가 못 하는 일을 시키지 않는다.
+
+    현행은 배선 여부와 무관하게 "디스패치(PR)로 반영하라"를 낸다 — 반영 경로가 없는
+    사용자에게는 막다른 안내다.
+    """
+    src = _origin(tmp_path)  # 기본 config엔 study.handlers 없음
+    url = _url(src)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, url)
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    (clone_path / ".okf" / "stale.md").write_text("# never pushed\n", encoding="utf-8")
+    result = okf_remote._recover_and_ff(clone_path, 5.0)
+    assert result["refreshed"] is False and result["reason"] == "미봉인 잔재"  # 기계 축 불변
+    assert "디스패치" not in result["warning"]
+    assert "배선" in result["warning"]

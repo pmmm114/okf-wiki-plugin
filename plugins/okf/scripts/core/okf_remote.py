@@ -457,6 +457,21 @@ def _ff(clone_path: str | Path, timeout: float) -> int | None:
     return rc
 
 
+def _recovery_route(clone_path: str | Path) -> str:
+    """미반영 잔재를 어떻게 처리하라고 안내할지 — **배선 여부로 갈리는 단일원천**(#266 U3).
+
+    반영 경로가 없는 vault에 "디스패치하라"는 실행 불가능한 지시다(#216 V4). doctor가 이미
+    그렇게 갈렸는데(#239) ff 정체 경고는 그 분기를 못 받아 막다른 안내를 냈다. 두 소비처가
+    이 헬퍼를 공유해 한쪽만 고쳐지는 드리프트를 없앤다.
+
+    ``_has_handlers``를 부르는 **유일한 곳**이다 — 그 함수는 설정 존재 여부(프록시)일 뿐이라
+    소비처가 늘면 판정으로 승격될 위험이 커진다. 호출처는 테스트가 이름으로 고정한다.
+    """
+    if _has_handlers(clone_path):
+        return "디스패치(PR)로 반영하라"
+    return "원격 반영 경로 없음(핸들러 미배선) — /okf-init --vault로 배선하라"
+
+
 def _recover_and_ff(clone_path: str | Path, timeout: float) -> dict:
     """ff가 **경로 충돌**로 거부됐을 때 — 봉인된 잔재만 폐기하고 재시도한다(#216 V1).
 
@@ -465,7 +480,7 @@ def _recover_and_ff(clone_path: str | Path, timeout: float) -> dict:
     가능하므로 정체를 푼다. 봉인되지 않았으면 **아무것도 지우지 않는다** — 오탐 폐기는
     비가역 지식 유실이지만, 미폐기는 알려진 정체를 재현할 뿐이고 진단 경로가 남는다.
     """
-    unsealed_warning = "원격에 없는 잔재가 ff를 막고 있다 — 디스패치(PR)로 반영하거나 직접 정리하라"
+    unsealed_warning = f"원격에 없는 잔재가 ff를 막고 있다 — {_recovery_route(clone_path)}"
     discarded = reclaim_sealed(clone_path)
     if not discarded:
         return {"refreshed": False, "reason": "미봉인 잔재", "warning": unsealed_warning}
@@ -594,11 +609,8 @@ def _residue_notes(clone_path: str | Path) -> list[str]:
             notes.append(f"  잔재 {len(sealed)}건: 원격에 반영됨 — /study 진입 시 자동 정리")
     if unsealed:
         # 원격 반영 경로가 없는 vault에 "디스패치하라"는 실행 불가능한 지시다(#216 V4).
-        route = (
-            "디스패치(PR)로 반영하라"
-            if _has_handlers(clone_path)
-            else "원격 반영 경로 없음(핸들러 미배선) — /okf-init --vault로 배선하라"
-        )
+        # 같은 판단을 ff 정체 경고와 공유한다(#266 U3) — 한쪽만 고쳐지지 않도록.
+        route = _recovery_route(clone_path)
         notes.append(f"  ⚠ 잔재 {len(unsealed)}건: 원격 미반영 — {route}(폐기하면 유실)")
     if undecidable:
         notes.append(f"  ⚠ 잔재 {undecidable}건: 삭제·이름변경 — 판정 불가, 직접 확인 필요")

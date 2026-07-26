@@ -150,7 +150,9 @@ def test_has_handlers_callers_are_pinned():
     프록시가 판정으로 승격될 위험이 커지므로, 늘어날 때 의식적으로 허용하게 한다.
     개수가 아니라 이름으로 잠그는 이유는 호출처가 옮겨갈 때(#275) 1줄로 끝내기 위함이다.
     """
-    allowed = {"_residue_notes"}
+    # #275(U3)가 라우트 문구를 `_recovery_route`로 뽑으면서 호출처가 그리로 옮겨왔다 —
+    # 개수가 아니라 이름으로 잠근 덕에 이 한 줄 갱신으로 끝난다.
+    allowed = {"_recovery_route"}
     tree = ast.parse((CORE / "okf_remote.py").read_text(encoding="utf-8"))
     callers = {
         fn.name
