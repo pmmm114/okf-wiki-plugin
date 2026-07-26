@@ -1,9 +1,6 @@
 # `.okf-wiki.json` — 프로젝트 설정 (T-P5-5 확정)
 
-소비 repo **루트**에 두는 프로젝트 스코프 설정 파일이다. 플러그인의
-`session_start.sh`는 프로젝트 설정을 **이 파일 하나에서만** 읽는다
-(userConfig는 유저 스코프이므로 프로젝트별 값에 쓰지 않는다). 파일이 없으면
-훅은 아무것도 하지 않는다.
+소비 repo **루트**에 두는 프로젝트 스코프 설정 파일이다. 플러그인의 `session_start.sh`는 프로젝트 설정을 **이 파일 하나에서만** 읽는다 (userConfig는 유저 스코프이므로 프로젝트별 값에 쓰지 않는다). 파일이 없으면 훅은 아무것도 하지 않는다.
 
 ```json
 {
@@ -25,8 +22,7 @@
 
 ## `explore` — 탐색 제공자 교체 (Epic #197)
 
-층간 승격(`/okf-promote`)의 탐색(신호·층 맵)을 외부 도구로 교체하는 오버라이드.
-인터페이스 정본은 스킬 `reference/EXPLORE.md` 계약이다.
+층간 승격(`/okf-promote`)의 탐색(신호·층 맵)을 외부 도구로 교체하는 오버라이드. 인터페이스 정본은 스킬 `reference/EXPLORE.md` 계약이다.
 
 | 키 | 타입 | 기본값 | 의미 |
 | --- | --- | --- | --- |
@@ -34,8 +30,7 @@
 
 ## `study` — 메모리→지식 승격 (Epic #72)
 
-메모리 저장을 감지해 지식 개념으로 승격하고, 소비처가 주입한 핸들러로 흘려보내는
-`study` 기능의 설정. `/okf-init`이 이 블록과 `.okf-study/` 런타임 디렉터리를 만든다.
+메모리 저장을 감지해 지식 개념으로 승격하고, 소비처가 주입한 핸들러로 흘려보내는 `study` 기능의 설정. `/okf-init`이 이 블록과 `.okf-study/` 런타임 디렉터리를 만든다.
 
 ```json
 {
@@ -61,23 +56,12 @@
 - `review`: 저장 시 **개념 블록** 후보를 스테이징 스토어에 적재만 — `/study`로 드레인.
 - `auto`: review + 살아있는 세션이 알아서 드레인·승격(모델 개입·trust 필요).
 
-**설정은 `.okf-wiki.json`에, 상태는 런타임 루트에** — 섞지 않는다. 런타임 루트는
-후보 큐·승격/폐기 원장·이벤트 저널을 **하나의 SQLite `study.db`**(#130)와 `trust`
-(핸들러 로컬 승인)로 담고, 위치는 **스코프가 정한다**(#114): 자기 study 블록이
-있는 프로젝트는 `<repo>/.okf-study/`(자체 `.gitignore`로 `study.db`·WAL 사이드카까지
-커밋 제외), vault/폴백은 유저 스코프 `~/.claude/okf/study/`. vault는 순수 목적지라 런타임을
-담지 않는다.
+**설정은 `.okf-wiki.json`에, 상태는 런타임 루트에** — 섞지 않는다. 런타임 루트는 후보 큐·승격/폐기 원장·이벤트 저널을 **하나의 SQLite `study.db`**(#130)와 `trust` (핸들러 로컬 승인)로 담고, 위치는 **스코프가 정한다**(#114): 자기 study 블록이 있는 프로젝트는 `<repo>/.okf-study/`(자체 `.gitignore`로 `study.db`·WAL 사이드카까지 커밋 제외), vault/폴백은 유저 스코프 `~/.claude/okf/study/`. vault는 순수 목적지라 런타임을 담지 않는다.
 
-- **캡처 원자는 개념 블록**(#131): 여러 줄에 걸친 한 개념이 후보 1개로 묶인다(줄-해시
-  자식 병존으로 ledger 연속성). 재캡처는 재등장 카운터를 올리고(#132), 재서술된
-  근사중복은 `study near`로 자문 표시(SimHash — 자동병합·게이팅 없음, 정확 해시 앵커
-  불변, #133). 지식 정본은 git 번들 + `log.md`이고 `study.db`는 소모성 런타임 상태다.
-- **`_sqlite3` 부재 파이썬**에선 스테이징이 fail-closed(무동작)한다 — `OKF_PYTHON`을
-  SQLite 포함 빌드로 지정하면 활성된다(`/okf-doctor`가 감지·안내). 옛 markdown
-  스테이징(pre-0.5)은 `study migrate`가 `study.db`로 멱등 이관한다(#134).
+- **캡처 원자는 개념 블록**(#131): 여러 줄에 걸친 한 개념이 후보 1개로 묶인다(줄-해시 자식 병존으로 ledger 연속성). 재캡처는 재등장 카운터를 올리고(#132), 재서술된 근사중복은 `study near`로 자문 표시(SimHash — 자동병합·게이팅 없음, 정확 해시 앵커 불변, #133). 지식 정본은 git 번들 + `log.md`이고 `study.db`는 소모성 런타임 상태다.
+- **`_sqlite3` 부재 파이썬**에선 스테이징이 fail-closed(무동작)한다 — `OKF_PYTHON`을 SQLite 포함 빌드로 지정하면 활성된다(`/okf-doctor`가 감지·안내). 옛 markdown 스테이징(pre-0.5)은 `study migrate`가 `study.db`로 멱등 이관한다(#134).
 
-도입 절차(설치→`/okf-init`→핸들러 계약→trust 승인→사용)와 참조 핸들러 템플릿은
-repo 루트 `docs/adopting-study.md` 참조.
+도입 절차(설치→`/okf-init`→핸들러 계약→trust 승인→사용)와 참조 핸들러 템플릿은 repo 루트 `docs/adopting-study.md` 참조.
 
 ## Vault 프로젝트 폴백 — 유저 스코프 (Epic #91)
 
@@ -85,66 +69,33 @@ repo 루트 `docs/adopting-study.md` 참조.
 > [원격 지식 저장고 가이드](../../../../../docs/remote-vault.md)에 있다. 이 절은 설정 항목·
 > 해소 규칙의 정본(레퍼런스)이다.
 
-프로젝트 설정이 없는 위치(비-repo 폴더·무설정 repo)에서도 캡처·주입이 동작하게
-하는 폴백 계층. 유저 스코프는 설정 계층이 아니라 **포인터 하나**다:
+프로젝트 설정이 없는 위치(비-repo 폴더·무설정 repo)에서도 캡처·주입이 동작하게 하는 폴백 계층. 유저 스코프는 설정 계층이 아니라 **포인터 하나**다:
 
 ```
 ~/.claude/okf/vault-project      # 한 줄: vault repo 절대경로(~/ 경로) 또는 repo URL(#153)
 ```
 
-- **vault repo**는 실제 git repo로, 자기 `.okf-wiki.json`·번들(`.okf/`)·커밋 핸들러를
-  가진 **순수 지식 목적지**다(#114). 런타임(inbox/ledger/trust)은 vault가 아니라 유저
-  스코프 `~/.claude/okf/study`에 쌓인다 — vault엔 `.okf-study`를 만들지 않는다. 보안
-  모델(커밋 핸들러 + trust)은 무변경이되 trust 파일 저장만 유저 스코프로 옮긴다.
-- **생성 = 옵트인**: `/okf-init --vault <path|url>`가 검증 후 기록. 플러그인이 임의 생성하지
-  않는다. env `OKF_VAULT_PROJECT`가 파일보다 우선(테스트·CI용).
-- **하위호환(#152)**: 구 표면도 폴백으로 계속 읽는다 — env `OKF_HOME_PROJECT`, 포인터 파일
-  `~/.claude/okf/home-project`, scope 값 `"home"`, 플래그 `--home`. 포인터 해소 우선순위는
-  **신 env `OKF_VAULT_PROJECT` > 구 env `OKF_HOME_PROJECT` > 신 파일 `vault-project` > 구 파일
-  `home-project`**. 구 표면만 있는 기존 사용자는 동작 무변경이고 `/okf-doctor`가 새 표면으로의
-  마이그레이션을 안내한다(유저 머신 상태라 최소 1개 릴리스 이상 유지 후 제거 예고).
-- **값 규약**: **로컬 경로**(절대경로 또는 `~/` 시작, expanduser) 또는 **repo URL**
-  (아래 URL 모드) 둘 중 하나. 전후 공백·개행·따옴표 무시.
-- **유효 판정(로컬 경로)**: ① 대상 실재 ② git repo ③ `.okf-wiki.json` 존재 — 셋 중 하나라도
-  깨지면 무효. 설정은 있으나 study 블록이 없는 **반쪽 상태는 무효가 아니라
-  "주입 전용 vault"**(정상 — 캡처만 비활성).
+- **vault repo**는 실제 git repo로, 자기 `.okf-wiki.json`·번들(`.okf/`)·커밋 핸들러를 가진 **순수 지식 목적지**다(#114). 런타임(inbox/ledger/trust)은 vault가 아니라 유저 스코프 `~/.claude/okf/study`에 쌓인다 — vault엔 `.okf-study`를 만들지 않는다. 보안 모델(커밋 핸들러 + trust)은 무변경이되 trust 파일 저장만 유저 스코프로 옮긴다.
+- **생성 = 옵트인**: `/okf-init --vault <path|url>`가 검증 후 기록. 플러그인이 임의 생성하지 않는다. env `OKF_VAULT_PROJECT`가 파일보다 우선(테스트·CI용).
+- **하위호환(#152)**: 구 표면도 폴백으로 계속 읽는다 — env `OKF_HOME_PROJECT`, 포인터 파일 `~/.claude/okf/home-project`, scope 값 `"home"`, 플래그 `--home`. 포인터 해소 우선순위는 **신 env `OKF_VAULT_PROJECT` > 구 env `OKF_HOME_PROJECT` > 신 파일 `vault-project` > 구 파일 `home-project`**. 구 표면만 있는 기존 사용자는 동작 무변경이고 `/okf-doctor`가 새 표면으로의 마이그레이션을 안내한다(유저 머신 상태라 최소 1개 릴리스 이상 유지 후 제거 예고).
+- **값 규약**: **로컬 경로**(절대경로 또는 `~/` 시작, expanduser) 또는 **repo URL** (아래 URL 모드) 둘 중 하나. 전후 공백·개행·따옴표 무시.
+- **유효 판정(로컬 경로)**: ① 대상 실재 ② git repo ③ `.okf-wiki.json` 존재 — 셋 중 하나라도 깨지면 무효. 설정은 있으나 study 블록이 없는 **반쪽 상태는 무효가 아니라 "주입 전용 vault"**(정상 — 캡처만 비활성).
 
 ### URL 포인터 모드 — 관리형 clone (#153)
 
-포인터에 **repo URL**을 주면 로컬 clone 위치를 정하고 유지할 필요가 없고(온보딩 단순화)
-설정이 머신 간 이식된다(로컬 절대경로는 머신마다 다르다). 플러그인이 유저 스코프에
-**관리형 clone**을 두고, 하류(주입·캡처·승격·디스패치·trust)는 로컬 경로 vault와 **동일
-파이프라인**을 탄다.
+포인터에 **repo URL**을 주면 로컬 clone 위치를 정하고 유지할 필요가 없고(온보딩 단순화) 설정이 머신 간 이식된다(로컬 절대경로는 머신마다 다르다). 플러그인이 유저 스코프에 **관리형 clone**을 두고, 하류(주입·캡처·승격·디스패치·trust)는 로컬 경로 vault와 **동일 파이프라인**을 탄다.
 
 ```
 ~/.claude/okf/remotes/<slug>/   # 관리형 clone. slug = sanitize(host/path)-sha256(canonical)[:8]
 ```
 
-- **감지·해소**: 값이 `scheme://`(https/ssh/git/file) 또는 `git@host:path`(scp-like)면 URL
-  모드. `vault_state`는 URL→canonical→slug→로컬 clone 경로 매핑만 하는 **순수(무네트워크)
-  분류기**다 — clone/fetch는 절대 여기서 하지 않는다(매 `.md` Write 훅 핫패스 보호).
-- **transport 허용**: `https`·`ssh`·`git`·`file`만. `user:token@` 크레덴셜은 포인터에
-  저장하지 않고(git credential helper·ssh-agent 위임), `ext::` 등 명령 실행 transport는
-  거부한다. canonical은 host 소문자·유저정보 제거·scp→ssh·`.git`/트레일링 슬래시 제거로
-  같은 repo의 서로 다른 표기를 한 slug로 수렴시킨다.
-- **생성 = 옵트인**: `set <url>`은 URL만 기록하고 **clone하지 않는다**. `/okf-init --vault <url>`
-  마법사가 동의를 받아 관리형 clone을 만든다. 미생성 상태는 무효 사유 **"URL 포인터 —
-  관리형 clone 미생성"**(로컬 오탈자 "대상 없음"과 구분)으로 SessionStart가 안내한다.
-- **신선도**: SessionStart가 **fetch-only**(origin ref만, worktree 불변·bounded·TTL dedup).
-  워킹트리 ff-only 갱신은 `/study` 진입에서 clean-gate(미커밋 잔재 없음) 통과 시에만.
-  오프라인·인증 실패는 **캐시로 저하**(주입 계속, PR만 보류)하고 1줄 경고. env
-  `OKF_REMOTE_OFFLINE=1`로 fetch 강제 중단, `OKF_REMOTE_FETCH_TTL`(초)로 dedup 창 조정.
-- **캡처 옵트인**: URL vault는 `enable-capture`가 clone의 커밋 설정을 편집하지 않는다(origin
-  diverge 방지) — **원격 repo에 `study.capture`를 커밋**하면 다음 fetch로 반영된다.
-- **진단**: `/okf-doctor`가 clone 상태·마지막 fetch·behind·dirty·이원화(로컬↔관리형)를
-  **무네트워크**(로컬 git 메타)로 표시한다.
-- **주입 전용 vault에 캡처 켜기**: `/okf-init --vault`이 대상의 캡처 준비 상태
-  (`capture_ready`: `active`/`off`/`absent`)를 판정해, 캡처가 꺼져 있으면 동의를 받아
-  vault `study.capture: review`(설정)만 켠다(스크립트 `study_scope.py enable-capture <vault>`
-  — 판정·편집 모두 코드 경로). 런타임(inbox/ledger/trust)은 **vault가 아니라 유저
-  스코프 `~/.claude/okf/study`**에 보장한다 — vault엔 `.okf-study`를 만들지 않는다
-  (#114 U2, vault는 순수 목적지). vault 설정에 쓰기이므로 활성만 사용자 선택이고,
-  이미 `auto`면 격하하지 않는다.
+- **감지·해소**: 값이 `scheme://`(https/ssh/git/file) 또는 `git@host:path`(scp-like)면 URL 모드. `vault_state`는 URL→canonical→slug→로컬 clone 경로 매핑만 하는 **순수(무네트워크) 분류기**다 — clone/fetch는 절대 여기서 하지 않는다(매 `.md` Write 훅 핫패스 보호).
+- **transport 허용**: `https`·`ssh`·`git`·`file`만. `user:token@` 크레덴셜은 포인터에 저장하지 않고(git credential helper·ssh-agent 위임), `ext::` 등 명령 실행 transport는 거부한다. canonical은 host 소문자·유저정보 제거·scp→ssh·`.git`/트레일링 슬래시 제거로 같은 repo의 서로 다른 표기를 한 slug로 수렴시킨다.
+- **생성 = 옵트인**: `set <url>`은 URL만 기록하고 **clone하지 않는다**. `/okf-init --vault <url>` 마법사가 동의를 받아 관리형 clone을 만든다. 미생성 상태는 무효 사유 **"URL 포인터 — 관리형 clone 미생성"**(로컬 오탈자 "대상 없음"과 구분)으로 SessionStart가 안내한다.
+- **신선도**: SessionStart가 **fetch-only**(origin ref만, worktree 불변·bounded·TTL dedup). 워킹트리 ff-only 갱신은 `/study` 진입에서 clean-gate(미커밋 잔재 없음) 통과 시에만. 오프라인·인증 실패는 **캐시로 저하**(주입 계속, PR만 보류)하고 1줄 경고. env `OKF_REMOTE_OFFLINE=1`로 fetch 강제 중단, `OKF_REMOTE_FETCH_TTL`(초)로 dedup 창 조정.
+- **캡처 옵트인**: URL vault는 `enable-capture`가 clone의 커밋 설정을 편집하지 않는다(origin diverge 방지) — **원격 repo에 `study.capture`를 커밋**하면 다음 fetch로 반영된다.
+- **진단**: `/okf-doctor`가 clone 상태·마지막 fetch·behind·dirty·이원화(로컬↔관리형)를 **무네트워크**(로컬 git 메타)로 표시한다.
+- **주입 전용 vault에 캡처 켜기**: `/okf-init --vault`이 대상의 캡처 준비 상태 (`capture_ready`: `active`/`off`/`absent`)를 판정해, 캡처가 꺼져 있으면 동의를 받아 vault `study.capture: review`(설정)만 켠다(스크립트 `study_scope.py enable-capture <vault>` — 판정·편집 모두 코드 경로). 런타임(inbox/ledger/trust)은 **vault가 아니라 유저 스코프 `~/.claude/okf/study`**에 보장한다 — vault엔 `.okf-study`를 만들지 않는다 (#114 U2, vault는 순수 목적지). vault 설정에 쓰기이므로 활성만 사용자 선택이고, 이미 `auto`면 격하하지 않는다.
 
 ### 스코프 해소 규칙
 
@@ -167,9 +118,7 @@ repo 루트 `docs/adopting-study.md` 참조.
 3. 아니면 무동작
 ```
 
-- 판별자가 다른 이유: 캡처는 **study 블록**, 주입은 **설정 파일** 기준 — 주입 전용
-  얇은 설정 repo에서 "주입=프로젝트, 캡처=vault" 혼합이 성립한다(그 repo엔 inbox가
-  없으므로 충돌 없음).
+- 판별자가 다른 이유: 캡처는 **study 블록**, 주입은 **설정 파일** 기준 — 주입 전용 얇은 설정 repo에서 "주입=프로젝트, 캡처=vault" 혼합이 성립한다(그 repo엔 inbox가 없으므로 충돌 없음).
 - 한 이벤트의 스코프는 항상 **정확히 하나** — 이중 캡처·이중 디스패치 없음.
 - `/study --scope vault|project`로 어디서든 명시 지정 가능.
 
@@ -183,8 +132,7 @@ repo 루트 `docs/adopting-study.md` 참조.
 | URL 신선도 실패(오프라인·인증) | fail-closed 아님 — 주입은 clone 캐시로 계속, 1줄 경고 + PR만 보류 |
 | 반쪽 상태(주입 전용 vault) | 경고 없음 — doctor가 캡처 비활성 사유를 명시 |
 
-진단·회복은 `/okf-doctor`(해소 트레이스·건강·캡처 입구 진단)와
-`study scan [--enqueue]`(미큐잉 후보 결정론 탐지·멱등 재적재)가 담당한다.
+진단·회복은 `/okf-doctor`(해소 트레이스·건강·캡처 입구 진단)와 `study scan [--enqueue]`(미큐잉 후보 결정론 탐지·멱등 재적재)가 담당한다.
 
 > 구현 배선: 포인터·vault 판정(로컬/URL)·주입 해소는 generic 공유 모듈 `scripts/core/okf_vault.py`에,
 > 캡처 스코프·런타임 루트·캡처 입구 판정은 study 층 `scripts/study/study_scope.py`에 있다
