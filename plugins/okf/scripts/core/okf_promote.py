@@ -19,6 +19,10 @@ body, derived_from: [경로], materials: [{path, sha256}], resource?, allow_dang
 차단 — 의도적 dangle은 allow_dangling 명시) · 정보층 출처 필수(§4 접지) · 상위층
 비어있지 않은 derived_from(§4 접지).
 
+경로의 **번들 경계**는 §9 금지가 아니라 위 제안 계약("번들 상대")의 전제다(#267) —
+`..`가 든 경로는 번들 밖에 쓰이는데 validate·index는 번들 안만 보므로 탐지도 롤백도
+되지 않는다. 침묵 실패라 집행 전에 반려한다. 판정은 엔진과 같은 형태를 쓴다.
+
 CLI: ``okf_promote.py snapshot <bundle> --paths <p>…`` ·
 ``okf_promote.py apply <bundle> --proposals <file|->``. apply는 결과 JSON을 내고
 반려가 있으면 exit 1. 엔진 실행은 bin/okf 셔틀 경유(stdlib 전용), 어휘·정초 순서는
@@ -31,6 +35,7 @@ import argparse
 import hashlib
 import json
 import os
+import posixpath
 import subprocess
 import sys
 
@@ -53,6 +58,16 @@ def norm_rel(path: str) -> str:
     """번들 상대 경로 정규화 — LAYERS 권장 절대(`/x.md`) 표기와 엔진 출력 표기
     (`x.md`)를 같은 키로 다룬다."""
     return path.strip().lstrip("/")
+
+
+def escapes_bundle(rel: str) -> bool:
+    """정규화된 번들 상대 경로가 트리를 벗어나는가(#267).
+
+    엔진과 **같은 판정**이다 — `validate`의 크로스링크 검사도, `graph`의 대상 정규화도
+    `posixpath.normpath` 후 선두 `..`로 본다. 심링크는 해소하지 않는다: 계층마다 답이
+    갈리면 "게이트는 통과하는데 검증은 보지 못하는" 상태가 다시 생긴다.
+    """
+    return posixpath.normpath(rel).startswith("..")
 
 
 def sha256_file(fs_path: str) -> str:
@@ -109,6 +124,8 @@ def gate_proposal(
     target_rel = norm_rel(proposal.get("path") or "")
     if not target_rel or not target_rel.endswith(".md"):
         reasons.append(f"경로 형식 오류: {proposal.get('path')!r} (번들 상대 .md 경로)")
+    elif escapes_bundle(target_rel):
+        reasons.append(f"번들 경계 탈출: path {target_rel} — 번들 밖은 validate·index가 못 본다")
     elif os.path.exists(os.path.join(bundle, target_rel)):
         reasons.append(f"신설 아님: {target_rel} 이미 존재 — 재라벨·덮어쓰기 금지(§9 금지 2)")
 
@@ -119,6 +136,17 @@ def gate_proposal(
         for m in proposal.get("materials") or []
         if isinstance(m, dict)
     }
+
+    # 재료 경로도 같은 경계 — 밖의 파일을 근거로 인정하면 사슬이 트리를 벗어나고,
+    # 번들 밖은 layer_map에 없어 "미분류"로 우연히 걸리거나(강도 임의) 그냥 통과한다.
+    for field, rels in (
+        ("derived_from", derived),
+        ("materials", list(materials)),
+        ("allow_dangling", sorted(allow_dangling)),
+    ):
+        for rel in rels:
+            if rel and escapes_bundle(rel):
+                reasons.append(f"번들 경계 탈출: {field} {rel}")
 
     if (
         rules.get("upper_requires_derived_from")
