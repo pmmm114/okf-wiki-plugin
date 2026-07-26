@@ -1,0 +1,112 @@
+name: 유닛 / 작업
+description: PR 하나로 착지하는 작업 단위 (Epic 아래 유닛이거나 단독 작업)
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **한 이슈 = 한 PR**입니다. 여러 유닛을 한 이슈에 쌓지 않습니다 — 스쿼시 머지가 유닛 경계를 `main` 이력에서 지웁니다(`docs/branching.md`의 "Epic과 유닛 분해"). Epic 아래 유닛이면 제목을 `U1: <요약> (Epic #266)` 형태로 씁니다.
+
+        공개 repo이므로 소비 조직·저장소 실명과 내부 정보는 본문에 넣지 않습니다.
+
+  - type: input
+    id: epic
+    attributes:
+      label: Epic
+      description: 상위 Epic 이슈 번호. 단독 작업이면 비웁니다.
+      placeholder: "#266"
+    validations:
+      required: false
+
+  - type: textarea
+    id: background
+    attributes:
+      label: 배경
+      description: |
+        지금 무엇이 어떻게 되어 있는지 — 가능하면 관측으로. 판정이 갈린 곳이 여럿이면 표로 나열하면 대상이 분명해집니다.
+      placeholder: |
+        디스패치 가능 여부를 판정하는 곳이 셋으로 갈려 있고 서로 다른 것을 본다.
+
+        | 위치 | 무엇을 보나 |
+        | --- | --- |
+        | `study_dispatch.py:118,122,125` | 경로 해소 · git 추적 · trust — **실제 게이트** |
+        | `study_scaffold_handler.py:196` | 설정에 handlers 항목이 있는가 — **프록시** |
+    validations:
+      required: true
+
+  - type: textarea
+    id: target
+    attributes:
+      label: 대상
+      description: |
+        무엇을 바꾸는지, 그리고 **무엇을 바꾸지 않는지**. 보존해야 할 계약(사유 문자열·스냅샷·공개 시그니처)이 있으면 여기에 못 박습니다.
+      placeholder: |
+        `study_dispatch.py:117-127`의 3중 판정을 함수로 추출한다.
+
+        - 기존 `skipped` 사유 문자열은 **바이트 그대로 보존**한다 (문서·테스트가 걸려 있다).
+        - `handler_wired`의 의미는 바꾸지 않는다 — 재정의하면 스캐폴드 직후 `ready:false`가 된다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: gate
+    attributes:
+      label: 게이트 (red 먼저)
+      description: |
+        구현이 끝났는지를 사람 판단이 아니라 검사로 판별하게 만듭니다. 기존 테스트 무수정 녹색이 보존 증명이 되는 경우도 게이트입니다.
+      placeholder: |
+        - 기존 `test_study_dispatch.py` 전량 **무수정 녹색** (사유 문자열 보존 증명)
+        - `dispatch()`가 `is_git_tracked`·`resolve_command`를 직접 호출하지 않는다 (0건)
+        - 스캐폴드 직후 픽스처에서 `handler_wired: true` **그리고** `dispatchable: false` 동시 성립
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 기준
+      description: |
+        체크박스로 적습니다. PR 본문의 **검증** 항목이 이 체크박스별로 실행한 명령과 결과를 적게 되어 있으므로, 여기가 PR 템플릿의 입력입니다.
+      value: |
+        - [ ]
+        - [ ] red 실증 후 green
+    validations:
+      required: true
+
+  - type: textarea
+    id: deps
+    attributes:
+      label: 의존
+      description: |
+        선행 유닛이 있으면 그 이슈·PR을, 없으면 단독 착지 가능함을 적습니다. 선행이 있으면 그 PR이 머지된 뒤 최신 `main`에서 브랜치를 땁니다.
+      value: |
+        없음. 단독으로 `main`에 착지 가능하다.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 영역
+      description: |
+        대응하는 `type:*` 라벨을 **이슈 생성 후 직접 붙입니다** — 이슈 폼은 고정 라벨(`enhancement`)만 자동으로 붙이고 이 선택을 라벨로 바꿔주지는 않습니다.
+      options:
+        - "엔진 (okf-core/src) — type:core"
+        - "플러그인 (plugins/okf) — type:plugin"
+        - "CI·워크플로 — type:ci"
+        - "배포·릴리스 — type:dist"
+        - "문서 — type:docs"
+        - "벤더 (okf-core/vendor) — type:vendor"
+        - "규약·거버넌스 — type:governance"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: 확인
+      options:
+        - label: 이 이슈는 PR 하나로 닫힌다 (여러 유닛을 묶지 않았다)
+          required: true
+        - label: 소비 조직·저장소 실명과 내부 정보가 본문에 없다
+          required: true

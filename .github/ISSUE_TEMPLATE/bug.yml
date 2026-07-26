@@ -1,0 +1,103 @@
+name: 결함
+description: 동작이 규격·의도와 다른 것을 관측했을 때
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        공개 repo입니다. 소비 조직·저장소 실명, 내부 정보, 개발 머신 절대경로(`/Users/…`)를 본문에 넣지 않습니다 — `docs/branching.md`의 "금지 사항 요약"(참조 방향 정책).
+
+  - type: textarea
+    id: observation
+    attributes:
+      label: 관측 (실측)
+      description: |
+        격리 재현으로 **실제로 본 것**을 명령과 출력 그대로 적습니다. 재현하지 않고 코드만 읽어 추론했다면 `추정`이라고 표시합니다 — 실측과 추정이 섞이면 나중에 구분할 수 없고, 그럴듯한 추정이 실증에 뒤집힌 실적이 있습니다.
+      placeholder: |
+        `gate_proposal` → `apply_proposals`를 격리 환경에서 직접 호출했다. 번들은 `<vault>/.okf`.
+
+        ```
+        norm_rel('../escaped.md') = '../escaped.md'
+        게이트 사유: []  → 통과
+        번들 밖 (<vault>/) : escaped.md      ← 여기 쓰였다
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: cause
+    attributes:
+      label: 원인
+      description: 어디가 왜 그렇게 동작하는지를 `파일:라인` 인용으로 특정합니다.
+      placeholder: |
+        `norm_rel`(`plugins/okf/scripts/core/okf_promote.py:52-55`)은 선두 `/`만 벗기고 `..`를 정규화하지도 거부하지도 않는다. 게이트(`:109-113`)의 경로 검사는 확장자와 기존 파일 존재 둘뿐 — 경계 검사가 아예 없다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: 파급
+      description: |
+        무엇이 무너지는지 — 특히 **탐지·롤백이 되는지**. 게이트가 통과시키는 결함은 "동작이 틀린 것"보다 "틀린 줄 모르는 것"이 본체입니다.
+    validations:
+      required: false
+
+  - type: textarea
+    id: limits
+    attributes:
+      label: 한계 (과장하지 않기 위해)
+      description: |
+        재현 조건, 영향받지 않는 경로, 위협 모델상 아닌 것. 결함을 실제보다 크게 말하면 우선순위 판단이 틀어집니다.
+    validations:
+      required: false
+
+  - type: textarea
+    id: gate
+    attributes:
+      label: 게이트 (red 먼저)
+      description: |
+        이 결함을 **지금 붉게 만드는** 검사를 적습니다. 파괴 감지 성격(스냅샷·해시·게이트)이면 고의 실패로 red를 실증한 뒤 원복하고 그 사실을 기록하는 것이 이 repo 관례입니다.
+      placeholder: |
+        - `..`를 포함한 path 제안이 게이트 사유 1건 이상으로 반려된다 (지금은 0건 → red)
+        - 반려 후 번들 밖에 파일이 생성되지 않는다
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 기준
+      description: |
+        체크박스로 적습니다. PR 본문의 **검증** 항목이 이 체크박스별로 실행한 명령과 결과를 적게 되어 있으므로, 여기가 PR 템플릿의 입력입니다.
+      value: |
+        - [ ]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 영역
+      description: |
+        대응하는 `type:*` 라벨을 **이슈 생성 후 직접 붙입니다** — 이슈 폼은 고정 라벨(`bug`)만 자동으로 붙이고 이 선택을 라벨로 바꿔주지는 않습니다.
+      options:
+        - "엔진 (okf-core/src) — type:core"
+        - "플러그인 (plugins/okf) — type:plugin"
+        - "CI·워크플로 — type:ci"
+        - "배포·릴리스 — type:dist"
+        - "문서 — type:docs"
+        - "벤더 (okf-core/vendor) — type:vendor"
+        - "규약·거버넌스 — type:governance"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: 확인
+      options:
+        - label: 최신 `main`에서 재현했다 (이미 고쳐진 것이 아니다)
+          required: true
+        - label: 소비 조직·저장소 실명과 내부 정보가 본문에 없다
+          required: true
