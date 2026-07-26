@@ -2,8 +2,9 @@
 
 검증된 개념을 담은 study 아이템을 소비처가 주입한 핸들러 배열로 흘려보낸다.
 각 핸들러는 stdin으로 아이템(JSON)을 받고, 트리거·개념 정보를 env var로도 받는다:
-``OKF_TRIGGER``(memory|manual)·``OKF_CONCEPT_TYPE``·``OKF_CONCEPT_TOPIC``·``OKF_CONCEPT_PATH``·
-``OKF_CONCEPT_LAYER``(인식층 정보/지식/지혜, #189 U5).
+``OKF_TRIGGER``(현재 ``manual`` 하나 — 훅은 디스패치하지 않으므로 자동 트리거가 없다)·
+``OKF_CONCEPT_TYPE``·``OKF_CONCEPT_TOPIC``·``OKF_CONCEPT_PATH``·``OKF_CONCEPT_LAYER``
+(인식층 값 — 어휘는 LAYERS.md 단일원천, 한국어 정보·지식·지혜는 그 **라벨**이다, #189 U5).
 
 실행 전 두 관문을 통과해야 한다:
 

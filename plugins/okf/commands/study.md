@@ -30,7 +30,7 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
 
 4. **개념화(판정, 후보별)**: okf 스킬 §2·§3·§6대로 배치를 정하고 개념 파일을 작성한다 — `type` 필수, `description` 1문장, 백링크 ≥1, 답-우선 본문, **주제 하위디렉토리** 배치.
    - **번들 관측(선행)**: `"${CLAUDE_PLUGIN_ROOT}/bin/okf" census <bundle>`로 디렉토리 형상(직속·하위 개념 수, 깊이, 내부/유입/유출 링크)·축 값 분포와 값×디렉토리 교차표·개념별 요약 원문을 확보한 뒤 배치와 `type`을 정한다(스킬 §2-1·2-2·2-3). `--axis <키>`로 다른 축을 함께 볼 수 있다. **관측은 자문이다** — 승격 게이트의 입력이 아니고, 판정 근거는 관측이 좁혀 준 개념의 **원문**이다.
-   - **인식층 판정(필수)**: 후보의 인식 고도를 판정해 `layer`(정보/지식/지혜)를 부여한다 — 카테고리 = `type` + 주제 디렉토리 + `layer`. 어휘·판정 기준(하향식 루브릭: 처방→연결→대조, 불확실하면 미기재)은 스킬 `reference/LAYERS.md`(§1·§8).
+   - **인식층 판정(필수)**: 후보의 인식 고도를 판정해 `layer`(`information`/`knowledge`/`wisdom` — 각각 정보·지식·지혜)를 부여한다 — 카테고리 = `type` + 주제 디렉토리 + `layer`. 어휘·판정 기준(하향식 루브릭: 처방→연결→대조, 불확실하면 미기재)은 스킬 `reference/LAYERS.md`(§1·§8).
    - **존재 대조(멱등)**: 층을 정했으면 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study.py" near-bundle <bundle> --snippet <후보> --layer <layer>`로 같은 층 근사중복을 확인한다(SimHash 자문). 같은 정보면 새로 만들지 않고 기존 개념을 재확인·갱신(`supersedes`)으로 흡수한다(exact 재부상 차단은 원장이 이미 함).
    - **접지(교차층 맵핑)**: 상위 층(지식·지혜)은 근거 하위 개념을 `derived_from`으로 잇는다 — `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_layers.py"
      <bundle> --candidates-for <layer> --json`로 후보를 질의한다(정초 엄격 하향: 지식→정보,
