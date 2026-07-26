@@ -547,10 +547,15 @@ def _age_str(epoch) -> str:
 
 
 def _has_handlers(clone_path: str | Path) -> bool:
-    """소비처가 원격 반영 핸들러를 배선했는지(``.okf-wiki.json``의 ``study.handlers``).
+    """소비처가 원격 반영 핸들러를 **배선했는지**(``.okf-wiki.json``의 ``study.handlers``).
 
     설정 **파일만** 읽는다 — study 모듈은 import하지 않으므로 core⊥study 경계와 무관하다.
-    핸들러 자체는 소비처 소유라 여기서 알아야 할 것은 "반영 경로가 존재하는가"뿐이다.
+
+    **디스패치 가능성이 아니다.** 실제 게이트는 경로·git추적·trust 3축이고 그 판정은
+    ``study_dispatch.dispatchability`` 하나에만 있다(#266 U1). 여기 참인데 나가지 못하는
+    구간이 실재한다 — 스캐폴드 직후는 핸들러가 미커밋이다. 그래서 이 함수는 **안내 문구
+    라우팅**에만 쓴다(반영 경로가 존재하는가 → 배선하라 vs 디스패치하라). 게이트 입력으로
+    승격시키지 말 것 — 호출처는 테스트가 이름으로 고정한다.
     """
     cfg = okf_vault.read_json(Path(clone_path) / ".okf-wiki.json") or {}
     study = cfg.get("study")
