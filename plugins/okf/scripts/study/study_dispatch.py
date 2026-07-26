@@ -6,11 +6,15 @@
 ``OKF_CONCEPT_TYPE``·``OKF_CONCEPT_TOPIC``·``OKF_CONCEPT_PATH``·``OKF_CONCEPT_LAYER``
 (인식층 값 — 어휘는 LAYERS.md 단일원천, 한국어 정보·지식·지혜는 그 **라벨**이다, #189 U5).
 
-실행 전 두 관문을 통과해야 한다:
+실행 전 게이트는 3축이고 판정은 ``_verdict`` 하나에만 산다 — ``dispatch``(실행)와
+``dispatchability``(질의)가 **같은 판정**을 쓴다(#266 U1). 두 곳에서 판정하면 한쪽만
+고쳐지는 드리프트가 생기고, 설정 존재 여부 같은 프록시로 답하면 "배선은 됐는데 나가지
+못하는" 구간이 통과로 읽힌다.
 
-1. **경로 검사** — ``command``는 repo 트리 안으로 정규화돼야 하고(심링크·``..`` 탈출
-   거부), **git 추적** 상태여야 한다(미추적 거부, fail-closed).
-2. **trust 게이트** — ``trust_check(name, path)`` 훅 지점(S4에서 구현). 미승인이면 보류.
+1. **경로 검사**(``escape``) — ``command``는 repo 트리 안으로 정규화돼야 한다(심링크·
+   ``..`` 탈출 거부).
+2. **git 추적**(``untracked``) — 미추적 거부, fail-closed. 스캐폴드 직후가 이 상태다.
+3. **trust 게이트**(``untrusted``) — ``trust_check(name, path)``. 미승인이면 보류.
 
 한 핸들러의 실패·거부가 나머지를 막지 않는다(실패 격리). 이 모듈은 디스패치를
 스스로 트리거하지 않는 **라이브러리**이며, 안전 기본값 없이 실행하지 않도록
@@ -31,6 +35,16 @@ import okf_vault
 
 class CommandError(ValueError):
     """핸들러 command가 경로/추적 검사를 통과하지 못함."""
+
+
+# 디스패치 차단 사유 코드 — 소비처가 분기하는 **기계 축**이다(#266 U1).
+# 자연어 ``reason``은 사람에게 보이는 표시일 뿐 판정 입력이 아니다: 문구를 다듬는 일이
+# 기능 고장이 되지 않게 한다. ``dispatch``의 ``failed[].code``는 프로세스 exit code로
+# 의미가 다르다 — 배열이 달라 문맥으로 구분된다.
+CODE_ESCAPE = "escape"
+CODE_UNTRACKED = "untracked"
+CODE_UNTRUSTED = "untrusted"
+CODE_OK = "ok"
 
 
 def resolve_command(project: str | Path, command: str) -> Path:
@@ -54,6 +68,47 @@ def is_git_tracked(project: str | Path, path: str | Path) -> bool:
         capture_output=True,
     )
     return result.returncode == 0
+
+
+def _verdict(project: str | Path, handler: dict, trust_check=None) -> dict:
+    """핸들러 **하나**의 디스패치 가능성 판정 — ``{name, code, reason, path}``.
+
+    게이트 순서(경로 → git 추적 → trust)와 사유 문자열을 그대로 옮긴다. 사유는 문서·
+    테스트·소비처가 걸고 있는 표면이라 **바이트 그대로** 보존한다.
+
+    ``trust_check``가 None이면 trust 축을 **평가하지 않는다**. 그때의 ``ok``는 "경로·추적
+    2축 기준 준비됨"이지 "실행된다"가 아니다 — trust는 머신별 승인이라 별도 층이고,
+    마법사는 그것을 따로 안내한다.
+    """
+    name = str(handler.get("name", "?"))
+    command = handler.get("command", "")
+    try:
+        path = resolve_command(project, command)
+    except CommandError as exc:
+        return {"name": name, "code": CODE_ESCAPE, "reason": str(exc), "path": None}
+    if not is_git_tracked(project, path):
+        return {
+            "name": name,
+            "code": CODE_UNTRACKED,
+            "reason": f"미추적 경로 거부: {command}",
+            "path": None,
+        }
+    if trust_check is not None and not trust_check(name, path):
+        return {"name": name, "code": CODE_UNTRUSTED, "reason": "trust 미승인", "path": None}
+    return {"name": name, "code": CODE_OK, "reason": "", "path": path}
+
+
+def dispatchability(project: str | Path, handlers: list[dict], trust_check=None) -> list[dict]:
+    """핸들러 배열의 디스패치 가능성 — **판정 단일원천**(#266 U1). 실행하지 않는다.
+
+    ``dispatch``와 **같은 판정**을 쓰므로 마법사·진단이 "왜 안 나가는가"를 프록시(설정
+    존재 여부)가 아니라 실제 게이트로 답할 수 있다. 설정에 핸들러가 있어도 파일이
+    미커밋이면 나가지 못하는데, 스캐폴드 직후가 정확히 그 상태다.
+
+    **핸들러가 비면 빈 리스트다** — "미배선"은 여기가 아니라 호출자(cmd 계층)의 조건이다.
+    이 함수의 code 집합을 "전부"로 오해하면 미배선 상태가 판정 밖으로 빠진다.
+    """
+    return [_verdict(project, handler, trust_check) for handler in handlers]
 
 
 def _handler_env(item: dict) -> dict:
@@ -113,19 +168,15 @@ def dispatch(
     skipped: list[dict] = []
 
     for handler in handlers:
-        name = str(handler.get("name", "?"))
-        command = handler.get("command", "")
-        try:
-            path = resolve_command(project, command)
-        except CommandError as exc:
-            skipped.append({"name": name, "reason": str(exc)})
+        # 판정은 `_verdict` 하나에만 산다. 다만 **루프 안에서** 부른다 — 전량 선계산하면
+        # 판정이 첫 실행 이전에 고정되는데, 핸들러가 워킹트리를 커밋·push하는 계약이라
+        # 앞 핸들러의 실행이 뒤 핸들러의 추적 상태를 바꿀 수 있다.
+        verdict = _verdict(project, handler, trust_check)
+        name = verdict["name"]
+        if verdict["code"] != CODE_OK:
+            skipped.append({"name": name, "reason": verdict["reason"], "code": verdict["code"]})
             continue
-        if not is_git_tracked(project, path):
-            skipped.append({"name": name, "reason": f"미추적 경로 거부: {command}"})
-            continue
-        if not trust_check(name, path):
-            skipped.append({"name": name, "reason": "trust 미승인"})
-            continue
+        path = verdict["path"]
         try:
             result = subprocess.run(
                 [str(path)],
