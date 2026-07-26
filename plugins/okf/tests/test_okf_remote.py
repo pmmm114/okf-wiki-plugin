@@ -562,3 +562,59 @@ def test_ff_stall_warning_routes_by_wiring(tmp_path, monkeypatch):
     assert result["refreshed"] is False and result["reason"] == "미봉인 잔재"  # 기계 축 불변
     assert "디스패치" not in result["warning"]
     assert "배선" in result["warning"]
+
+
+def _residue_repo(tmp_path):
+    """번들 안팎에 잔재가 있는 repo — pathspec 범위 한정 검증용."""
+    okf_remote._run_git(["init"], cwd=str(tmp_path))
+    (tmp_path / ".okf" / "sub").mkdir(parents=True)
+    (tmp_path / ".okf" / "a.md").write_text("x", encoding="utf-8")
+    (tmp_path / ".okf" / "sub" / "b.md").write_text("y", encoding="utf-8")
+    (tmp_path / "src.txt").write_text("사용자 실작업", encoding="utf-8")
+    return tmp_path
+
+
+def test_list_residue_default_is_unchanged(tmp_path):
+    """pathspec 미지정은 **현행 그대로** — 기본값이 동작을 바꾸지 않는다."""
+    repo = _residue_repo(tmp_path)
+    rels = {rel for _xy, rel in okf_remote.list_residue(repo)}
+    assert rels == {".okf/a.md", ".okf/sub/b.md", "src.txt"}
+
+
+def test_list_residue_pathspec_scopes_to_bundle(tmp_path):
+    """pathspec을 주면 그 하위만 — 번들 밖 사용자 실작업이 잔재 목록에 오르지 않는다.
+
+    #277(U5)이 로컬 경로 vault로 회계를 넓힐 때 이 범위 한정이 없으면 repo 전체가
+    열거되고, 그 목록이 폐기 후보로 흐른다. 잘못된 폐기는 비가역이다.
+    """
+    repo = _residue_repo(tmp_path)
+    rels = {rel for _xy, rel in okf_remote.list_residue(repo, pathspec=".okf")}
+    assert rels == {".okf/a.md", ".okf/sub/b.md"}
+    assert "src.txt" not in rels
+
+
+def test_list_residue_pathspec_is_literal(tmp_path):
+    """glob 문자가 든 디렉터리명도 **문자 그대로** 매칭한다(`:(literal)` 매직).
+
+    번들 경로는 소비처가 정하므로 `[`·`*`가 들어갈 수 있다. glob으로 해석되면 엉뚱한
+    범위가 잡히고, 그 목록이 폐기로 흐른다.
+    """
+    repo = tmp_path
+    okf_remote._run_git(["init"], cwd=str(repo))
+    (repo / "b[1]").mkdir()
+    (repo / "b[1]" / "x.md").write_text("x", encoding="utf-8")
+    (repo / "b1").mkdir()
+    (repo / "b1" / "y.md").write_text("y", encoding="utf-8")
+    rels = {rel for _xy, rel in okf_remote.list_residue(repo, pathspec="b[1]")}
+    assert rels == {"b[1]/x.md"}  # glob이면 b1/y.md가 잡힌다
+
+
+def test_discard_paths_keeps_managed_clone_guard(tmp_path):
+    """폐기 경로의 관리형 clone 가드는 **손대지 않는다** — 일반화는 열거에서만.
+
+    #216이 배운 비대칭: 잘못된 폐기는 비가역이고 잘못된 보존은 재현 가능한 소음이다.
+    """
+    import inspect
+
+    src = inspect.getsource(okf_remote.reclaim_sealed)
+    assert "pathspec" not in src, "reclaim_sealed가 pathspec을 받으면 폐기 범위가 넓어진다"
