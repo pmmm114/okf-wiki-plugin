@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import json
-import re
 import stat
 import subprocess
 from pathlib import Path
@@ -124,7 +123,9 @@ def test_commands_branch_on_every_blocker_code():
     """
     for name in ("study.md", "okf-promote.md"):
         body = (COMMANDS / name).read_text(encoding="utf-8")
-        missing = [c for c in study_dispatch.BLOCKERS if not re.search(rf"\b{c}\b", body)]
+        # 코드값 표기(백틱)를 요구한다 — 맨 단어 매칭은 산문에 우연히 걸린다
+        # ("can escape this", "left untracked" 등). 그러면 문서를 안 고쳐도 통과한다.
+        missing = [c for c in study_dispatch.BLOCKERS if f"`{c}`" not in body]
         assert not missing, f"{name}에 분기 없는 코드: {missing}"
 
 
