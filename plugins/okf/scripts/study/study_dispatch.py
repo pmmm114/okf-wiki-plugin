@@ -44,7 +44,22 @@ class CommandError(ValueError):
 CODE_ESCAPE = "escape"
 CODE_UNTRACKED = "untracked"
 CODE_UNTRUSTED = "untrusted"
+CODE_UNWIRED = "unwired"
 CODE_OK = "ok"
+
+# 차단 코드 → **실행 가능한 복구 지시**. 문서 게이트가 이 집합 **전체**를 대조한다(#266 U2).
+#
+# ``unwired``는 ``dispatchability``가 내지 않는다 — 핸들러 배열이 비면 판정할 대상이 없다.
+# 그런데 Epic이 지목한 본체가 바로 그 상태라, 코드 단일원천을 함수 반환값이 아니라 **이
+# 상수**로 두어야 게이트가 세 상태를 전부 덮는다. 반환값만 대조하면 미배선이 조용히 샌다.
+BLOCKERS: dict[str, str] = {
+    CODE_ESCAPE: "핸들러 command가 repo 트리 밖을 가리킨다 — .okf-wiki.json의 command를 고쳐라",
+    CODE_UNTRACKED: (
+        "핸들러 파일이 git 미추적이다 — vault repo에 커밋하라(관리형 clone이면 브랜치→PR)"
+    ),
+    CODE_UNTRUSTED: "이 머신에서 핸들러가 미승인이다 — `/study --trust`로 승인하라",
+    CODE_UNWIRED: "원격 반영 경로가 없다 — `/okf-init --vault`로 핸들러를 배선하라",
+}
 
 
 def resolve_command(project: str | Path, command: str) -> Path:
