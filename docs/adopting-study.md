@@ -82,7 +82,7 @@ flowchart TD
 {
   "source": "manual",
   "project": "/abs/repo",
-  "concept": { "path": ".okf/<...>.md", "type": "<type>", "topic": "<주제-디렉토리>", "layer": "<정보|지식|지혜>" }
+  "concept": { "path": ".okf/<...>.md", "type": "<type>", "topic": "<주제-디렉토리>", "layer": "knowledge" }
 }
 ```
 
@@ -90,11 +90,11 @@ flowchart TD
 
 | 환경변수 | 담기는 값 |
 | --- | --- |
-| `OKF_TRIGGER` | 무엇이 승격을 일으켰는지 (`manual` 또는 `memory`) |
+| `OKF_TRIGGER` | 무엇이 승격을 일으켰는지 — 현재 `manual` 하나입니다 |
 | `OKF_CONCEPT_PATH` | 승격된 개념 파일의 경로 |
 | `OKF_CONCEPT_TYPE` | 개념의 `type` |
 | `OKF_CONCEPT_TOPIC` | 개념이 놓인 주제 하위디렉토리 |
-| `OKF_CONCEPT_LAYER` | 인식층 (정보, 지식, 지혜) |
+| `OKF_CONCEPT_LAYER` | 인식층 값 — `information` / `knowledge` / `wisdom` (각각 정보 · 지식 · 지혜) |
 | `OKF_PROJECT` | 승격 대상 repo 루트 |
 
 나머지 계약은 네 가지입니다.

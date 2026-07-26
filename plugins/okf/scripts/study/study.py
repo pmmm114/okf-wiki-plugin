@@ -392,6 +392,9 @@ def cmd_dispatch(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="study", description="study 오케스트레이션")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    # 층 어휘는 LAYERS.md 기계 판독 블록이 단일원천 — 여기 하드코딩하지 않는다.
+    # 입구에서 막지 않으면 한국어 라벨이 원장·저널·OKF_CONCEPT_LAYER까지 조용히 흐른다(#278).
+    layers = okf_layers.load_layers_spec()["values"]
 
     lst = sub.add_parser("list", help="후보 목록(JSON) — --by-file이면 파일 그룹 뷰")
     lst.add_argument("project", nargs="?", default=".")
@@ -407,18 +410,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     res.add_argument("--status", required=True, choices=["promoted", "discarded"])
     res.add_argument("--ref")
-    res.add_argument("--layer", help="인식층(정보/지식/지혜) — 저널·후보에 provenance로 새김")
+    res.add_argument("--layer", choices=layers, help="인식층 — 저널·후보에 provenance로 새김")
 
     clr = sub.add_parser("clear", help="후보 전부 discard")
     clr.add_argument("project", nargs="?", default=".")
 
     dsp = sub.add_parser("dispatch", help="핸들러 실행(게이트)")
     dsp.add_argument("project", nargs="?", default=".")
-    dsp.add_argument("--source", default="manual")
+    # 캡처 채널(→ OKF_TRIGGER). resolve --source(파일 경로)와 다르다. 계약 문서가 약속하는
+    # 어휘와 여기 choices가 같아야 한다 — 소비처가 없는 값으로 분기하지 않도록(게이트가 대조).
+    dsp.add_argument("--source", default="manual", choices=["manual"])
     dsp.add_argument("--concept-path", default="")
     dsp.add_argument("--concept-type", default="")
     dsp.add_argument("--concept-topic", default="")
-    dsp.add_argument("--concept-layer", default="")
+    dsp.add_argument("--concept-layer", default="", choices=layers)
 
     scn = sub.add_parser("scan", help="미큐잉 후보 탐지(+--enqueue 재적재)")
     scn.add_argument("project", nargs="?", default=".")
@@ -435,7 +440,7 @@ def main(argv: list[str] | None = None) -> int:
     nb = sub.add_parser("near-bundle", help="후보 스니펫↔같은 층 번들 개념 근사중복(자문)")
     nb.add_argument("bundle", help="번들 디렉터리 경로")
     nb.add_argument("--snippet", required=True, help="대조할 후보 스니펫")
-    nb.add_argument("--layer", required=True, help="후보의 인식층(같은 층만 대조)")
+    nb.add_argument("--layer", required=True, choices=layers, help="후보의 인식층(같은 층만 대조)")
     nb.add_argument("--threshold", type=int, default=study_simhash.DEFAULT_THRESHOLD)
 
     mig = sub.add_parser("migrate", help="기존 vault .okf-study 런타임 → 유저 스코프 멱등 이동")
