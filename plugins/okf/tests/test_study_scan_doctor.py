@@ -292,3 +292,22 @@ def test_doctor_flags_missing_sqlite(monkeypatch, tmp_path):
     monkeypatch.setattr(study_store, "sqlite3", None)
     out = okf_doctor.run(str(_project(tmp_path)))
     assert "sqlite3" in out and "OKF_PYTHON" in out
+
+
+def test_bundle_rel_refuses_paths_outside_vault(tmp_path):
+    """`bundlePath` 선언이 vault 밖을 가리키면 쓰지 않는다(#266 U5).
+
+    이 값은 진단 문구뿐 아니라 **잔재 열거의 범위**로도 간다. 절대경로·상위 탈출을 그대로
+    넘기면 사용자의 vault 밖 작업이 잔재로 열거된다 — 그 목록이 폐기 안내로 흐르는 경로다.
+    """
+    vault = tmp_path / "kb"
+    vault.mkdir()
+    for declared in ("/etc", "../outside", "../../x"):
+        (vault / ".okf-wiki.json").write_text(
+            json.dumps({"bundlePath": declared}), encoding="utf-8"
+        )
+        assert okf_doctor._bundle_rel(str(vault)) == ".okf", f"탈출 선언을 통과시킴: {declared}"
+    (vault / ".okf-wiki.json").write_text(
+        json.dumps({"bundlePath": "bundle/okf"}), encoding="utf-8"
+    )
+    assert okf_doctor._bundle_rel(str(vault)) == "bundle/okf"  # 정상 선언은 존중

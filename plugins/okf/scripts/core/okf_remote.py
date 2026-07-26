@@ -590,7 +590,22 @@ def _has_handlers(clone_path: str | Path) -> bool:
     return bool(isinstance(study, dict) and study.get("handlers"))
 
 
-def _residue_notes(clone_path: str | Path) -> list[str]:
+def local_residue_notes(vault: str | Path, pathspec: str | None = None) -> list[str]:
+    """로컬 경로 vault의 잔재 안내 — doctor가 부르는 **공개 API**(#266 U5).
+
+    지금까지 잔재 회계는 URL 모드에만 있었다(`doctor_vault_notes` 경유). 로컬 경로 vault는
+    미반영 산출물이 쌓여도 doctor가 한 줄도 말하지 않았다.
+
+    ``pathspec``을 **반드시** 주는 것이 안전 요건이다 — 로컬 vault는 repo가 번들보다 넓을
+    수 있어, 범위를 안 주면 사용자의 실작업이 잔재로 보고된다(#266 U4가 그 인자를 열었다).
+
+    "자동 정리" 문구는 여기서 나올 수 없다 — 그 분기는 fetch 스탬프가 있을 때만 도달하고,
+    스탬프는 관리형 clone만 남긴다. 별도 플래그로 막을 필요가 없다(자연히 배타적이다).
+    """
+    return _residue_notes(vault, pathspec=pathspec)
+
+
+def _residue_notes(clone_path: str | Path, pathspec: str | None = None) -> list[str]:
     """잔재를 **봉인 여부로 갈라** 안내한다(#216 V3). 잔재가 없으면 빈 목록(침묵).
 
     "디스패치"와 "폐기"는 정반대 결과를 낳으므로 한 줄로 뭉뚱그리면 안 된다 — 사용자가
@@ -600,7 +615,7 @@ def _residue_notes(clone_path: str | Path) -> list[str]:
     오래된 clone에서는 실제로 미푸시인 작업을 '반영됨'으로 오판할 수 있고, 그 안내를
     따른 폐기는 비가역이다. 그래서 오래되면 판정을 **보류**하고 정리를 권하지 않는다.
     """
-    entries = list_residue(clone_path)
+    entries = list_residue(clone_path, pathspec=pathspec)
     if not entries:
         return []
     candidates = [(xy, rel) for xy, rel in entries if xy[0] not in ("R", "C") and "D" not in xy]
@@ -609,16 +624,28 @@ def _residue_notes(clone_path: str | Path) -> list[str]:
     unsealed = [rel for rel in rels if rel not in sealed]
     undecidable = len(entries) - len(candidates)  # 삭제·rename·copy — 대조할 내용이 없다
     last_fetch = _read_sync(clone_path).get("last_fetch")
-    stale = not isinstance(last_fetch, (int, float)) or (time.time() - last_fetch) > _env_float(
+    # 사유를 '기록 부재'와 '노후'로 가른다(#266 U5). 둘 다 판정 보류지만 사용자가 할 일이
+    # 다르다 — 노후는 fetch가 답이고, 기록 부재는 fetch해도 안 생긴다(okf가 그 vault의
+    # 동기화를 관리하지 않는다). 뭉뚱그리면 로컬 vault 사용자에게 실행 불가능한 지시가 된다.
+    has_record = isinstance(last_fetch, (int, float))
+    stale = not has_record or (time.time() - last_fetch) > _env_float(
         "OKF_REMOTE_SEAL_STALE", _DEFAULT_SEAL_STALE
     )
     notes: list[str] = []
     if sealed:
-        if stale:
+        if not has_record:
+            # 사유를 '노후'와 가른다(#266 U5). 로컬 경로 vault는 okf가 스탬프하지 않으므로
+            # 여기로 온다 — "fetch가 오래됐다"고 말하면 사용자가 fetch를 시도하는데,
+            # 해도 스탬프는 안 생긴다. 말할 수 있는 것은 "okf에 이력이 없다"까지다:
+            # 사용자가 직접 fetch했을 수도 있으므로 원격 동기화 자체를 부정하지 않는다.
+            notes.append(f"  ⚠ 잔재 {len(sealed)}건: okf에 이 vault의 fetch 이력이 없어 판정 보류")
+        elif stale:
             notes.append(
                 f"  ⚠ 잔재 {len(sealed)}건: 원격 반영된 것으로 보이나 fetch가 오래됨 — 판정 보류"
             )
         else:
+            # 자동 정리는 관리형 clone의 성질이고, 그 clone만 스탬프를 남긴다 —
+            # 즉 여기 도달했다는 것 자체가 관리형이라는 뜻이다.
             notes.append(f"  잔재 {len(sealed)}건: 원격에 반영됨 — /study 진입 시 자동 정리")
     if unsealed:
         # 원격 반영 경로가 없는 vault에 "디스패치하라"는 실행 불가능한 지시다(#216 V4).

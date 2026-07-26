@@ -47,12 +47,30 @@ def _inject_trace(project: str) -> list[str]:
     return lines
 
 
+def _bundle_rel(vault: str) -> str:
+    """vault 안 번들의 상대 경로 — 설정이 없으면 기본 ``.okf``.
+
+    잔재 회계의 범위 인자로도 쓴다(#266 U5) — 두 소비처가 같은 해소를 써야 진단이
+    가리키는 번들과 열거하는 범위가 갈리지 않는다.
+    """
+    config = okf_vault.load_config(vault)
+    declared = config.get("bundlePath") if isinstance(config, dict) else None
+    if not isinstance(declared, str) or not declared.strip():
+        return ".okf"
+    # vault 밖을 가리키는 선언은 쓰지 않는다 — 이 값이 잔재 열거의 **범위**로도 가므로
+    # 절대경로·상위 탈출을 그대로 넘기면 사용자의 vault 밖 작업이 열거된다(#266 U5).
+    candidate = declared.strip()
+    root = Path(vault).resolve()
+    try:
+        (root / candidate).resolve().relative_to(root)
+    except ValueError:
+        return ".okf"
+    return candidate
+
+
 def _bundle_notes(vault: str) -> list[str]:
     """Vault 부합(#114 U3) — 번들 존재 진단(vault repo엔 큐레이션 번들이 필요)."""
-    vault_config = okf_vault.load_config(vault)
-    bundle_path = ".okf"
-    if isinstance(vault_config, dict) and isinstance(vault_config.get("bundlePath"), str):
-        bundle_path = vault_config["bundlePath"]
+    bundle_path = _bundle_rel(vault)
     if (Path(vault) / bundle_path).is_dir():
         return [
             f"  부합: 번들 {bundle_path} 있음(`okf validate {bundle_path} --strict`로 건강 확인)"
@@ -86,6 +104,10 @@ def _vault_notes(project: str) -> list[str]:
         return lines
     lines.append(f"  포인터: {vault} (유효)")
     lines.extend(_bundle_notes(vault))
+    # 로컬 경로 vault도 잔재 회계를 받는다(#266 U5) — 지금까지 URL 모드에만 있어서, 미반영
+    # 산출물이 쌓여도 doctor가 한 줄도 말하지 않았다. 범위를 번들로 한정하지 않으면
+    # 사용자의 실작업이 잔재로 보고된다.
+    lines.extend(okf_remote.local_residue_notes(vault, pathspec=_bundle_rel(vault)))
     twin = okf_remote.dualization_note(pointer, vault)  # 로컬↔관리형 clone 이원화(U4-7)
     if twin:
         lines.append(twin)
