@@ -1,7 +1,8 @@
 """인식층 접지 린트 (Epic #173 U5) — 순수 로직·단일 원천 로드·파서 검증.
 
-엔진 서브프로세스 없이 check()/parse_layer_map()/load_layers_spec()를 직접 친다
-(수집 gather()는 bin/okf 셔틀 경유라 별도 스모크로 확인).
+엔진 서브프로세스 없이 check()/parse_layer_map()/load_layers_spec()를 직접 친다 —
+빠른 회귀용 계층이다. 여기 리터럴은 **손으로 쓴 형식 문자열**이라 엔진 렌더가 바뀌어도
+초록이므로, 실물 왕복 대조는 test_context_roundtrip.py가 셔틀 경유로 얹는다(#279 B1).
 """
 
 from __future__ import annotations
