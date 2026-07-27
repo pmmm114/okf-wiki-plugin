@@ -41,8 +41,19 @@ SCRIPTS = PLUGIN / "scripts"
 # 판정 입력이 되는 기계 필드 — 문서가 이 필드의 **값**을 인용하면 결합이다.
 _FIELDS = ("reason", "note", "status", "code", "state", "kind", "error", "message", "detail")
 _QUOTED = r'(?:`[^`\n]*`|"[^"\n]*")'
-# 필드 뒤에 붙는 값 표현: 인용 리터럴 하나, 또는 `|`로 이어진 대안 사슬.
-_COUPLING = re.compile(rf"\b(?:{'|'.join(_FIELDS)})\s*[:=]\s*({_QUOTED}(?:\s*\|\s*{_QUOTED})*)")
+_FIELD_ALT = "|".join(_FIELDS)
+
+# 결합은 두 꼴로 쓰인다. 둘 다 봐야 한다 — 실제로 깨졌던 것은 두 번째다.
+#
+# ① 필드 꼴 — ``reason: "미봉인 잔재"``. 값 하나 또는 `|`로 이어진 대안 사슬.
+# ② 조사 꼴 — ``결과 note에 "핸들러 미승인"가 오면``. 필드명에 한국어 조사가 붙고
+#    같은 줄 근처에 리터럴이 온다. #274 이전의 그 버그가 정확히 이 모양이었으므로
+#    ①만 보면 **원본 사고를 재현해도 초록**이다(이 파일의 red 실증이 그것을 확인).
+#    창(40자)은 같은 줄 안에서만 이어 붙여 다른 문장의 인용을 물지 않게 한다.
+_COUPLING = re.compile(
+    rf"\b(?:{_FIELD_ALT})\s*[:=]\s*({_QUOTED}(?:\s*\|\s*{_QUOTED})*)"
+    rf"|\b(?:{_FIELD_ALT})(?:[이가은는을를에]|에서|에는)[^`\"\n]{{0,40}}?({_QUOTED})"
+)
 _LITERAL = re.compile(_QUOTED)
 _HANGUL = re.compile(r"[가-힣]")
 
@@ -86,7 +97,8 @@ def _detect() -> set[tuple[str, str]]:
     for path in _doc_files():
         rel = path.relative_to(PLUGIN).as_posix()
         for match in _COUPLING.finditer(path.read_text(encoding="utf-8")):
-            for raw in _LITERAL.findall(match.group(1)):
+            # 두 꼴 중 실제로 매치된 그룹만 산다(①=1, ②=2).
+            for raw in _LITERAL.findall(match.group(1) or match.group(2)):
                 literal = raw[1:-1]
                 if _HANGUL.search(literal):
                     found.add((rel, literal))
