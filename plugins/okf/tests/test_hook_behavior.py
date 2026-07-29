@@ -391,7 +391,7 @@ CASES = [
         stub={"stdout": "a.md\nb.md\n"},
         out="same",
         ctx=PTU_MSG.format(rel="sub/doc.md", links="a.md b.md"),
-        calls_contain="--linked-to sub/doc.md",
+        calls_contain="--linked-to-exact sub/doc.md",
         stderr="empty",
     ),
     dict(
@@ -406,7 +406,7 @@ CASES = [
         calls_contain="graph ",
     ),
     dict(
-        id="ptu-file_path-후행개행",  # $(jq -r) 스트립 — rel·--linked-to 인자 등가
+        id="ptu-file_path-후행개행",  # 후행 개행 스트립 — rel·질의 인자 등가
         hook="post-tool-use",
         config={},
         bundle=["a.md"],
@@ -414,7 +414,7 @@ CASES = [
         stub={"stdout": "b.md\n"},
         out="same",
         ctx=PTU_MSG.format(rel="a.md", links="b.md"),
-        calls_contain="--linked-to a.md",
+        calls_contain="--linked-to-exact a.md",
     ),
     dict(
         id="ptu-graph-개행뿐-무출력",  # $(…) 스트립 등가 — rstrip 함정
@@ -867,3 +867,33 @@ def test_file_changed_uses_vault_fallback_bundle(henv, tmp_path, monkeypatch):
     )
     assert res.returncode == 0, res.stderr
     assert sem(res) is not None, "vault 폴백에서 무음이면 기능이 사라진 것이다"
+
+
+def test_post_tool_use_ignores_engine_output_when_exit_nonzero(henv):
+    """엔진이 **stdout을 내면서 비-0으로 끝나면** 그 출력을 쓰지 않는다.
+
+    판정 축이 "stdout이 비어있지 않음"이면 오류문이 그대로 "링크하는 개념"으로
+    컨텍스트에 주입된다(#300). 엔진 오류를 stderr로 통일했지만(그쪽이 정본 수정),
+    소비 측도 exit code로 판정해야 다음 오염원에 다시 걸리지 않는다.
+    """
+    (henv.project / ".okf-wiki.json").write_text("{}")
+    (henv.project / ".okf").mkdir()
+    (henv.project / ".okf" / "a.md").write_text("# doc\n")
+    (henv.stub / "stdout").write_text("오류: 번들 디렉터리가 아님: /nope\n")
+    (henv.stub / "exit").write_text("2")
+
+    payload = json.dumps(
+        {"tool_input": {"file_path": str(henv.project / ".okf" / "a.md")}}
+    ).encode()
+    res = run_hook(
+        henv.scripts, "post-tool-use", project=henv.project, stdin=payload, stub=henv.stub
+    )
+    assert res.returncode == 0
+    assert res.stdout == b"", res.stdout
+
+
+def test_post_tool_use_asks_engine_for_exact_backlinks():
+    """훅이 부분일치가 아니라 **정확 일치** 질의를 쓴다(배선 축 단언)."""
+    src = (PLUGIN / "scripts" / "core" / "okf_hooks.py").read_text(encoding="utf-8")
+    assert '"--linked-to-exact"' in src, "훅이 정확 일치 질의를 쓰지 않는다"
+    assert '"--linked-to"' not in src, "부분일치 질의가 남아 있다 — 짧은 파일명이 긴 것을 삼킨다"

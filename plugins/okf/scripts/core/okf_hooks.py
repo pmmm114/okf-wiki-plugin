@@ -256,7 +256,10 @@ def hook_post_tool_use():
     if not file_path.startswith(prefix):
         return 0
     rel = file_path[len(prefix) :]
-    links = _run_okf(["graph", bundle, "--linked-to", rel], suppress_stderr=True)
+    # **정확 일치**로 묻는다(#300). `rel`은 이미 번들 상대 정규 경로라 부분일치를 쓰면
+    # 짧은 파일명이 긴 파일명을 삼킨다 — `a.md`가 `banana.md`를 물어, 무관한 개념이
+    # "이 파일을 링크한다"며 컨텍스트로 주입된다.
+    links = _run_okf(["graph", bundle, "--linked-to-exact", rel], suppress_stderr=True)
     if not links:
         return 0
     joined = links.replace("\n", " ")

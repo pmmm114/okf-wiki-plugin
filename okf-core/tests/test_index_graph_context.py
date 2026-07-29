@@ -237,3 +237,52 @@ def test_gist_truncation_changes_long_single_line_description(tmp_path):
     )
     summary = gist(parse(tmp_path / "a.md"))
     assert len(summary) == 160 and summary == "가" * 160
+
+
+# --- 역링크 정확 매칭 (#300) ---------------------------------------------------
+#
+# `linked_to`는 부분일치다. 사람이 손으로 치는 탐색이면 합리적이지만, PostToolUse 훅이
+# 넘기는 `rel`은 **이미 번들 상대 정규 경로**다. 그 경로로 부분일치를 하면 짧은 파일명이
+# 긴 파일명을 삼킨다 — `"a.md"`가 `banana.md`를 무는 식이고, 결과는 무관한 개념을
+# "이 파일을 링크한다"며 컨텍스트로 주입하는 것이다.
+
+
+def _substring_trap_bundle(tmp_path):
+    """`a.md`와 `banana.md`가 함께 있고, 서로 다른 문서가 각각을 링크하는 번들."""
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "index.md").write_text(
+        '---\nokf_version: "0.1"\n---\n# Concepts\n\n'
+        "* [A](a.md) - a.\n* [Banana](banana.md) - banana.\n"
+        "* [RefA](ref-a.md) - ref a.\n* [RefB](ref-banana.md) - ref banana.\n",
+        encoding="utf-8",
+    )
+    for name, desc in (("a.md", "a."), ("banana.md", "banana.")):
+        (bundle / name).write_text(
+            f"---\ntype: concept\ntitle: {name}\ndescription: {desc}\n---\n본문.\n",
+            encoding="utf-8",
+        )
+    (bundle / "ref-a.md").write_text(
+        "---\ntype: concept\ntitle: RefA\ndescription: ref a.\n---\n[A](/a.md) 참조.\n",
+        encoding="utf-8",
+    )
+    (bundle / "ref-banana.md").write_text(
+        "---\ntype: concept\ntitle: RefB\ndescription: ref banana.\n---\n[B](/banana.md) 참조.\n",
+        encoding="utf-8",
+    )
+    return bundle
+
+
+def test_linked_to_exact_does_not_match_substring(tmp_path):
+    """`exact=True`는 `a.md`를 물었을 때 `banana.md`의 역링크를 내지 않는다."""
+    g = build_graph(_substring_trap_bundle(tmp_path))
+    exact = linked_to(g, "a.md", exact=True)
+    assert "ref-a.md" in exact
+    assert "ref-banana.md" not in exact, exact
+
+
+def test_linked_to_substring_behavior_is_preserved(tmp_path):
+    """비-exact 기본 동작은 무변경 — 사람이 치는 탐색용으로 남긴다."""
+    g = build_graph(_substring_trap_bundle(tmp_path))
+    loose = linked_to(g, "a.md")
+    assert {"ref-a.md", "ref-banana.md"} <= set(loose), loose

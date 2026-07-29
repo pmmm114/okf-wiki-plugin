@@ -123,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
 
     bundle = Path(args.bundle)
     if not bundle.is_dir():
-        print(f"오류: 번들 디렉터리가 아님: {bundle}")
+        print(f"오류: 번들 디렉터리가 아님: {bundle}", file=sys.stderr)
         return 2
 
     filter_key = filter_value = None

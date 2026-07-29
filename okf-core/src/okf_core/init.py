@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from okf_core import logmd
@@ -43,11 +44,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         created = init_bundle(args.target)
     except FileExistsError as exc:
-        print(f"오류: 비어 있지 않은 디렉터리 — 덮어쓰지 않음: {exc}")
+        print(f"오류: 비어 있지 않은 디렉터리 — 덮어쓰지 않음: {exc}", file=sys.stderr)
         print("기존 번들의 index 재생성은 `okf index <path> --write`를 사용")
         return 2
     except NotADirectoryError as exc:
-        print(f"오류: 디렉터리가 아님: {exc}")
+        print(f"오류: 디렉터리가 아님: {exc}", file=sys.stderr)
         return 2
     for name in created:
         print(name)
