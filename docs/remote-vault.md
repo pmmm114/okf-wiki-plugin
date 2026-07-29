@@ -148,7 +148,7 @@ URL vault에서 특히 중요한 것은 **격리**입니다. 관리형 clone은 
 /study --trust
 ```
 
-핸들러 내용의 해시가 유저 스코프에 저장됩니다. 아직 승인하지 않았다면 개념은 승격되고 검증까지 되지만 핸들러 실행, 즉 PR만 보류됩니다. 이때 "N개 승격됨; `/study --trust`로 승인"이라는 안내가 뜹니다.
+핸들러 내용의 해시가 유저 스코프에 저장됩니다. 아직 승인하지 않았다면 개념은 승격되고 검증까지 되지만 핸들러 실행, 즉 PR만 보류됩니다. 이때 디스패치 결과가 `reflected: false`로 오고 `blockers[]`에 `code: untrusted` 항목이 실립니다 — 커맨드가 그 항목의 `recovery`(“이 머신에서 핸들러가 미승인이다 — `/study --trust`로 승인하라”)를 그대로 보여 줍니다.
 
 ### 5. push 인증 준비하기
 
@@ -172,7 +172,7 @@ URL vault에서 특히 중요한 것은 **격리**입니다. 관리형 clone은 
 | 증상 | 원인 | 해결 |
 | --- | --- | --- |
 | 주입은 되는데 승격이 원격에 올라가지 않습니다 | 핸들러가 배선되지 않았거나 승인되지 않음 | 원격 main에 핸들러 커밋 + `/study --trust` |
-| "N개 승격됨; `/study --trust`로 승인"이 뜹니다 | 이 머신에서 trust 미승인 | `/study --trust` (머신마다 1회) |
+| 디스패치가 `reflected: false` + `blockers[].code = untrusted`로 옵니다 | 이 머신에서 trust 미승인 | `/study --trust` (머신마다 1회) |
 | clone이 만들어지지 않았다고 나옵니다 | 포인터만 URL이고 clone 생성에 동의하지 않음 | `/okf-init --vault <url>`로 동의 후 생성 |
 | 자동 캡처가 켜지지 않습니다(URL vault) | 로컬 `enable-capture` 거부(원격과 갈라지는 것 방지) | 원격 repo에 `study.capture` 커밋 후 fetch |
 | `/study`가 갱신을 건너뛰고 잔재가 ff를 막는다고 합니다(`code: unsealed_residue`) | 원격 어디에도 없는 잔재가 받아올 경로와 겹침 | 디스패치(PR)로 반영하거나 그 파일을 직접 정리 후 재시도 |

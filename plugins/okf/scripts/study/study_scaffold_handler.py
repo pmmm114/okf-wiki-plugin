@@ -42,9 +42,10 @@ HANDLER_TEMPLATE = '''#!/usr/bin/env python3
 소비처가 자기 커밋 경로(예: scripts/okf-open-pr.py)로 두고 쓴다. 목적지는 origin
 (vault 자기 원격)이라 특정 repo명을 하드코딩하지 않는다 — 아래 정책 상수만 채운다.
 
-계약(플러그인 → 핸들러):
-  stdin : study 아이템 JSON { source, project, concept:{path,type,topic} }
-  env   : OKF_CONCEPT_PATH · OKF_CONCEPT_TYPE · OKF_CONCEPT_TOPIC · OKF_PROJECT(대상 repo 루트)
+계약(플러그인 → 핸들러 — `docs/adopting-study.md` §4가 정본, 게이트가 대조한다):
+  stdin : study 아이템 JSON { source, project, concept:{path,type,topic,layer} }
+  env   : OKF_TRIGGER(캡처 채널) · OKF_CONCEPT_PATH · OKF_CONCEPT_TYPE ·
+          OKF_CONCEPT_TOPIC · OKF_CONCEPT_LAYER · OKF_PROJECT(대상 repo 루트)
   cwd   : 승격 대상 repo 루트(URL vault면 관리형 clone). 호출자 위치를 가정하지 않는다.
   exit  : 0 성공 / 비0 실패(디스패처가 격리)
 

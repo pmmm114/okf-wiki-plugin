@@ -17,6 +17,7 @@ import okf_layers
 import pytest
 import study
 import study_dispatch
+import study_scaffold_handler
 
 CONTRACT_DOC = Path(__file__).resolve().parents[3] / "docs" / "adopting-study.md"
 
@@ -28,21 +29,31 @@ def _doc() -> str:
 
 
 def _doc_env_keys(text: str) -> set[str]:
-    """§4 환경변수 표가 약속한 키 집합."""
-    return set(re.findall(r"^\|\s*`(OKF_[A-Z_]+)`\s*\|", text, re.MULTILINE))
+    """§4 환경변수 표가 약속한 키 집합.
+
+    **빈 집합은 실패다.** 표 서식이 바뀌어 정규식이 0건을 뽑으면 ``set() == set()``이
+    성립해 대조가 조용히 통과한다 — 계약이 어긋난 것을 "일치"로 보고하는 꼴이다(#304).
+    """
+    keys = set(re.findall(r"^\|\s*`(OKF_[A-Z_]+)`\s*\|", text, re.MULTILINE))
+    assert keys, "계약 문서에서 env 키를 하나도 뽑지 못했다 — 표 서식이 바뀌었거나 표가 사라졌다"
+    return keys
 
 
-def _code_env_keys() -> set[str]:
+def _code_env_keys(source: Path | None = None) -> set[str]:
     """``_handler_env``가 실제로 세팅하는 키 집합(소스에서 추출 — 실행 환경 오염 회피)."""
-    src = Path(study_dispatch.__file__).read_text(encoding="utf-8")
-    return set(re.findall(r'env\["(OKF_[A-Z_]+)"\]\s*=', src))
+    src = (source or Path(study_dispatch.__file__)).read_text(encoding="utf-8")
+    keys = set(re.findall(r'env\["(OKF_[A-Z_]+)"\]\s*=', src))
+    assert keys, "디스패처 소스에서 env 키를 하나도 뽑지 못했다 — 세팅 꼴이 바뀌었다"
+    return keys
 
 
 def _doc_stdin_concept_keys(text: str) -> set[str]:
     """§4 stdin 예시 JSON의 ``concept`` 필드 집합."""
     block = re.search(r'"concept":\s*\{(.+?)\}', text, re.DOTALL)
     assert block, "계약 문서에서 stdin concept 예시를 찾지 못함"
-    return set(re.findall(r'"([a-z_]+)":', block.group(1)))
+    keys = set(re.findall(r'"([a-z_]+)":', block.group(1)))
+    assert keys, "계약 문서의 stdin concept 예시에서 필드를 하나도 뽑지 못했다"
+    return keys
 
 
 def _code_stdin_concept_keys() -> set[str]:
@@ -92,9 +103,61 @@ def test_layer_args_accept_machine_vocabulary(layer, tmp_path):
 # --- 계약 표면: 문서 ⟺ 코드 ---------------------------------------------------
 
 
+def test_extractors_fail_loud_when_they_find_nothing(tmp_path):
+    """추출이 0건이면 **실패**한다 — 빈 집합끼리의 일치가 '계약 일치'로 읽히지 않게.
+
+    이 게이트가 없으면 서식 변경 하나로 대조 3종이 통째로 무력화되면서 전부 초록이다.
+    """
+    for extract, arg in (
+        (_doc_env_keys, "환경변수 표가 없는 문서"),
+        (_doc_stdin_concept_keys, '"concept": {}'),
+    ):
+        with pytest.raises(AssertionError):
+            extract(arg)
+
+    empty = tmp_path / "empty.py"
+    empty.write_text("# env 세팅이 없는 소스\n", encoding="utf-8")
+    with pytest.raises(AssertionError):
+        _code_env_keys(empty)
+
+
 def test_handler_env_keys_match_contract_doc():
     """env 키 집합이 문서와 정확히 같다 — 코드가 키를 늘리면 문서 미갱신이 red."""
     assert _code_env_keys() == _doc_env_keys(_doc())
+
+
+# --- 참조 핸들러 템플릿 주석 ⟺ 계약 -------------------------------------------
+#
+# 템플릿 주석은 소비처가 **가장 먼저 읽는 계약 서술**이다(파일을 통째로 복사해 가므로).
+# 그런데 대조 게이트가 없어 이미 드리프트해 있었다 — env 6키 중 4키만, stdin concept
+# 4필드 중 3필드만 적혀 있었다(`OKF_CONCEPT_LAYER`·`OKF_TRIGGER`·`layer` 누락).
+
+
+def _template_doc() -> str:
+    """참조 핸들러 템플릿의 모듈 docstring(계약 서술 구간)."""
+    body = study_scaffold_handler.HANDLER_TEMPLATE
+    block = re.search(r'"""(.+?)"""', body, re.DOTALL)
+    assert block, "핸들러 템플릿에서 모듈 docstring을 찾지 못했다"
+    return block.group(1)
+
+
+def test_template_comment_lists_every_env_key():
+    """템플릿 주석의 env 키 목록이 실제 계약과 정확히 같다."""
+    listed = set(re.findall(r"OKF_[A-Z_]+", _template_doc()))
+    assert listed == _code_env_keys(), (
+        f"템플릿 주석 {sorted(listed)} vs 실제 {sorted(_code_env_keys())} — "
+        "소비처가 복사해 가는 계약 서술이므로 누락은 곧 소비처의 누락이다"
+    )
+
+
+def test_template_comment_lists_every_stdin_concept_field():
+    """템플릿 주석의 stdin concept 필드가 실제 계약과 정확히 같다."""
+    block = re.search(r"concept\s*:?\s*\{([^}]*)\}", _template_doc())
+    assert block, "템플릿 주석에서 stdin concept 서술을 찾지 못했다"
+    listed = {token.strip() for token in block.group(1).split(",") if token.strip()}
+    assert listed == _code_stdin_concept_keys(), (
+        f"템플릿 주석 {sorted(listed)} vs 실제 {sorted(_code_stdin_concept_keys())}"
+    )
 
 
 def test_stdin_concept_fields_match_contract_doc():
