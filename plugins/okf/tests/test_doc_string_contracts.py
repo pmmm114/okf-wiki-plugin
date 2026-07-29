@@ -36,8 +36,14 @@ from pathlib import Path
 import pytest
 
 PLUGIN = Path(__file__).resolve().parent.parent
-DOC_ROOTS = (PLUGIN / "commands", PLUGIN / "skills")
+REPO = PLUGIN.parents[1]
 SCRIPTS = PLUGIN / "scripts"
+
+# repo ``docs/``·README도 **소비처가 실제로 읽는 문서**다(#304). 여기가 범위 밖이면
+# 게이트가 지키는 것은 "우리가 보는 문서"뿐이고, 소비처가 믿는 문서는 그대로 드리프트한다.
+# 편입 비용은 0이었다 — 편입 시점에 `field: "값"` 결합이 0건이라 등록할 행이 없었다.
+DOC_ROOTS = (PLUGIN / "commands", PLUGIN / "skills", REPO / "docs")
+DOC_EXTRA = (REPO / "README.md",)
 
 # 판정 입력이 되는 기계 필드 — 문서가 이 필드의 **값**을 인용하면 결합이다.
 _FIELDS = ("reason", "note", "status", "code", "state", "kind", "error", "message", "detail")
@@ -83,7 +89,23 @@ CONTRACTS = (
 
 
 def _doc_files() -> list[Path]:
-    return sorted(p for root in DOC_ROOTS for p in root.rglob("*.md"))
+    found = [p for root in DOC_ROOTS if root.is_dir() for p in root.rglob("*.md")]
+    found += [p for p in DOC_EXTRA if p.is_file()]
+    return sorted(found)
+
+
+def _doc_rel(path: Path) -> str:
+    """CONTRACTS 표기와 같은 상대 경로 — 플러그인 문서는 PLUGIN, repo 문서는 REPO 기준."""
+    try:
+        return path.relative_to(PLUGIN).as_posix()
+    except ValueError:
+        return path.relative_to(REPO).as_posix()
+
+
+def _doc_path(rel: str) -> Path:
+    """``_doc_rel``의 역 — 플러그인 쪽에 없으면 repo 쪽에서 찾는다."""
+    candidate = PLUGIN / rel
+    return candidate if candidate.is_file() else REPO / rel
 
 
 def _detect() -> set[tuple[str, str]]:
@@ -95,7 +117,7 @@ def _detect() -> set[tuple[str, str]]:
     """
     found: set[tuple[str, str]] = set()
     for path in _doc_files():
-        rel = path.relative_to(PLUGIN).as_posix()
+        rel = _doc_rel(path)
         for match in _COUPLING.finditer(path.read_text(encoding="utf-8")):
             # 두 꼴 중 실제로 매치된 그룹만 산다(①=1, ②=2).
             for raw in _LITERAL.findall(match.group(1) or match.group(2)):
@@ -152,7 +174,7 @@ def test_quoted_literal_exists_in_producer(doc, literal, source, needle, auto):
 def test_quoted_literal_still_present_in_doc():
     """표의 각 행이 가리키는 문서 인용이 아직 그 문서에 있다 — 표가 유령을 안 남기게."""
     for doc, literal, _src, _needle, _auto in CONTRACTS:
-        path = PLUGIN / doc
+        path = _doc_path(doc)
         assert path.is_file(), f"문서 없음: {doc}"
         assert literal in path.read_text(encoding="utf-8"), (
             f"{doc}에 {literal!r} 인용이 없다 — 결합이 사라졌으면 CONTRACTS에서 행을 빼라."
@@ -182,4 +204,109 @@ def test_registered_coupling_only_shrinks():
         "문서에서 사라진 결합이 CONTRACTS에 남아 있다: "
         + ", ".join(f"{doc}  <<{lit}>>" for doc, lit in sorted(stale))
         + " — 전환이 끝났으면 행을 삭제하라(허용 목록은 줄기만 한다)."
+    )
+
+
+# --- 죽은 스크립트 참조 차단 (#304) -------------------------------------------
+#
+# 문서가 **실행되지 않는** 스크립트를 진단·설정의 주체로 서술하면, 읽는 사람의 조사가
+# 죽은 코드로 향한다. 실측: `skills/okf/reference/CONFIG.md`가 프로젝트 설정 소비 주체로
+# `session_start.sh`를 지목하는데 `hooks.json`이 부르는 것은 `okf_hooks.py session-start`
+# 다. 파일은 실재하므로 "존재하는가"만 보는 검사로는 안 잡힌다 — **배선되어 있는가**를
+# 봐야 한다.
+
+HOOKS_JSON = PLUGIN / "hooks" / "hooks.json"
+COMMANDS = PLUGIN / "commands"
+
+
+def _script_basenames() -> dict[str, Path]:
+    return {p.name: p for p in SCRIPTS.rglob("*") if p.suffix in (".py", ".sh") and p.is_file()}
+
+
+def _wired_names() -> set[str]:
+    """실행 경로에 **배선된** 스크립트 이름 — 훅 · 커맨드가 부르거나 다른 스크립트가 import.
+
+    "다른 파일에 이름이 보이면 배선"으로 하지 않는다 — 주석·docstring의 **언급**이
+    배선으로 세어져 죽은 스크립트가 살아 있는 것처럼 통과한다. 실제로 `okf_hooks.py`의
+    모듈 docstring이 대체된 셸 3종을 이름으로 열거하고 있다. 그래서 판별을 좁힌다.
+
+    - 훅·커맨드: 실행 표면이므로 **파일명 등장**이 곧 호출이다.
+    - 다른 스크립트: ``import <stem>``/``from <stem> import`` 꼴만 센다(언급 제외).
+
+    셸 스크립트는 import 개념이 없으므로 훅·커맨드 표면에서만 배선된다.
+    """
+    scripts = _script_basenames()
+    surfaces = [HOOKS_JSON.read_text(encoding="utf-8")] if HOOKS_JSON.is_file() else []
+    surfaces += [p.read_text(encoding="utf-8") for p in COMMANDS.rglob("*.md")]
+    sources = {name: path.read_text(encoding="utf-8") for name, path in scripts.items()}
+
+    wired: set[str] = set()
+    for name, path in scripts.items():
+        if any(name in text for text in surfaces):
+            wired.add(name)
+            continue
+        if path.suffix != ".py":
+            continue
+        imported = re.compile(
+            rf"^\s*(?:import\s+{path.stem}\b|from\s+{path.stem}\s+import\b)", re.M
+        )
+        if any(imported.search(text) for other, text in sources.items() if other != name):
+            wired.add(name)
+    return wired
+
+
+def test_docs_do_not_point_at_unwired_scripts():
+    """문서가 지목하는 스크립트는 **배선된** 것이어야 한다 — 진단이 죽은 코드로 가지 않게.
+
+    참조는 백틱 표기만 본다(산문에 우연히 걸리는 것을 막는 다른 게이트와 같은 판별).
+    실재하지 않는 이름은 여기서 보지 않는다 — 아래 별도 축이 잡는다.
+    """
+    scripts = _script_basenames()
+    wired = _wired_names()
+    offenders: list[str] = []
+    for path in _doc_files():
+        text = path.read_text(encoding="utf-8")
+        for name in re.findall(r"`([\w.-]+\.(?:py|sh))`", text):
+            if name in scripts and name not in wired:
+                offenders.append(f"{_doc_rel(path)} → {name}")
+    assert not offenders, (
+        "문서가 배선되지 않은 스크립트를 지목한다: "
+        + ", ".join(sorted(set(offenders)))
+        + " — 실제 실행 주체로 문서를 고치거나, 그 스크립트를 배선하라."
+    )
+
+
+# 우리 트리에 **없는 것이 정상**인 이름 — 소비처가 자기 repo에 두는 것이다(목적지 무참조).
+# 이 목록을 늘리는 것이 곧 게이트를 줄이는 것이라 사유와 함께 여기 명시적으로 둔다.
+_CONSUMER_SIDE_SCRIPTS = frozenset(
+    {
+        # 참조 핸들러의 소비처 배치명. 우리는 `docs/examples/*.example`만 배포한다.
+        "okf-open-pr.py",
+    }
+)
+
+
+def _repo_script_names() -> set[str]:
+    return {
+        p.name
+        for p in REPO.rglob("*")
+        if p.suffix in (".py", ".sh")
+        and p.is_file()
+        # 점디렉토리(.git·.venv·캐시)는 산출물이라 소스 이름의 근거가 아니다
+        and not any(part.startswith(".") for part in p.relative_to(REPO).parts[:-1])
+    }
+
+
+def test_docs_reference_only_existing_scripts():
+    """문서가 백틱으로 지목한 ``*.py``/``*.sh``가 repo에 실존한다 — 오타·삭제 잔존 차단."""
+    known = _repo_script_names() | _CONSUMER_SIDE_SCRIPTS
+    missing: list[str] = []
+    for path in _doc_files():
+        for name in re.findall(r"`([\w.-]+\.(?:py|sh))`", path.read_text(encoding="utf-8")):
+            if name not in known:
+                missing.append(f"{_doc_rel(path)} → {name}")
+    assert not missing, (
+        "문서가 없는 스크립트를 지목한다: "
+        + ", ".join(sorted(set(missing)))
+        + " — 이름을 고치거나, 소비처 배치명이면 _CONSUMER_SIDE_SCRIPTS에 사유와 함께 등록하라."
     )
