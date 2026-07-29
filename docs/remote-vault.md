@@ -175,7 +175,7 @@ URL vault에서 특히 중요한 것은 **격리**입니다. 관리형 clone은 
 | "N개 승격됨; `/study --trust`로 승인"이 뜹니다 | 이 머신에서 trust 미승인 | `/study --trust` (머신마다 1회) |
 | clone이 만들어지지 않았다고 나옵니다 | 포인터만 URL이고 clone 생성에 동의하지 않음 | `/okf-init --vault <url>`로 동의 후 생성 |
 | 자동 캡처가 켜지지 않습니다(URL vault) | 로컬 `enable-capture` 거부(원격과 갈라지는 것 방지) | 원격 repo에 `study.capture` 커밋 후 fetch |
-| `/study`가 갱신을 건너뛰고 "미봉인 잔재"라고 합니다 | 원격 어디에도 없는 잔재가 받아올 경로와 겹침 | 디스패치(PR)로 반영하거나 그 파일을 직접 정리 후 재시도 |
+| `/study`가 갱신을 건너뛰고 잔재가 ff를 막는다고 합니다(`code: unsealed_residue`) | 원격 어디에도 없는 잔재가 받아올 경로와 겹침 | 디스패치(PR)로 반영하거나 그 파일을 직접 정리 후 재시도 |
 | PR 단계에서 인증 실패 | `gh`나 credential helper 미설정 | 로컬 push 인증 세팅 |
 
 ## 관련 문서

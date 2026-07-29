@@ -338,14 +338,65 @@ def origin_canonical(path: str | Path) -> str | None:
     return okf_vault.canonicalize_url(out.strip())
 
 
+# --- refresh 판정 코드 (#297) --------------------------------------------------
+#
+# `study.md` 0a가 분기하는 **기계 축**이다. 예전에는 한국어 `reason` 문자열이 그 자리라,
+# 값 집합이 코드에서 닫혀 있지 않았고(문서 분기 3종 vs 코드 반환 8종) `locked`·
+# `clone 미생성`·미지원 transport에는 모델에 지정된 행동이 아예 없었다. #274가 dispatch에
+# 한 전환(`blockers[].code`)의 잔여 축이다.
+#
+# 한국어 `reason`·`warning`은 **사람용 표시로 남는다** — 판정 축에서 내리는 것이지
+# 없애는 것이 아니다.
+CODE_OK = "ok"
+CODE_UNSEALED_RESIDUE = "unsealed_residue"
+CODE_DIVERGED = "diverged"
+CODE_FETCH_FAILED = "fetch_failed"
+CODE_OFFLINE = "offline"
+CODE_LOCKED = "locked"
+CODE_CLONE_MISSING = "clone_missing"
+CODE_NOT_URL = "not_url"
+CODE_BAD_TRANSPORT = "bad_transport"
+
+# 코드 → **실행 가능한 복구 지시**. 문서 게이트가 이 집합 전체를 대조한다(`study.md`).
+REFRESH_REASONS: dict[str, str] = {
+    CODE_OK: "최신 base다 — 그대로 진행하라",
+    CODE_UNSEALED_RESIDUE: (
+        "원격 어디에도 없는 잔재가 ff를 막고 있다 — 폐기하지 않았다. "
+        "warning의 지시대로 반영하거나 배선한 뒤 재시도하라(강제 stash·머지 금지)"
+    ),
+    CODE_DIVERGED: "로컬 커밋으로 ff 불가 — 관리형 clone을 수동 정리하라(캐시로 계속 가능)",
+    CODE_FETCH_FAILED: "fetch 실패(오프라인·인증) — 캐시로 계속하고 네트워크 회복 후 재시도하라",
+    CODE_OFFLINE: "오프라인 모드다 — 캐시로 계속하라",
+    CODE_LOCKED: "다른 세션이 clone을 갱신 중 — 생략하고 캐시로 계속하라",
+    CODE_CLONE_MISSING: "관리형 clone이 없다 — `/okf-init --vault`로 clone을 생성하라",
+    CODE_NOT_URL: "URL vault가 아니다 — 신선도 갱신 대상이 아니므로 그냥 진행하라",
+    CODE_BAD_TRANSPORT: "포인터 transport가 미지원이다 — https/ssh/git/file로 고쳐라",
+}
+
+NOT_URL_POINTER = "URL 포인터 아님"
+
+# `_resolve_pointer`의 사유 문자열 → 코드. **완전 사상**이며 `else` 폴백을 두지 않는다.
+# 폴백이 있으면 나중에 늘어난 사유가 조용히 `not_url`("갱신 대상 아님 — 그냥 진행")로
+# 흡수되어, 실제 오설정이 정상으로 보고된다 — 이 전환이 없애려던 무음 스킵이 판정 축
+# 안에 다시 생기는 꼴이다. 총체성은 게이트가 잠근다
+# (`test_okf_remote.py::test_pointer_reasons_are_totally_mapped`).
+_POINTER_CODES: dict[str, str] = {
+    NOT_URL_POINTER: CODE_NOT_URL,
+    okf_vault.INVALID_URL_TRANSPORT: CODE_BAD_TRANSPORT,
+}
+
+
 # --- URL 포인터 해소 (순수 — okf_vault 위임) -----------------------------------
 
 
 def _resolve_pointer(url: str | None = None):
-    """(stored_url, canonical, clone_path) 또는 사유 문자열을 반환한다(무네트워크)."""
+    """(stored_url, canonical, clone_path) 또는 사유 문자열을 반환한다(무네트워크).
+
+    사유 문자열을 늘리면 ``_POINTER_CODES``에도 함께 등록한다 — 게이트가 강제한다.
+    """
     value = url if url is not None else okf_vault.read_pointer()
     if not value or not okf_vault.is_url(value):
-        return "URL 포인터 아님"
+        return NOT_URL_POINTER
     stored = okf_vault.clone_url(value)
     canonical = okf_vault.canonicalize_url(value)
     if stored is None or canonical is None:
@@ -496,11 +547,17 @@ def _recover_and_ff(clone_path: str | Path, timeout: float) -> dict:
     unsealed_warning = f"원격에 없는 잔재가 ff를 막고 있다 — {_recovery_route(clone_path)}"
     discarded = reclaim_sealed(clone_path)
     if not discarded:
-        return {"refreshed": False, "reason": "미봉인 잔재", "warning": unsealed_warning}
+        return {
+            "refreshed": False,
+            "code": CODE_UNSEALED_RESIDUE,
+            "reason": "미봉인 잔재",
+            "warning": unsealed_warning,
+        }
     if _ff(clone_path, timeout) == 0:
-        return {"refreshed": True, "discarded": discarded}
+        return {"refreshed": True, "code": CODE_OK, "discarded": discarded}
     return {
         "refreshed": False,
+        "code": CODE_UNSEALED_RESIDUE,
         "reason": "미봉인 잔재",
         "warning": unsealed_warning,
         "discarded": discarded,
@@ -520,21 +577,23 @@ def refresh(timeout: float = _FETCH_TIMEOUT) -> dict:
     """
     resolved = _resolve_pointer()
     if isinstance(resolved, str):
-        return {"refreshed": False, "reason": resolved}
+        return {"refreshed": False, "code": _POINTER_CODES[resolved], "reason": resolved}
     _stored, _canonical, clone_path = resolved
     if not okf_vault.valid_vault(clone_path):
-        return {"refreshed": False, "reason": "clone 미생성"}
+        return {"refreshed": False, "code": CODE_CLONE_MISSING, "reason": "clone 미생성"}
     # worktree 조작 구간은 다른 세션의 refresh와 직렬화한다(D4) — 획득 실패면 저하.
     with clone_lock(clone_path) as acquired:
         if not acquired:
             return {
                 "refreshed": False,
+                "code": CODE_LOCKED,
                 "reason": "locked",
                 "warning": "다른 세션이 clone을 갱신 중 — 생략(캐시로 진행)",
             }
         if os.environ.get("OKF_REMOTE_OFFLINE"):
             return {
                 "refreshed": False,
+                "code": CODE_OFFLINE,
                 "reason": "offline env",
                 "warning": "오프라인 — 캐시로 진행",
             }
@@ -544,16 +603,18 @@ def refresh(timeout: float = _FETCH_TIMEOUT) -> dict:
             _stamp(clone_path, last_attempt=now)
             return {
                 "refreshed": False,
+                "code": CODE_FETCH_FAILED,
                 "reason": "fetch 실패",
                 "warning": "신선도 갱신 실패 — 캐시로 진행",
             }
         _stamp(clone_path, last_fetch=now, last_attempt=now)
         if _ff(clone_path, timeout) == 0:
-            return {"refreshed": True}
+            return {"refreshed": True, "code": CODE_OK}
         ahead, _behind = _ahead_behind(clone_path)
         if ahead:  # 로컬 커밋이 있으면 잔재 문제가 아니다 — 회수에 진입하지 않는다
             return {
                 "refreshed": False,
+                "code": CODE_DIVERGED,
                 "reason": "diverged",
                 "warning": "로컬 커밋으로 ff 불가 — 관리형 clone 수동 정리 필요",
             }

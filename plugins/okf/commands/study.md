@@ -12,10 +12,15 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
    - `--scope vault`: 같은 status 출력의 `vault`을 `<project>`로 강제 — repo 안에서도 vault(KB) 파이프라인으로 명시 승격·드레인한다. `vault`이 null이면 `invalid` 사유를 보이고 종료.
    - `--scope project`: 현재 repo(`.`)로 강제(현행 기본과 동일).
 
-0a. **신선도 갱신(URL vault만, #153)**: 승격은 관리형 clone의 워킹트리에 쓴다 — 그 전에 base를 최신화한다. `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_remote.py" refresh`를 실행한다(**URL vault가 아니면 자동 무동작** — 로컬 경로 vault·프로젝트 스코프는 그냥 넘어간다).
-   - `refreshed: true` → ff-only로 최신 base. 계속. `discarded`가 있으면 **원격에 이미 담긴** 잔재를 폐기해 정체를 푼 것이므로(#216 V1) 그 경로 목록을 한 줄로 보인다.
-   - `reason: "미봉인 잔재"`(`warning` 있음) → 원격 어디에도 없는 잔재가 ff를 막고 있다. **폐기하지 않았다**(지식 유실 금지). `warning`을 **그대로** 보이고 그 지시대로 처리한 뒤 재시도하도록 안내한다 — `warning`은 배선 여부로 갈린다(배선됨 → 디스패치로 반영 / 미배선 → `/okf-init --vault`로 배선). 여기서 임의로 "디스패치하라"를 덧붙이지 않는다(반영 경로가 없는 vault에는 실행 불가능한 지시다). 강제 stash·머지 금지 — clone을 wedge시킨다(U3-2).
-   - `reason: "diverged" | "fetch 실패" | "offline env"` → `warning`을 보이고 **캐시로 계속**한다 (승격은 진행되나 stale base 위일 수 있으니, 핸들러 PR 단계에서 rebase로 정리).
+0a. **신선도 갱신(URL vault만, #153)**: 승격은 관리형 clone의 워킹트리에 쓴다 — 그 전에 base를 최신화한다. `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_remote.py" refresh`를 실행한다.
+
+   **`code`로 분기한다**(한국어 `reason`·`warning` 매칭 금지 — 사람용 표시일 뿐이고 문구가 바뀌면 조용히 깨진다). 코드 집합은 `okf_remote.REFRESH_REASONS`가 단일원천이고 각 코드에 실행 가능한 복구 지시가 붙어 있다.
+   - `ok` → 최신 base다. 계속. `discarded`가 있으면 **원격에 이미 담긴** 잔재를 폐기해 정체를 푼 것이므로(#216 V1) 그 경로 목록을 한 줄로 보인다.
+   - `unsealed_residue` → 원격 어디에도 없는 잔재가 ff를 막고 있다. **폐기하지 않았다**(지식 유실 금지). `warning`을 **그대로** 보이고 그 지시대로 처리한 뒤 재시도하도록 안내한다 — `warning`은 배선 여부로 갈린다(배선됨 → 디스패치로 반영 / 미배선 → `/okf-init --vault`로 배선). 여기서 임의로 "디스패치하라"를 덧붙이지 않는다(반영 경로가 없는 vault에는 실행 불가능한 지시다). 강제 stash·머지 금지 — clone을 wedge시킨다(U3-2).
+   - `diverged` · `fetch_failed` · `offline` · `locked` → `warning`을 보이고 **캐시로 계속**한다 (승격은 진행되나 stale base 위일 수 있으니, 핸들러 PR 단계에서 rebase로 정리).
+   - `clone_missing` → 처방이 다르다. 캐시로 계속하지 말고 `/okf-init --vault`로 관리형 clone을 만들도록 안내하고 종료한다 — 승격할 워킹트리 자체가 없다.
+   - `not_url` → URL vault가 아니다(로컬 경로 vault·프로젝트 스코프). **무동작으로 그냥 넘어간다.**
+   - `bad_transport` → 포인터 transport가 미지원이다. `REFRESH_REASONS`의 복구 지시를 보이고 종료한다.
 
 1. **인자 분기**
    - `--trust`: `study_trust.py status <project>`로 해석된 handler command를 사용자에게 보이고, 승인받으면 `study_trust.py approve <project>` 실행 후 종료.
