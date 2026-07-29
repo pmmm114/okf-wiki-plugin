@@ -75,10 +75,24 @@ _TOP_KEY = re.compile(r"^(?P<indent>[ \t]*)(?P<key>[A-Za-z0-9_.\-]+):")
 # --- 검사 --------------------------------------------------------------------
 
 
+class GitError(RuntimeError):
+    """git 호출이 비-0으로 끝남 — 검사 결과가 아니라 **실행 오류**다."""
+
+
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    """git 실행. 비-0이면 ``GitError`` — 실패를 빈 목록으로 흡수하지 않는다(#303).
+
+    예전에는 rc를 보지 않아, git이 죽으면 추적 파일이 0개가 되고 모든 검사가 "위반
+    없음"으로 통과했다. 실측: 가짜 ``git``(exit 128) PATH에서
+    ``"보안 게이트 통과: 추적 파일 0개, 검사 4종"`` + exit 0 — 고장이 정상 문장으로
+    보고된다. 이 스크립트가 막는 것이 "올라가면 안 되는 것"이라 방향은 fail-closed다.
+    """
+    proc = subprocess.run(
         ["git", "-C", str(root), *args], capture_output=True, text=True, check=False
     )
+    if proc.returncode != 0:
+        raise GitError(f"git {' '.join(args)} 실패(rc={proc.returncode}): {proc.stderr.strip()}")
+    return proc
 
 
 def tracked_files(root: Path = _ROOT) -> list[str]:
@@ -93,6 +107,13 @@ def tracked_but_ignored(root: Path = _ROOT) -> list[str]:
     설정에 따라 달라진다** — 로컬에서만 붉어지거나 CI에서만 붉어지는 게이트가 된다.
     후자는 repo에 커밋된 `.gitignore` 하나만 보므로 어디서 돌려도 같은 답이 나온다.
     """
+    if not (root / ".gitignore").is_file():
+        # 무시 규칙 파일이 없는 것은 **정상 상태**다 — 무시 대상이 없으니 위반도 없다.
+        # git은 없는 파일을 `--exclude-from`으로 주면 rc=128로 죽는데, 그것을 실행
+        # 오류로 올리면 `.gitignore` 없는 repo에서 게이트가 통과 대신 오류가 된다
+        # (#303 리뷰에서 실측). fail-closed는 "고장을 통과로 보고하지 않는다"이지
+        # "정상 상태를 고장으로 보고한다"가 아니다.
+        return []
     proc = _git(root, "ls-files", "--cached", "--ignored", "--exclude-from=.gitignore")
     return [ln for ln in proc.stdout.split("\n") if ln]
 
@@ -225,7 +246,7 @@ def collect(root: Path = _ROOT) -> list[tuple[str, list[str]]]:
 def main() -> int:
     try:
         results = collect()
-    except OSError as exc:  # git 부재·파일 접근 실패는 판정이 아니라 실행 오류다
+    except (OSError, GitError) as exc:  # git 부재·실패·파일 접근 오류는 판정이 아니다
         print(f"보안 게이트 실행 오류: {exc}", file=sys.stderr)
         return 2
 
@@ -238,7 +259,12 @@ def main() -> int:
                 print(f"  - {item}")
         return 1
 
-    print(f"보안 게이트 통과: 추적 파일 {len(tracked_files())}개, 검사 {len(results)}종")
+    try:
+        count = len(tracked_files())
+    except (OSError, GitError) as exc:
+        print(f"보안 게이트 실행 오류: {exc}", file=sys.stderr)
+        return 2
+    print(f"보안 게이트 통과: 추적 파일 {count}개, 검사 {len(results)}종")
     return 0
 
 

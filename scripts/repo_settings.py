@@ -31,6 +31,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from branch_policy import DEFAULT_BRANCH  # 기본 브랜치 이름 단일원천
+
 _ROOT = Path(__file__).resolve().parent.parent
 
 # 머지 설정의 원하는 상태 — 값과 "왜"를 함께 둔다. 이유 없는 설정은 되돌려지기 쉽다.
@@ -135,6 +137,36 @@ def _targets_epic(ruleset: dict) -> bool:
     return any(EPIC_REF_MARK in str(inc) for inc in includes)
 
 
+def _targets_default(ruleset: dict) -> bool:
+    """룰셋 conditions가 **기본 브랜치**를 겨냥하는가.
+
+    GitHub은 기본 브랜치를 `~DEFAULT_BRANCH` 토큰이나 `refs/heads/<이름>`으로 적는다.
+    epic 브랜치를 겨냥하는 룰셋은 제외한다 — 겨냥 대상이 다르면 다른 룰셋이다.
+    """
+    if _targets_epic(ruleset):
+        return False
+    includes = ruleset.get("conditions", {}).get("ref_name", {}).get("include", [])
+    marks = ("~DEFAULT_BRANCH", "~ALL", f"refs/heads/{DEFAULT_BRANCH}", DEFAULT_BRANCH)
+    return any(str(inc) in marks for inc in includes)
+
+
+def default_ruleset_drift(rulesets: list[dict]) -> list[str]:
+    """**기본 브랜치를 겨냥한 룰셋**의 어긋난 점(#303).
+
+    예전에는 모든 브랜치 룰셋의 rules를 한 리스트로 합쳐 판정했다. 그러면 main 룰셋에
+    required check가 없어도 다른 룰셋(예: epic/*)이 갖고 있으면 "일치"가 나온다 —
+    실측으로 drift가 빈 리스트였다. 겨냥 대상이 다른 룰을 합치면 어느 브랜치가
+    보호되는지 알 수 없으므로, epic 쪽과 같이 **대상 룰셋을 먼저 고른 뒤** 판정한다.
+    """
+    target = next((r for r in rulesets if _targets_default(r)), None)
+    if target is None:
+        return [
+            f"{DEFAULT_BRANCH} 브랜치 룰셋이 없습니다 — "
+            f"required check·PR 강제가 어디에도 걸려 있지 않습니다"
+        ]
+    return ruleset_drift(target.get("rules", []))
+
+
 def epic_ruleset_drift(rulesets: list[dict]) -> list[str]:
     """Epic 통합 브랜치(epic/<n>) 룰셋의 어긋난 점. 룰셋이 아예 없으면 그 자체가 드리프트다."""
     epic = next((r for r in rulesets if _targets_epic(r)), None)
@@ -232,7 +264,7 @@ def _fetch(repo: str) -> tuple[dict, list[dict], list[dict]] | None:
 
 def _report(settings: dict, rules: list[dict], rulesets: list[dict]) -> int:
     drift = settings_drift(settings)
-    rule_problems = ruleset_drift(rules)
+    rule_problems = default_ruleset_drift(rulesets)
     epic_problems = epic_ruleset_drift(rulesets)
 
     if drift:
