@@ -162,6 +162,27 @@ def cmd_resolve(args) -> int:
             return 1
     else:
         ids = list(dict.fromkeys(args.id))
+        # 존재 검사(#305). 없으면 오타·환각 id가 **exit 0으로** 원장·저널에 promoted로
+        # 기록되고, 진짜 후보는 인박스에 남아 doctor 이력이 거짓이 된다. 바로 위
+        # `--source` 경로는 무매칭을 가시적 실패로 다루므로 같은 커맨드 안에서 비대칭이었다.
+        #
+        # **all-or-nothing**이다 — 일부만 적용하면 어디까지 기록됐는지 알 수 없는 상태가
+        # 남는다. 그 상태의 복구는 원장을 손으로 읽는 일이 된다.
+        unknown = [i for i in ids if not (runtime and study_store.has_candidate(runtime, i))]
+        if unknown:
+            print(
+                json.dumps(
+                    {
+                        "error": (
+                            f"존재하지 않는 후보 id {len(unknown)}건 — 아무것도 기록하지 않았다"
+                        ),
+                        "unknown_ids": unknown,
+                        "known_ids": [i for i in ids if i not in unknown],
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return 1
     dropped: list[str] = []
     if runtime:
         for ident in ids:

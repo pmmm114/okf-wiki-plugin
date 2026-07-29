@@ -13,7 +13,19 @@ import study_hook
 import study_inbox
 import study_scope
 
-MEM = "/home/u/.claude/projects/proj/memory/MEMORY.md"
+
+def _mem() -> str:
+    """캡처 입구로 인정되는 메모리 경로 — **실행 시점 HOME 기준**.
+
+    예전에는 `/home/u/…` 리터럴이었다. 레거시 느슨형 정규식에 앵커가 없어 어느
+    프리픽스든 통과했기 때문이다(#305에서 홈·설정 디렉토리 하위로 앵커). 리터럴로
+    두면 테스트가 그 느슨함 자체를 계약으로 고정하게 된다.
+    """
+    return os.path.join(
+        os.path.expanduser("~"), ".claude", "projects", "proj", "memory", "MEMORY.md"
+    )
+
+
 SCRIPT = Path(study_hook.__file__)
 # 직접 spawn 대신 실배선(hooks.json)과 동일하게 bin/okf-py 셔틀 경유 — 셔틀이
 # scripts/core·scripts/study를 PYTHONPATH로 노출한다(#145 U5 교차 디렉토리 import)
@@ -34,26 +46,29 @@ def _cfg(project, capture):
 def test_review_appends_last_line(tmp_path):
     _cfg(tmp_path, "review")
     payload = {
-        "tool_input": {"file_path": MEM, "content": "# Memory\n\n* 테스트 명령은 uv run pytest\n"}
+        "tool_input": {
+            "file_path": _mem(),
+            "content": "# Memory\n\n* 테스트 명령은 uv run pytest\n",
+        }
     }
     message = study_hook.run(payload, tmp_path)
     cands = study_inbox.list_candidates(_rt(tmp_path))
     assert len(cands) == 1
     assert cands[0]["snippet"] == "테스트 명령은 uv run pytest"
-    assert cands[0]["source"] == MEM
+    assert cands[0]["source"] == _mem()
     assert message and "인박스" in message
 
 
 def test_capture_off_is_noop(tmp_path):
     _cfg(tmp_path, "off")
-    payload = {"tool_input": {"file_path": MEM, "content": "* x\n"}}
+    payload = {"tool_input": {"file_path": _mem(), "content": "* x\n"}}
     assert study_hook.run(payload, tmp_path) is None
     assert study_inbox.list_candidates(_rt(tmp_path)) == []
 
 
 def test_study_block_absent_is_noop(tmp_path):
     (tmp_path / ".okf-wiki.json").write_text(json.dumps({"bundlePath": ".okf"}), encoding="utf-8")
-    payload = {"tool_input": {"file_path": MEM, "content": "* x\n"}}
+    payload = {"tool_input": {"file_path": _mem(), "content": "* x\n"}}
     assert study_hook.run(payload, tmp_path) is None
 
 
@@ -66,7 +81,7 @@ def test_non_memory_path_is_noop(tmp_path):
 
 def test_heading_only_content_is_noop(tmp_path):
     _cfg(tmp_path, "review")
-    payload = {"tool_input": {"file_path": MEM, "content": "# Memory\n## Topic\n"}}
+    payload = {"tool_input": {"file_path": _mem(), "content": "# Memory\n## Topic\n"}}
     assert study_hook.run(payload, tmp_path) is None
 
 
@@ -74,7 +89,7 @@ def test_resolved_memory_not_reappended(tmp_path):
     _cfg(tmp_path, "review")
     snippet = "already handled"
     study_inbox.record(_rt(tmp_path), study_inbox.content_hash(snippet)[:12], "discarded")
-    payload = {"tool_input": {"file_path": MEM, "content": f"* {snippet}\n"}}
+    payload = {"tool_input": {"file_path": _mem(), "content": f"* {snippet}\n"}}
     assert study_hook.run(payload, tmp_path) is None
     assert study_inbox.list_candidates(_rt(tmp_path)) == []
 
@@ -83,8 +98,8 @@ def test_recapture_after_rename_updates_source(tmp_path):
     # U1(#255): 같은 내용이 rename된 메모리 파일에서 재캡처되면 새 후보 없이(재등장)
     # source만 새 경로로 따라온다 — 파일 그룹 보고(U3)가 죽은 경로를 세지 않는 전제.
     _cfg(tmp_path, "review")
-    old = "/home/u/.claude/projects/proj/memory/old-name.md"
-    new = "/home/u/.claude/projects/proj/memory/new-name.md"
+    old = os.path.join(os.path.dirname(_mem()), "old-name.md")
+    new = os.path.join(os.path.dirname(_mem()), "new-name.md")
     content = "* 같은 사실 한 줄\n"
     study_hook.run({"tool_input": {"file_path": old, "content": content}}, tmp_path)
     study_hook.run({"tool_input": {"file_path": new, "content": content}}, tmp_path)
@@ -98,10 +113,10 @@ def test_message_reports_file_and_total_counts(tmp_path):
     # U3(#257): 훅 메시지는 "이번 저장분"과 "전체 대기(파일·건)"를 분리 표기한다 —
     # 훅은 호출당 파일 1개를 처리하므로 pending 총계만 보이면 이번 캡처량과 혼동된다
     _cfg(tmp_path, "review")
-    other = "/home/u/.claude/projects/proj/memory/other.md"
+    other = os.path.join(os.path.dirname(_mem()), "other.md")
     study_hook.run({"tool_input": {"file_path": other, "content": "* fact from other\n"}}, tmp_path)
     message = study_hook.run(
-        {"tool_input": {"file_path": MEM, "content": "* fact one\n* fact two\n"}}, tmp_path
+        {"tool_input": {"file_path": _mem(), "content": "* fact one\n* fact two\n"}}, tmp_path
     )
     assert message and "인박스" in message
     assert "후보 2건" in message  # 이번 저장분(이 파일)
@@ -126,7 +141,7 @@ def test_main_bad_stdin_exit0_no_output(tmp_path):
 
 def test_main_emits_additional_context(tmp_path):
     _cfg(tmp_path, "review")
-    payload = json.dumps({"tool_input": {"file_path": MEM, "content": "* hello world\n"}})
+    payload = json.dumps({"tool_input": {"file_path": _mem(), "content": "* hello world\n"}})
     result = _run_hook(tmp_path, payload)
     assert result.returncode == 0
     out = json.loads(result.stdout)
@@ -154,7 +169,7 @@ def test_scope_vault_delegates_inbox_to_vault(monkeypatch, tmp_path):
     (project / ".okf-wiki.json").write_text(
         json.dumps({"study": {"capture": "review", "scope": "vault"}}), encoding="utf-8"
     )
-    payload = {"tool_input": {"file_path": MEM, "content": "* delegated knowledge\n"}}
+    payload = {"tool_input": {"file_path": _mem(), "content": "* delegated knowledge\n"}}
     message = study_hook.run(payload, project)
     assert message and "인박스" in message
     assert len(study_inbox.list_candidates(_rt(project))) == 1
@@ -168,7 +183,7 @@ def test_configless_dir_falls_back_to_vault(monkeypatch, tmp_path):
     monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    payload = {"tool_input": {"file_path": MEM, "content": "* anywhere knowledge\n"}}
+    payload = {"tool_input": {"file_path": _mem(), "content": "* anywhere knowledge\n"}}
     message = study_hook.run(payload, scratch)
     assert message and "인박스" in message
     assert len(study_inbox.list_candidates(_rt(scratch))) == 1
@@ -181,7 +196,7 @@ def test_capture_never_writes_to_vault_repo(monkeypatch, tmp_path):
     monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    payload = {"tool_input": {"file_path": MEM, "content": "* vault-clean check\n"}}
+    payload = {"tool_input": {"file_path": _mem(), "content": "* vault-clean check\n"}}
     assert study_hook.run(payload, scratch)
     assert len(study_inbox.list_candidates(study_scope.user_scope_runtime())) == 1
     assert not (vault / ".okf-study").exists()  # vault repo 깨끗(런타임 미생성)
@@ -193,7 +208,7 @@ def test_invalid_pointer_is_silent_in_posttooluse(monkeypatch, tmp_path):
     monkeypatch.setenv(okf_vault.VAULT_ENV, str(tmp_path / "nowhere"))
     scratch = tmp_path / "scratch"
     scratch.mkdir()
-    payload = {"tool_input": {"file_path": MEM, "content": "* x\n"}}
+    payload = {"tool_input": {"file_path": _mem(), "content": "* x\n"}}
     assert study_hook.run(payload, scratch) is None
 
 

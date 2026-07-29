@@ -9,6 +9,7 @@ okf_vault 분할로 study 층에 이동한 절반의 테스트다(원 출처 tes
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import okf_vault
@@ -178,7 +179,9 @@ def test_vault_equals_project_routes_runtime_to_user_scope(monkeypatch, tmp_path
 
 
 def test_entrance_legacy_default_path(tmp_path):
-    path = "/home/u/.claude/projects/proj/memory/MEMORY.md"
+    path = os.path.join(
+        os.path.expanduser("~"), ".claude", "projects", "proj", "memory", "MEMORY.md"
+    )
     assert study_scope.is_memory_path(path, {}, tmp_path)
 
 

@@ -52,11 +52,32 @@ def _label_key(line: str) -> str:
     return key.strip("*").strip().lower()
 
 
-def _body_lines(text: str) -> list[str]:
-    """파일 선두 frontmatter 펜스를 위치 기준으로 걷어낸 본문 줄들(#256).
+# frontmatter 안쪽이 **YAML 매핑꼴**인지 — 위치만으로 단정하지 않기 위한 확인(#305).
+# 허용: `키: 값` · 들여쓴 연속(리스트 항목·중첩) · 주석 · 빈 줄.
+_YAML_KEY_RE = re.compile(r"^[A-Za-z_][\w.\-]*\s*:")
+_YAML_CONT_RE = re.compile(r"^(?:\s+\S|\s*#|\s*$)")
 
-    1행이 ``---``이고 닫는 펜스(``---``/``...``)가 있으면 안쪽을 통째로 스킵한다.
-    닫는 펜스가 없으면 frontmatter가 아니므로 전체를 본문으로 남긴다(보수적).
+
+def _looks_like_frontmatter(inner: list[str]) -> bool:
+    """펜스 안쪽이 YAML 매핑으로 읽히는가 — 키가 하나는 있고, 이질적 줄이 없어야 한다."""
+    if not any(_YAML_KEY_RE.match(line) for line in inner):
+        return False
+    return all(_YAML_KEY_RE.match(line) or _YAML_CONT_RE.match(line) for line in inner)
+
+
+def _body_lines(text: str) -> list[str]:
+    """파일 선두 frontmatter 펜스를 걷어낸 본문 줄들(#256 · #305).
+
+    1행이 ``---``이고 닫는 펜스(``---``/``...``)가 있으며 **안쪽이 YAML 매핑꼴**일 때만
+    스킵한다. 닫는 펜스가 없으면 frontmatter가 아니므로 전체를 본문으로 남긴다(보수적).
+
+    매핑꼴 확인이 없던 시절엔 위치만으로 단정했다. 그러면 **수평선을 구분자로 쓰는**
+    메모리 파일에서 첫 구간이 통째로 삼켜진다 — 선두 ``---`` 다음에 ``---``나 ``...``가
+    한 번 더 나오면 그 사이가 frontmatter로 취급됐다(실측). 선두 ``---`` 하나만으로는
+    소실되지 않았기 때문에 발현 조건이 좁고 조용했다.
+
+    **블록 분할·id 계산은 건드리지 않는다** — 경계가 바뀌면 기존 인박스·원장 dedup과
+    어긋난다. 여기서 정밀화하는 것은 펜스 판정 하나뿐이다.
     """
     lines = text.splitlines()
     if lines and lines[0].startswith("﻿"):
@@ -64,7 +85,7 @@ def _body_lines(text: str) -> list[str]:
     if lines and _FENCE_OPEN_RE.match(lines[0]):
         for j in range(1, len(lines)):
             if _FENCE_CLOSE_RE.match(lines[j]):
-                return lines[j + 1 :]
+                return lines[j + 1 :] if _looks_like_frontmatter(lines[1:j]) else lines
     return lines
 
 

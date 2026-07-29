@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import okf_vault
 import pytest
@@ -19,7 +20,17 @@ import study_hook
 import study_inbox
 import study_scope
 
-MEM = "/home/u/.claude/projects/proj/memory/MEMORY.md"
+
+def _mem() -> str:
+    """캡처 입구로 인정되는 메모리 경로 — **실행 시점 HOME 기준**.
+
+    예전에는 `/home/u/…` 리터럴이었다. 레거시 느슨형 정규식에 앵커가 없어 어느
+    프리픽스든 통과했기 때문이다(#305에서 홈·설정 디렉토리 하위로 앵커). 리터럴로
+    두면 테스트가 그 느슨함 자체를 계약으로 고정하게 된다.
+    """
+    return os.path.join(
+        os.path.expanduser("~"), ".claude", "projects", "proj", "memory", "MEMORY.md"
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -187,7 +198,7 @@ def test_promote_records_children_and_blocks_resurface(tmp_path):
 def test_hook_captures_all_blocks_not_just_last(tmp_path):
     _cfg(tmp_path, "review")
     content = "## Notes\n- decision X\n  - because Y\n- separate fact\n"
-    study_hook.run({"tool_input": {"file_path": MEM, "content": content}}, tmp_path)
+    study_hook.run({"tool_input": {"file_path": _mem(), "content": content}}, tmp_path)
     snippets = sorted(c["snippet"] for c in study_inbox.list_candidates(_rt(tmp_path)))
     # 마지막 줄만이 아니라 두 블록 모두 + 다중 줄은 하나로 묶임
     assert snippets == ["decision X because Y", "separate fact"]
