@@ -76,6 +76,25 @@ def test_detects_missing_registered_file(tmp_path):
 # --- 여기부터가 신설 축: 게이트가 스스로 무력해지는 두 경로 --------------------
 
 
+def test_vendor_files_uses_git_tracking_in_real_repo():
+    """실제 repo에서는 git 추적 목록을 쓴다 — 순회면 `__pycache__`가 오탐된다(#303 리뷰).
+
+    오라클을 한 번 돌리기만 해도 `vendor/oracle/__pycache__`가 생긴다. 그것이 게이트를
+    붉게 만들면 무결성과 무관한 이유로 CI가 막힌다.
+    """
+    cache = _ROOT / vsc.VENDOR_REL / "oracle" / "__pycache__"
+    cache.mkdir(parents=True, exist_ok=True)
+    marker = cache / "sentinel.pyc"
+    marker.write_bytes(b"\x00")
+    try:
+        problems, _total = vsc.check(_ROOT)
+        assert problems == [], problems
+    finally:
+        marker.unlink()
+        if not any(cache.iterdir()):
+            cache.rmdir()
+
+
 def test_unregistered_vendor_file_is_a_problem(tmp_path):
     """`vendor/`에 lock 미등록 파일이 있으면 red — 검사 사각지대다.
 

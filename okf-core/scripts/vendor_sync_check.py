@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -41,7 +42,24 @@ def _is_exempt(rel: str) -> bool:
 
 
 def _vendor_files(root: Path) -> list[str]:
-    """``vendor/`` 아래 실파일의 repo 상대 경로(정렬)."""
+    """``vendor/`` 아래 **git 추적** 파일의 repo 상대 경로(정렬).
+
+    파일시스템 순회가 아니라 git에게 묻는다. 이 게이트가 지키는 것은 "커밋된 vendor
+    바이트가 lock과 일치하는가"이고, 추적되지 않은 것은 아직 그 대상이 아니다.
+    순회로 하면 오라클을 한 번 돌리기만 해도 생기는 ``__pycache__``가 미등록으로
+    잡혀 게이트가 붉어진다(실측) — 무결성과 무관한 오탐이다.
+
+    git이 없거나 실패하면 순회로 폴백한다 — 역방향 검사를 조용히 끄지 않기 위함이다
+    (그때 ``__pycache__`` 오탐이 날 수 있지만, 검사가 사라지는 쪽보다 낫다).
+    """
+    proc = subprocess.run(
+        ["git", "-C", str(root), "ls-files", VENDOR_REL],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode == 0:
+        return sorted(ln for ln in proc.stdout.split("\n") if ln.strip())
     vendor = root / VENDOR_REL
     return sorted(p.relative_to(root).as_posix() for p in vendor.rglob("*") if p.is_file())
 
