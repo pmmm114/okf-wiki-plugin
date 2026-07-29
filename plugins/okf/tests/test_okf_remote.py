@@ -179,7 +179,7 @@ def test_refresh_skips_when_clone_locked(monkeypatch, tmp_path):
     okf_remote.fcntl.flock(lock_fd, okf_remote.fcntl.LOCK_EX)  # 다른 세션 점유 재현
     try:
         result = okf_remote.refresh()
-        assert result["refreshed"] is False and result["reason"] == "locked"
+        assert result["refreshed"] is False and result["code"] == okf_remote.CODE_LOCKED
     finally:
         os.close(lock_fd)
 
@@ -387,8 +387,95 @@ def test_refresh_keeps_diverged_clone_untouched(monkeypatch, tmp_path):
     _merge_into_origin(src, "remote.md", "remote\n")
     result = okf_remote.refresh()
     assert result["refreshed"] is False
-    assert result["reason"] == "diverged"
+    assert result["code"] == okf_remote.CODE_DIVERGED
     assert (clone_path / "local.md").exists()
+
+
+# --- upstream 부재·detached는 회수에 들어가지 않는다 (#298) ---------------------
+#
+# ff 실패 후 회수 진입은 `_ahead_behind`의 `ahead`가 falsy인지로 갈렸다. 그런데
+# `_ahead_behind`는 rc≠0을 `(None, None)`으로 흡수하므로 **upstream 부재·detached HEAD가
+# `ahead == 0`과 동치**가 되어 회수 경로로 들어갔다. 실측(변경 전): detached clone에서
+# `_recover_and_ff`가 봉인 잔재를 실제로 지우고(`discarded: [...]`) `미봉인 잔재`를
+# 반환한다 — `study.md`는 그 사유에 "**폐기하지 않았다**"를 안내하라고 지시하므로,
+# 사용자가 받는 안내가 사실과 정반대였다.
+
+
+def _detach(clone_path):
+    rc, out, _err = okf_remote._run_git(["rev-parse", "HEAD"], cwd=str(clone_path))
+    assert rc == 0
+    _git(clone_path, "checkout", "--detach", out.strip())
+
+
+def test_refresh_does_not_recover_on_detached_head(monkeypatch, tmp_path):
+    """detached HEAD면 회수에 진입하지 않는다 — 봉인 잔재가 있어도 지우지 않는다."""
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    body = "# promoted\n"
+    (clone_path / ".okf" / "new.md").write_text(body, encoding="utf-8")
+    _merge_into_origin(src, ".okf/new.md", body)  # 봉인 잔재 — 회수 대상이 되면 지워진다
+    _detach(clone_path)
+
+    result = okf_remote.refresh()
+    assert result["refreshed"] is False
+    assert result["code"] == okf_remote.CODE_DETACHED, result
+    assert not result.get("discarded"), "detached인데 폐기했다 — 회수에 진입하면 안 된다"
+    assert (clone_path / ".okf" / "new.md").exists()  # 보존
+
+
+def test_refresh_does_not_recover_without_upstream(monkeypatch, tmp_path):
+    """upstream 미설정 브랜치면 회수에 진입하지 않는다."""
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+    body = "# promoted\n"
+    (clone_path / ".okf" / "new.md").write_text(body, encoding="utf-8")
+    _merge_into_origin(src, ".okf/new.md", body)
+    _git(clone_path, "branch", "--unset-upstream", okf_remote._current_branch(clone_path))
+
+    result = okf_remote.refresh()
+    assert result["refreshed"] is False
+    assert result["code"] == okf_remote.CODE_NO_UPSTREAM, result
+    assert not result.get("discarded")
+    assert (clone_path / ".okf" / "new.md").exists()
+
+
+def test_recover_and_ff_splits_discarded_from_untouched(monkeypatch, tmp_path):
+    """폐기한 실패와 아무것도 못 지운 실패는 **다른 코드**다.
+
+    둘 다 `unsealed_residue`이면 "폐기하지 않았다" 안내가 폐기한 경우에도 나간다.
+    """
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = Path(okf_remote.clone()["clone_path"])
+
+    # 봉인 0건 — 아무것도 지우지 못한다
+    monkeypatch.setattr(okf_remote, "reclaim_sealed", lambda _p: [])
+    untouched = okf_remote._recover_and_ff(clone_path, 5.0)
+    assert untouched["code"] == okf_remote.CODE_UNSEALED_RESIDUE
+    assert not untouched.get("discarded")
+
+    # 지웠는데도 ff 재시도 실패 — 남은 잔재는 미봉인이지만 **폐기는 일어났다**
+    monkeypatch.setattr(okf_remote, "reclaim_sealed", lambda _p: [".okf/gone.md"])
+    monkeypatch.setattr(okf_remote, "_ff", lambda _p, _t: 1)
+    retried = okf_remote._recover_and_ff(clone_path, 5.0)
+    assert retried["code"] == okf_remote.CODE_FF_RETRY_FAILED, retried
+    assert retried["discarded"] == [".okf/gone.md"]
+
+
+def test_study_md_guides_no_discard_only_when_nothing_discarded():
+    """ "폐기하지 않았다" 안내는 `unsealed_residue`에만 붙는다 — `ff_retry_failed`에는 없다.
+
+    같은 사유를 공유하던 두 상황을 코드로 가른 이유가 이것이다. 문서가 다시 합치면 red.
+    """
+    body = (_SOURCE.parents[2] / "commands" / "study.md").read_text(encoding="utf-8")
+    lines = [ln for ln in body.splitlines() if "`ff_retry_failed`" in ln]
+    assert lines, "study.md에 ff_retry_failed 분기가 없다"
+    for line in lines:
+        assert "폐기하지 않았다" not in line, (
+            "ff_retry_failed 분기가 '폐기하지 않았다'를 안내한다 — 실제로는 폐기했다"
+        )
 
 
 # --- doctor (무네트워크 표시) --------------------------------------------------
@@ -854,5 +941,43 @@ def test_study_md_does_not_match_refresh_reason_strings():
     코드로 옮긴 축이 문구 매칭으로 되돌아오지 않게 한다.
     """
     body = (_SOURCE.parents[2] / "commands" / "study.md").read_text(encoding="utf-8")
-    for literal in ("미봉인 잔재", "fetch 실패", "offline env", "clone 미생성"):
-        assert literal not in body, f"study.md가 reason 문자열 {literal!r}을 매칭한다"
+    reasons = set()
+    for func_name in _CODE_GATED:
+        for ret in _returns(_toplevel_func(func_name)):
+            if not isinstance(ret.value, ast.Dict):
+                continue
+            for key, value in zip(ret.value.keys, ret.value.values):
+                if isinstance(key, ast.Constant) and key.value == "reason":
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                        reasons.add(value.value)
+    assert reasons, "reason 리터럴을 하나도 찾지 못했다 — 게이트가 헛돈다"
+    # **값 표기**(백틱·따옴표)만 잡는다. 코드 분기 게이트가 `` `code` `` 표기를 요구하는 것과
+    # 같은 판별이다 — 산문으로 상황을 설명하는 것("남은 미봉인 잔재는…")은 매칭이 아니고,
+    # 그것까지 막으면 문서가 상황을 설명할 수 없어진다.
+    for literal in sorted(reasons):
+        for quoted in (f"`{literal}`", f'"{literal}"'):
+            assert quoted not in body, (
+                f"study.md가 reason 값 {quoted}을 판정 키로 쓴다 — 분기는 `code`로 한다"
+            )
+
+
+def test_doctor_flags_missing_upstream_instead_of_saying_nothing(monkeypatch, tmp_path):
+    """upstream이 없으면 doctor가 **비교 불가**라고 말한다 — 침묵은 "신선하다"로 읽힌다.
+
+    `_ahead_behind`가 `(None, None)`을 내면 `if behind:`·`if ahead:`가 둘 다 falsy라
+    신선도 줄이 통째로 사라졌다(#298 DA리뷰). detached는 이미 전용 줄이 있으므로
+    중복 경고하지 않는다.
+    """
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = okf_remote.clone()["clone_path"]
+    _git(clone_path, "branch", "--unset-upstream", okf_remote._current_branch(clone_path))
+
+    joined = "\n".join(okf_remote.doctor_vault_notes(_url(src)))
+    assert "추적 upstream 없음" in joined, joined
+
+    # detached는 전용 줄만 — 같은 상황을 두 번 경고하지 않는다
+    _detach(clone_path)
+    joined = "\n".join(okf_remote.doctor_vault_notes(_url(src)))
+    assert "detached HEAD" in joined
+    assert "추적 upstream 없음" not in joined, joined

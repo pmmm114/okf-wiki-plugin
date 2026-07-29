@@ -349,7 +349,10 @@ def origin_canonical(path: str | Path) -> str | None:
 # 없애는 것이 아니다.
 CODE_OK = "ok"
 CODE_UNSEALED_RESIDUE = "unsealed_residue"
+CODE_FF_RETRY_FAILED = "ff_retry_failed"
 CODE_DIVERGED = "diverged"
+CODE_DETACHED = "detached"
+CODE_NO_UPSTREAM = "no_upstream"
 CODE_FETCH_FAILED = "fetch_failed"
 CODE_OFFLINE = "offline"
 CODE_LOCKED = "locked"
@@ -364,7 +367,19 @@ REFRESH_REASONS: dict[str, str] = {
         "원격 어디에도 없는 잔재가 ff를 막고 있다 — 폐기하지 않았다. "
         "warning의 지시대로 반영하거나 배선한 뒤 재시도하라(강제 stash·머지 금지)"
     ),
+    CODE_FF_RETRY_FAILED: (
+        "봉인 잔재는 폐기했으나 남은 미봉인 잔재가 여전히 ff를 막는다 — "
+        "`discarded`는 원격에 담긴 것이라 회수 가능하다. warning의 지시대로 처리 후 재시도하라"
+    ),
     CODE_DIVERGED: "로컬 커밋으로 ff 불가 — 관리형 clone을 수동 정리하라(캐시로 계속 가능)",
+    CODE_DETACHED: (
+        "관리형 clone이 detached HEAD다 — 잔재 회수에 들어가지 않았다. "
+        "`git -C <clone> checkout <기본브랜치>`로 되돌린 뒤 재시도하라(캐시로 계속 가능)"
+    ),
+    CODE_NO_UPSTREAM: (
+        "추적 upstream이 없어 ff 대상을 정할 수 없다 — 잔재 회수에 들어가지 않았다. "
+        "`git -C <clone> branch --set-upstream-to=origin/<브랜치>` 후 재시도하라(캐시로 계속 가능)"
+    ),
     CODE_FETCH_FAILED: "fetch 실패(오프라인·인증) — 캐시로 계속하고 네트워크 회복 후 재시도하라",
     CODE_OFFLINE: "오프라인 모드다 — 캐시로 계속하라",
     CODE_LOCKED: "다른 세션이 clone을 갱신 중 — 생략하고 캐시로 계속하라",
@@ -555,11 +570,16 @@ def _recover_and_ff(clone_path: str | Path, timeout: float) -> dict:
         }
     if _ff(clone_path, timeout) == 0:
         return {"refreshed": True, "code": CODE_OK, "discarded": discarded}
+    # 폐기가 **일어난** 실패다. 위 분기와 같은 사유를 쓰면 "폐기하지 않았다"라는 안내가
+    # 폐기한 경우에도 나간다 — 사용자가 받는 사실 진술이 뒤집힌다(#298).
     return {
         "refreshed": False,
-        "code": CODE_UNSEALED_RESIDUE,
-        "reason": "미봉인 잔재",
-        "warning": unsealed_warning,
+        "code": CODE_FF_RETRY_FAILED,
+        "reason": "폐기 후에도 ff 실패",
+        "warning": (
+            f"봉인 잔재 {len(discarded)}건을 폐기했는데도 ff가 막힌다 — "
+            f"남은 잔재는 미봉인이다. {_recovery_route(clone_path)}"
+        ),
         "discarded": discarded,
     }
 
@@ -587,7 +607,7 @@ def refresh(timeout: float = _FETCH_TIMEOUT) -> dict:
             return {
                 "refreshed": False,
                 "code": CODE_LOCKED,
-                "reason": "locked",
+                "reason": "다른 세션이 갱신 중",
                 "warning": "다른 세션이 clone을 갱신 중 — 생략(캐시로 진행)",
             }
         if os.environ.get("OKF_REMOTE_OFFLINE"):
@@ -610,12 +630,30 @@ def refresh(timeout: float = _FETCH_TIMEOUT) -> dict:
         _stamp(clone_path, last_fetch=now, last_attempt=now)
         if _ff(clone_path, timeout) == 0:
             return {"refreshed": True, "code": CODE_OK}
+        # ff 실패의 원인을 가른 뒤에야 회수에 들어간다. `_ahead_behind`는 rc≠0을
+        # `(None, None)`으로 흡수하므로 **upstream 부재·detached가 `ahead == 0`과 동치**가
+        # 됐고, 그 상태로 회수에 진입하면 봉인 잔재를 실제로 지우면서 "폐기하지 않았다"를
+        # 안내했다(실측, #298). 회수는 "ff 대상이 정해졌는데 경로가 겹친다"일 때만 옳다.
+        if _current_branch(clone_path) is None:
+            return {
+                "refreshed": False,
+                "code": CODE_DETACHED,
+                "reason": "detached HEAD",
+                "warning": "관리형 clone이 detached HEAD — 잔재를 건드리지 않고 캐시로 진행",
+            }
         ahead, _behind = _ahead_behind(clone_path)
+        if ahead is None:  # upstream 미설정 등 — 비교 자체가 성립하지 않는다
+            return {
+                "refreshed": False,
+                "code": CODE_NO_UPSTREAM,
+                "reason": "upstream 없음",
+                "warning": "추적 upstream 없음 — 잔재를 건드리지 않고 캐시로 진행",
+            }
         if ahead:  # 로컬 커밋이 있으면 잔재 문제가 아니다 — 회수에 진입하지 않는다
             return {
                 "refreshed": False,
                 "code": CODE_DIVERGED,
-                "reason": "diverged",
+                "reason": "로컬 커밋으로 갈라짐",
                 "warning": "로컬 커밋으로 ff 불가 — 관리형 clone 수동 정리 필요",
             }
         return _recover_and_ff(clone_path, timeout)
@@ -746,6 +784,11 @@ def doctor_vault_notes(pointer: str) -> list[str]:
     if branch is None:
         lines.append("  브랜치: ⚠ detached HEAD — 관리형 clone 정리 필요")
     ahead, behind = _ahead_behind(clone_path)
+    if branch is not None and ahead is None:
+        # `(None, None)`이면 `if behind:`·`if ahead:`가 둘 다 falsy라 신선도 줄이 통째로
+        # 사라진다 — 침묵은 "신선하다"로 읽힌다(#298). detached는 위에 전용 줄이 있으므로
+        # 같은 상황을 두 번 경고하지 않는다.
+        lines.append("  신선도: ⚠ 추적 upstream 없음 — origin과 비교 불가(refresh도 갱신 못 함)")
     if behind:
         lines.append(f"  신선도: ⚠ origin보다 {behind}커밋 뒤 — /study 진입 시 갱신(refresh)")
     if ahead:
