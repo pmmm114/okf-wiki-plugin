@@ -373,15 +373,30 @@ REFRESH_REASONS: dict[str, str] = {
     CODE_BAD_TRANSPORT: "포인터 transport가 미지원이다 — https/ssh/git/file로 고쳐라",
 }
 
+NOT_URL_POINTER = "URL 포인터 아님"
+
+# `_resolve_pointer`의 사유 문자열 → 코드. **완전 사상**이며 `else` 폴백을 두지 않는다.
+# 폴백이 있으면 나중에 늘어난 사유가 조용히 `not_url`("갱신 대상 아님 — 그냥 진행")로
+# 흡수되어, 실제 오설정이 정상으로 보고된다 — 이 전환이 없애려던 무음 스킵이 판정 축
+# 안에 다시 생기는 꼴이다. 총체성은 게이트가 잠근다
+# (`test_okf_remote.py::test_pointer_reasons_are_totally_mapped`).
+_POINTER_CODES: dict[str, str] = {
+    NOT_URL_POINTER: CODE_NOT_URL,
+    okf_vault.INVALID_URL_TRANSPORT: CODE_BAD_TRANSPORT,
+}
+
 
 # --- URL 포인터 해소 (순수 — okf_vault 위임) -----------------------------------
 
 
 def _resolve_pointer(url: str | None = None):
-    """(stored_url, canonical, clone_path) 또는 사유 문자열을 반환한다(무네트워크)."""
+    """(stored_url, canonical, clone_path) 또는 사유 문자열을 반환한다(무네트워크).
+
+    사유 문자열을 늘리면 ``_POINTER_CODES``에도 함께 등록한다 — 게이트가 강제한다.
+    """
     value = url if url is not None else okf_vault.read_pointer()
     if not value or not okf_vault.is_url(value):
-        return "URL 포인터 아님"
+        return NOT_URL_POINTER
     stored = okf_vault.clone_url(value)
     canonical = okf_vault.canonicalize_url(value)
     if stored is None or canonical is None:
@@ -562,8 +577,7 @@ def refresh(timeout: float = _FETCH_TIMEOUT) -> dict:
     """
     resolved = _resolve_pointer()
     if isinstance(resolved, str):
-        code = CODE_BAD_TRANSPORT if resolved == okf_vault.INVALID_URL_TRANSPORT else CODE_NOT_URL
-        return {"refreshed": False, "code": code, "reason": resolved}
+        return {"refreshed": False, "code": _POINTER_CODES[resolved], "reason": resolved}
     _stored, _canonical, clone_path = resolved
     if not okf_vault.valid_vault(clone_path):
         return {"refreshed": False, "code": CODE_CLONE_MISSING, "reason": "clone 미생성"}

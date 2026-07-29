@@ -7,6 +7,7 @@ SessionStart fetch-only·clean-gate ff·오프라인 저하·미생성 옵트인
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -734,9 +735,124 @@ def test_study_md_branches_on_every_refresh_code():
     assert not missing, f"study.md에 분기 없는 refresh 코드: {missing}"
 
 
-def test_refresh_returns_code_on_every_path(tmp_path, monkeypatch):
-    """반환 경로마다 `code`가 실린다 — 한국어 `reason`은 사람용 표시로만 남는다."""
+def test_non_url_pointer_returns_not_url_code(monkeypatch):
+    """URL 포인터가 아니면 `not_url` — 한국어 `reason`은 사람용 표시로만 남는다."""
     monkeypatch.setattr(okf_vault, "read_pointer", lambda: None)
     out = okf_remote.refresh()
     assert out["code"] == okf_remote.CODE_NOT_URL, out
     assert out["refreshed"] is False
+    assert out["reason"] == okf_remote.NOT_URL_POINTER  # 사람용 표시는 남는다
+
+
+# --- 코드 축의 구조 게이트 (#297 DA리뷰) ---------------------------------------
+#
+# 위 세 테스트는 **문서 → 코드** 방향만 잠근다(REFRESH_REASONS에 있는 것이 study.md에
+# 있는가). 반대 방향 — 새 반환 경로가 `code` 없이 들어오거나, 새 `CODE_*`가
+# REFRESH_REASONS를 거치지 않고 반환되는 것 — 은 비어 있었다. 그러면 소비자가 받는
+# `code`는 `None`이고 study.md에 대응 분기가 없어 **조용히 흘러간다**. 이 유닛이
+# 없애려는 무음 스킵이 판정 축 안에 다시 생기는 꼴이라 구조로 잠근다.
+
+_SOURCE = Path(okf_remote.__file__).resolve()
+# 반환 dict에 `code`가 실려야 하는 함수. 서로에게 위임하는 것은 허용한다.
+_CODE_GATED = ("refresh", "_recover_and_ff")
+
+
+def _module_ast() -> ast.Module:
+    return ast.parse(_SOURCE.read_text(encoding="utf-8"))
+
+
+def _toplevel_func(name: str) -> ast.FunctionDef:
+    for node in _module_ast().body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise AssertionError(f"{name}: 최상위 함수를 찾지 못했다")
+
+
+def _returns(func: ast.FunctionDef) -> list[ast.Return]:
+    return [n for n in ast.walk(func) if isinstance(n, ast.Return) and n.value is not None]
+
+
+@pytest.mark.parametrize("func_name", _CODE_GATED)
+def test_every_return_carries_code(func_name: str):
+    """`refresh`/`_recover_and_ff`의 **모든** dict 반환에 `code` 키가 있다.
+
+    dict 리터럴이 아닌 반환은 게이트 대상 함수로의 위임만 허용한다 — 게이트를 우회하는
+    간접 반환이 생기지 않게.
+    """
+    for ret in _returns(_toplevel_func(func_name)):
+        if isinstance(ret.value, ast.Dict):
+            keys = {k.value for k in ret.value.keys if isinstance(k, ast.Constant)}
+            assert "code" in keys, (
+                f"{func_name} L{ret.lineno}: `code` 없는 dict 반환 — "
+                f"소비자가 분기할 기계 축이 사라진다(키: {sorted(keys)})"
+            )
+            continue
+        delegated = (
+            isinstance(ret.value, ast.Call) and getattr(ret.value.func, "id", None) in _CODE_GATED
+        )
+        assert delegated, (
+            f"{func_name} L{ret.lineno}: dict 리터럴도 게이트 함수 위임도 아닌 반환 — "
+            "`code`가 실리는지 정적으로 확인할 수 없다"
+        )
+
+
+def test_returned_code_constants_are_registered():
+    """반환에 직접 쓰인 `CODE_*` 상수가 전부 REFRESH_REASONS에 등록돼 있다."""
+    for func_name in _CODE_GATED:
+        for ret in _returns(_toplevel_func(func_name)):
+            if not isinstance(ret.value, ast.Dict):
+                continue
+            for key, value in zip(ret.value.keys, ret.value.values):
+                if not (isinstance(key, ast.Constant) and key.value == "code"):
+                    continue
+                if not (isinstance(value, ast.Name) and value.id.startswith("CODE_")):
+                    continue  # 변수·조회식은 아래 닫힘 테스트가 대신 잠근다
+                assert getattr(okf_remote, value.id) in okf_remote.REFRESH_REASONS, (
+                    f"{func_name} L{ret.lineno}: {value.id}가 REFRESH_REASONS에 없다 — "
+                    "복구 지시도 문서 분기 게이트도 이 코드를 보지 못한다"
+                )
+
+
+def test_code_constants_are_closed_over_refresh_reasons():
+    """모듈의 `CODE_*` 상수 집합 == REFRESH_REASONS 키 집합.
+
+    상수만 늘리고 REFRESH_REASONS를 안 고치면 문서 게이트가 그 코드를 **보지 못한다** —
+    "코드가 늘면 문서 미갱신이 red"라는 사슬의 첫 고리가 여기다.
+    """
+    constants = {getattr(okf_remote, name) for name in dir(okf_remote) if name.startswith("CODE_")}
+    assert constants == set(okf_remote.REFRESH_REASONS), (
+        f"CODE_* 상수 - REFRESH_REASONS = {sorted(constants - set(okf_remote.REFRESH_REASONS))} / "
+        f"REFRESH_REASONS - CODE_* = {sorted(set(okf_remote.REFRESH_REASONS) - constants)}"
+    )
+
+
+def test_pointer_reasons_are_totally_mapped():
+    """`_resolve_pointer`가 낼 수 있는 **모든** 사유 문자열이 `_POINTER_CODES`에 있다.
+
+    이 사상이 `else` 폴백이면 새 사유가 조용히 `not_url`("갱신 대상 아님 — 그냥 진행")로
+    흡수된다. 실제 오설정을 정상으로 보고하는 것이라, 코드 전환의 의미가 사라진다.
+    """
+    reasons = set()
+    for ret in _returns(_toplevel_func("_resolve_pointer")):
+        value = ret.value
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            reasons.add(value.value)
+        elif isinstance(value, ast.Name):
+            reasons.add(getattr(okf_remote, value.id))
+        elif isinstance(value, ast.Attribute) and getattr(value.value, "id", None) == "okf_vault":
+            reasons.add(getattr(okf_vault, value.attr))
+    assert reasons, "_resolve_pointer의 사유 반환을 하나도 찾지 못했다 — 게이트가 헛돈다"
+    unmapped = reasons - set(okf_remote._POINTER_CODES)
+    assert not unmapped, f"_POINTER_CODES에 없는 사유: {sorted(unmapped)}"
+    assert set(okf_remote._POINTER_CODES.values()) <= set(okf_remote.REFRESH_REASONS)
+
+
+def test_study_md_does_not_match_refresh_reason_strings():
+    """`study.md`가 한국어 `reason` 리터럴을 판정 키로 쓰지 않는다.
+
+    `test_dispatch_verdict.py`의 `test_commands_do_not_match_note_strings`와 동형 —
+    코드로 옮긴 축이 문구 매칭으로 되돌아오지 않게 한다.
+    """
+    body = (_SOURCE.parents[2] / "commands" / "study.md").read_text(encoding="utf-8")
+    for literal in ("미봉인 잔재", "fetch 실패", "offline env", "clone 미생성"):
+        assert literal not in body, f"study.md가 reason 문자열 {literal!r}을 매칭한다"
