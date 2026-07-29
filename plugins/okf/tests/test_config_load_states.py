@@ -110,3 +110,17 @@ def test_resolve_inject_uses_the_same_loader(project):
     _write(project, BROKEN)
     resolved = okf_vault.resolve_inject(project)
     assert resolved["config_error"] is True, resolved
+
+
+def test_inject_trace_names_parse_failure(project):
+    """doctor의 주입 절도 '설정 존재'와 '설정 파스 실패'를 구분한다.
+
+    `resolve_inject`가 깨진 설정을 project 스코프로 보고하는 것은 옳지만(고장을 vault
+    폴백으로 덮지 않는다), 그 사실을 ".okf-wiki.json 존재"라고만 쓰면 캡처 절만 고치고
+    주입 절은 여전히 틀린 안내를 낸다.
+    """
+    import okf_doctor
+
+    _write(project, BROKEN)
+    joined = "\n".join(okf_doctor._inject_trace(str(project)))
+    assert "파스 실패" in joined, joined

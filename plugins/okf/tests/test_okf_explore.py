@@ -170,3 +170,20 @@ def test_project_root_falls_back_to_parent_when_no_config(tmp_path):
     bundle = tmp_path / "loose" / ".okf"
     bundle.mkdir(parents=True)
     assert okf_explore.project_root(str(bundle)) == str(bundle.parent)
+
+
+def test_project_root_does_not_escape_the_repo(tmp_path):
+    """상향 탐색이 **repo 경계를 넘지 않는다**.
+
+    무제한으로 올라가면 상위 디렉토리(예: 홈)에 있는 남의 `.okf-wiki.json`을 집어
+    **그 프로젝트의 승인된 제공자**가 실행된다 — 조용한 오해소가 조용한 실행이 된다.
+    """
+    outer = tmp_path / "outer"
+    (outer / "repo" / "docs" / ".okf").mkdir(parents=True)
+    (outer / ".okf-wiki.json").write_text('{"explore": {"provider": "남의도구"}}', encoding="utf-8")
+    (outer / "repo" / ".git").mkdir()  # repo 경계
+
+    bundle = outer / "repo" / "docs" / ".okf"
+    resolved = okf_explore.project_root(str(bundle))
+    assert not resolved.startswith(str(outer.resolve()) + "/.okf-wiki"), resolved
+    assert resolved != str(outer.resolve()), f"repo 밖 설정을 집었다: {resolved}"

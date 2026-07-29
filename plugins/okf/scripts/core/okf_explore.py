@@ -102,13 +102,21 @@ def project_root(bundle: str) -> str:
     외부 탐색 제공자가 안내 한 줄 없이 미실행되고 내장 폴백으로 조용히 떨어진다.
     '설정을 못 찾은 것'이 '설정이 없는 것'으로 읽히는 계열이다.
 
+    탐색은 **repo 경계에서 멈춘다**(``.git``을 담은 디렉토리까지, 포함). 무제한으로
+    올라가면 상위 디렉토리(예: 홈)에 있는 남의 ``.okf-wiki.json``을 집고, 그 프로젝트에
+    승인된 제공자가 **실행된다** — 조용한 오해소가 조용한 실행이 되는 쪽이 더 나쁘다.
+    repo 밖(비-git 로컬 vault 등)이면 경계가 없으므로 기존 추정 범위로 되돌린다.
+
     어디에도 없으면 기존 추정으로 폴백한다 — 판정을 못 하는 것이지 고장이 아니다.
     """
+    fallback = os.path.dirname(os.path.abspath(bundle)) or "."
     current = Path(bundle).resolve()
     for candidate in [current, *current.parents]:
         if (candidate / CONFIG_NAME).is_file():
             return str(candidate)
-    return os.path.dirname(os.path.abspath(bundle)) or "."
+        if (candidate / ".git").exists():
+            break  # repo 루트까지 봤다 — 그 위는 이 프로젝트의 설정이 아니다
+    return fallback
 
 
 def resolve(project: str) -> dict:
