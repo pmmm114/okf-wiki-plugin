@@ -71,3 +71,45 @@ def test_error_prints_go_to_stderr(module: Path):
 def test_gate_sees_something():
     """게이트가 실제로 대상을 훑는다 — 모듈 목록이 비면 위 테스트가 공회전한다."""
     assert len(MODULES) >= 8, [p.name for p in MODULES]
+
+
+# --- 구조 축: 프로즈에 기대지 않는다 --------------------------------------------
+#
+# 위 게이트는 "오류:"라는 **한국어 접두사**로 오류 출력을 알아본다. 그것만 두면 게이트
+# 자체가 이 Epic이 잡는 계열(텍스트로 판정)이 된다 — 문구를 "실패:"로 바꾸면 조용히
+# 새 나간다. 그래서 **비-0 반환으로 끝나는 블록의 print**라는 구조 축을 함께 건다.
+
+
+def _nonzero_return(block: list[ast.stmt]) -> bool:
+    return any(
+        isinstance(node, ast.Return)
+        and isinstance(node.value, ast.Constant)
+        and node.value.value not in (0, None)
+        for node in block
+    )
+
+
+def _prints(block: list[ast.stmt]) -> list[ast.Call]:
+    found = []
+    for stmt in block:
+        for node in ast.walk(stmt):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id == "print":
+                    found.append(node)
+    return found
+
+
+@pytest.mark.parametrize("module", MODULES, ids=[p.stem for p in MODULES])
+def test_prints_in_failing_branches_go_to_stderr(module: Path):
+    """비-0으로 끝나는 분기의 `print`는 전부 stderr — 문구와 무관한 구조 판정."""
+    tree = ast.parse(module.read_text(encoding="utf-8"))
+    offenders: list[int] = []
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if not isinstance(body, list) or not _nonzero_return(body):
+            continue
+        offenders += [c.lineno for c in _prints(body) if not _goes_to_stderr(c)]
+    assert not offenders, (
+        f"{module.name}: 실패 분기인데 stdout으로 나가는 print L{sorted(set(offenders))} — "
+        "소비자가 stdout을 산출물로 읽는다."
+    )

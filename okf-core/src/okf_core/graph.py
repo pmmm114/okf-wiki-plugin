@@ -136,8 +136,11 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="okf graph", description="번들 링크 그래프")
     ap.add_argument("bundle", help="번들 디렉터리 경로")
     ap.add_argument("--json", action="store_true", help="nodes/edges JSON 출력")
-    ap.add_argument("--linked-to", metavar="P", help="경로·resource 부분일치 역링크 조회")
-    ap.add_argument(
+    # 둘은 **배타**다. 함께 오면 조용히 한쪽을 이기게 두지 않는다 — 어느 판정이
+    # 적용됐는지 호출자가 알 수 없는 상태가 이 계열의 문제다(#300).
+    backlink = ap.add_mutually_exclusive_group()
+    backlink.add_argument("--linked-to", metavar="P", help="경로·resource 부분일치 역링크 조회")
+    backlink.add_argument(
         "--linked-to-exact",
         metavar="P",
         help="경로·resource **정확 일치** 역링크 조회(정규 경로를 쥔 호출자용)",
