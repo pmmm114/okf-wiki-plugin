@@ -66,13 +66,23 @@ def _same_path(a: str | Path, b: str | Path) -> bool:
         return False
 
 
-def _cap(target: str | None, runtime_root: str | None, capture: str, scope: str, warning=None):
+def _cap(
+    target: str | None,
+    runtime_root: str | None,
+    capture: str,
+    scope: str,
+    warning=None,
+    config_error: bool = False,
+):
     return {
         "target": target,
         "runtime_root": runtime_root,
         "capture": capture,
         "scope": scope,
         "warning": warning,
+        # 프로젝트 설정이 **있는데 파싱되지 않음**(#301). 소비자가 "블록 없음"과
+        # 구분해 진단하도록 기계 축으로 낸다 — 문구로 알아내게 하지 않는다.
+        "config_error": config_error,
     }
 
 
@@ -86,8 +96,11 @@ def resolve_capture(project: str | Path) -> dict:
     - capture: 유효 캡처 레벨("off"|"review"|"auto")
     - scope: "project" | "vault" | "none"
     - warning: 무효 포인터 경고 문구(str) 또는 None — 방출은 SessionStart 계열만
+    - config_error: 프로젝트 설정이 있는데 파싱되지 않음(#301) — "블록 없음"과 구분
     """
-    block = study_block(okf_vault.load_config(project))
+    loaded = okf_vault.read_json_result(Path(project) / ".okf-wiki.json")
+    broken = loaded["reason"] == okf_vault.CONFIG_BROKEN
+    block = study_block(loaded["data"])
     vault, reason = okf_vault.vault_state()
     user_rt = str(user_scope_runtime())
     if block is not None:
@@ -102,15 +115,18 @@ def resolve_capture(project: str | Path) -> dict:
         if vault is not None and _same_path(project, vault):
             return _cap(vault, user_rt, capture, "vault")
         return _cap(str(project), _in_repo_runtime(project), capture, "project")
-    # 규칙 3 — 블록 없음 → vault 폴백
+    # 규칙 3 — 블록 없음 → vault 폴백. 설정이 **깨져서** 블록을 못 읽은 경우도 여기로
+    # 오는데, 그것은 "블록 없음"이 아니라 고장이다 — `config_error`로 구분해 보낸다.
     if vault is None:
-        return _cap(None, None, "off", "none", okf_vault.pointer_warning(reason))
+        return _cap(
+            None, None, "off", "none", okf_vault.pointer_warning(reason), config_error=broken
+        )
     vault_block = study_block(okf_vault.load_config(vault))
     vault_capture = (vault_block or {}).get("capture", "off")
     if vault_capture in ("review", "auto"):
-        return _cap(vault, user_rt, vault_capture, "vault")
+        return _cap(vault, user_rt, vault_capture, "vault", config_error=broken)
     # 반쪽 상태(주입 전용 vault) 또는 capture=off — 정상, 무경고 (#91 #13)
-    return _cap(None, None, "off", "none", None)
+    return _cap(None, None, "off", "none", None, config_error=broken)
 
 
 def vault_capture_state(vault: str | Path) -> str:

@@ -33,7 +33,11 @@ except ImportError as _exc:  # pragma: no cover - study 미배치 배포에서�
 
 def _inject_trace(project: str) -> list[str]:
     result = okf_vault.resolve_inject(project)
-    if result["scope"] == "project":
+    if result["config_error"]:
+        # 캡처 절만 고치고 여기를 두면 주입 절이 계속 틀린 안내를 낸다(#301) —
+        # 파일은 "존재"하지만 읽히지 않았고, 그 사실이 처방을 가른다.
+        why = ".okf-wiki.json 파스 실패 — 존재하지만 읽지 못했다"
+    elif result["scope"] == "project":
         why = ".okf-wiki.json 존재"
     elif result["scope"] == "vault":
         why = "프로젝트 설정 없음 → 유효 vault"

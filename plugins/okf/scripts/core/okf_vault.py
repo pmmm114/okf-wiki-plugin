@@ -47,13 +47,41 @@ INVALID_CLONE_MISSING = "URL 포인터 — 관리형 clone 미생성"
 INVALID_URL_TRANSPORT = "URL 포인터 — 미지원 transport"
 
 
-def read_json(path: Path):
-    """JSON 파일을 관용적으로 읽는다 — 부재·깨짐·비객체는 전부 None (공개 헬퍼)."""
+# 설정 로드 판정 — '부재'와 '고장'은 **처방이 정반대**다(#301). 부재는 옵트인 안 한
+# 상태라 무음이 정답이고, 고장은 사용자가 고쳐야 한다. 둘을 한 값(None)으로 접으면
+# 소비자가 구분할 수 없고, 실제로 doctor가 깨진 설정을 "블록 없음"이라 진단했다.
+CONFIG_OK = "ok"
+CONFIG_ABSENT = "absent"
+CONFIG_BROKEN = "broken"
+
+
+def read_json_result(path: Path) -> dict:
+    """JSON 파일 로드 결과 — ``{ok, data, reason}``.
+
+    ``reason``은 ``CONFIG_ABSENT``(파일 없음·읽기 불가) 또는 ``CONFIG_BROKEN``
+    (JSON 파스 실패·비객체). 성공이면 ``None``.
+    """
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {"ok": False, "data": None, "reason": CONFIG_ABSENT}
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return {"ok": False, "data": None, "reason": CONFIG_BROKEN}
+    if not isinstance(data, dict):
+        return {"ok": False, "data": None, "reason": CONFIG_BROKEN}
+    return {"ok": True, "data": data, "reason": None}
+
+
+def read_json(path: Path):
+    """JSON 파일을 관용적으로 읽는다 — 부재·깨짐·비객체는 전부 None (공개 헬퍼).
+
+    **기존 호출자의 동작 보존용 얇은 래퍼로 남긴다.** 구분이 필요한 곳은
+    ``read_json_result``를 쓴다 — 관용을 없애는 것이 아니라 필요한 곳에 사실을
+    돌려주는 경로를 여는 것이다.
+    """
+    return read_json_result(path)["data"]
 
 
 def expand(value: str) -> str:
@@ -283,16 +311,34 @@ def resolve_inject(project: str | Path) -> dict:
     """주입(읽기) 스코프를 해소한다 (#91 §2 주입 3단 규칙).
 
     반환 dict: target(str|None) · scope("project"|"vault"|"none") · warning(str|None)
+    · config_error(bool — 프로젝트 설정이 **있는데 파싱되지 않음**)
+
+    판별을 ``is_file()``이 아니라 실제 로더로 한다(#301). 존재만 보면 깨진 설정이
+    "프로젝트 스코프"로 보고되는데, 같은 파일을 읽는 훅은 파스 실패로 생략한다 —
+    두 축이 서로 다른 사실을 말하는 상태가 된다. 폴백 판정 자체는 바꾸지 않는다:
+    **파일이 있으면(깨졌더라도) 프로젝트 스코프**다. 깨진 설정을 vault 폴백으로
+    흘려보내면 사용자가 고쳐야 할 고장이 "다른 곳이 주입됐다"로 덮인다.
     """
-    if (Path(project) / ".okf-wiki.json").is_file():
-        return {"target": str(project), "scope": "project", "warning": None}
+    loaded = read_json_result(Path(project) / ".okf-wiki.json")
+    if loaded["reason"] != CONFIG_ABSENT:
+        return {
+            "target": str(project),
+            "scope": "project",
+            "warning": None,
+            "config_error": loaded["reason"] == CONFIG_BROKEN,
+        }
     vault, reason = vault_state()
     if vault is None:
-        return {"target": None, "scope": "none", "warning": pointer_warning(reason)}
+        return {
+            "target": None,
+            "scope": "none",
+            "warning": pointer_warning(reason),
+            "config_error": False,
+        }
     config = load_config(vault) or {}
     if config.get("inject") is False:
-        return {"target": None, "scope": "none", "warning": None}
-    return {"target": vault, "scope": "vault", "warning": None}
+        return {"target": None, "scope": "none", "warning": None, "config_error": False}
+    return {"target": vault, "scope": "vault", "warning": None, "config_error": False}
 
 
 def pointer_warning(reason: str | None) -> str | None:

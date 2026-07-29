@@ -30,6 +30,7 @@ import os
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 import okf_layers
 
@@ -93,6 +94,31 @@ def approve(project: str, provider: str) -> str:
     return store
 
 
+def project_root(bundle: str) -> str:
+    """번들에서 위로 올라가며 설정을 이고 있는 디렉토리를 찾는다 (#301).
+
+    ``dirname(bundle)`` 추정은 중첩 ``bundlePath``(``docs/.okf`` 등)에서 틀린다 — 그
+    디렉토리에 ``.okf-wiki.json``이 없으므로 제공자 해소가 "미설정"을 보고, **승인된**
+    외부 탐색 제공자가 안내 한 줄 없이 미실행되고 내장 폴백으로 조용히 떨어진다.
+    '설정을 못 찾은 것'이 '설정이 없는 것'으로 읽히는 계열이다.
+
+    탐색은 **repo 경계에서 멈춘다**(``.git``을 담은 디렉토리까지, 포함). 무제한으로
+    올라가면 상위 디렉토리(예: 홈)에 있는 남의 ``.okf-wiki.json``을 집고, 그 프로젝트에
+    승인된 제공자가 **실행된다** — 조용한 오해소가 조용한 실행이 되는 쪽이 더 나쁘다.
+    repo 밖(비-git 로컬 vault 등)이면 경계가 없으므로 기존 추정 범위로 되돌린다.
+
+    어디에도 없으면 기존 추정으로 폴백한다 — 판정을 못 하는 것이지 고장이 아니다.
+    """
+    fallback = os.path.dirname(os.path.abspath(bundle)) or "."
+    current = Path(bundle).resolve()
+    for candidate in [current, *current.parents]:
+        if (candidate / CONFIG_NAME).is_file():
+            return str(candidate)
+        if (candidate / ".git").exists():
+            break  # repo 루트까지 봤다 — 그 위는 이 프로젝트의 설정이 아니다
+    return fallback
+
+
 def resolve(project: str) -> dict:
     """제공자 해소 상태 — {provider: str|None, trusted: bool}."""
     provider = load_provider(project)
@@ -133,7 +159,7 @@ def run_op(
     외부 응답이 계약 검증기를 통과하지 못하면 RuntimeError(폴백 없음 — fail-visible).
     ``execute``/``builtin``은 테스트 주입점이다.
     """
-    project = project or os.path.dirname(os.path.abspath(bundle)) or "."
+    project = project or project_root(bundle)
     status = resolve(project)
     provider = status["provider"]
     if provider is None:
