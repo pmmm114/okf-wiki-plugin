@@ -340,3 +340,95 @@ def test_apply_cascade_grounds_on_same_batch_promotion(bundle):
     report = okf_promote.apply_proposals(str(bundle), [info, knowledge], run=engine)
     assert [p["path"] for p in report["promoted"]] == ["facts/new.md", "facts/model.md"]
     assert report["rejected"] == []
+
+
+# --- 미지 층은 크래시가 아니라 반려 · 크래시는 반려와 다른 exit code (#295) ------
+#
+# 번들 전역 layer 어휘 검사는 repo 어디에도 없다 — 엔진은 taxonomy-neutral이라
+# `validate --strict`가 `layer: infomation`(오타)을 error 0 / warn 0으로 통과시킨다.
+# 그 개념이 어떤 제안의 derived_from에 들어가면 `rank[dep_layer]`가 KeyError로 죽고,
+# exit 1은 계약상 "반려가 있음"과 **같은 코드**라 소비처가 둘을 구분할 수 없다.
+
+
+def test_gate_rejects_unknown_dep_layer_without_crash(bundle):
+    """rank 밖 층은 `is None`과 **같은 반려 사유**로 흡수된다 — 크래시가 아니다."""
+    spec = okf_promote.okf_layers.load_layers_spec()
+    reasons = okf_promote.gate_proposal(
+        spec, {"info.md": "infomation"}, str(bundle), _proposal(bundle)
+    )
+    assert reasons, "미지 층 재료는 반려돼야 한다"
+    assert any("infomation" in r for r in reasons), reasons
+
+
+def test_apply_returns_contract_json_on_engine_failure(bundle):
+    """엔진 호출이 죽어도 계약 JSON이 나온다 — stdout 0바이트는 소비처 계약 파기다.
+
+    `validate`만 감싸여 있어 `log`·`index`·`graph`·`context` 실패는 traceback으로
+    빠져나갔다. 그때 배치 앞부분은 이미 파일로 쓰이고 log에도 남은 상태다.
+    """
+    engine = FakeEngine(bundle)
+    original = engine.__call__
+
+    def boom(args):
+        if args[0] == "log":
+            raise RuntimeError("엔진 폭발(주입)")
+        return original(args)
+
+    report = okf_promote.apply_proposals(str(bundle), [_proposal(bundle)], run=boom)
+    assert set(report) >= {"promoted", "rejected", "lint_warns", "error"}, report
+    assert report["error"]["stage"] == "log", report["error"]
+    assert report["error"]["code"] and report["error"]["detail"], report["error"]
+
+
+def test_main_separates_crash_from_rejection(bundle, monkeypatch, capsys):
+    """크래시(3)와 반려(1)와 전량 승격(0)이 서로 다른 종료코드다."""
+    proposals = bundle / "p.json"
+    proposals.write_text("[]", encoding="utf-8")
+
+    def with_error(_bundle, _proposals, run=None):
+        return {
+            "promoted": [],
+            "rejected": [],
+            "lint_warns": [],
+            "error": {"code": "engine_failed", "stage": "log", "detail": "d"},
+        }
+
+    monkeypatch.setattr(okf_promote, "apply_proposals", with_error)
+    rc = okf_promote.main(["apply", str(bundle), "--proposals", str(proposals)])
+    assert rc == 3, "크래시는 반려(1)와 다른 코드여야 한다"
+    assert json.loads(capsys.readouterr().out)["error"]["stage"] == "log"
+
+    monkeypatch.setattr(
+        okf_promote,
+        "apply_proposals",
+        lambda *_a, **_k: {"promoted": [], "rejected": [{"path": "x"}], "lint_warns": []},
+    )
+    assert okf_promote.main(["apply", str(bundle), "--proposals", str(proposals)]) == 1
+
+    monkeypatch.setattr(
+        okf_promote,
+        "apply_proposals",
+        lambda *_a, **_k: {"promoted": [{"path": "x"}], "rejected": [], "lint_warns": []},
+    )
+    assert okf_promote.main(["apply", str(bundle), "--proposals", str(proposals)]) == 0
+
+
+def test_apply_preserves_rejections_on_engine_failure(bundle):
+    """크래시해도 그때까지의 **반려**가 남는다(#295 리뷰) — 고칠 근거가 사라지면 안 된다.
+
+    배치가 [게이트 반려, 정상] 순일 때 두 번째에서 엔진이 죽어도, 첫 번째의 반려 사유는
+    사용자가 제안을 고치는 유일한 단서다.
+    """
+    engine = FakeEngine(bundle)
+    original = engine.__call__
+
+    def boom(args):
+        if args[0] == "log":
+            raise RuntimeError("엔진 폭발(주입)")
+        return original(args)
+
+    bad = _proposal(bundle, target_layer="nonexistent-layer")
+    report = okf_promote.apply_proposals(str(bundle), [bad, _proposal(bundle)], run=boom)
+    assert report["error"]["stage"] == "log", report["error"]
+    assert report["rejected"], "크래시 전에 결정된 반려가 사라졌다"
+    assert any("어휘 위반" in r for r in report["rejected"][0]["reasons"]), report["rejected"]
