@@ -89,6 +89,9 @@ _CLOSING = re.compile(
 #
 # 인용(`> …`)은 **지우지 않는다**. GitHub은 인용 안 참조도 링크하므로, 지우면 게이트가
 # GitHub보다 관대해져 진짜 뭉침이 새어 나간다. 판정면은 GitHub보다 넓어도 좁아도 안 된다.
+# 닫는 펜스가 없으면 문서 끝까지 코드블록이다 — CommonMark/GFM 규격이고 `\Z` 대안이
+# 그것을 그대로 옮긴 것이다. 그 뒤의 `Closes #N`은 GitHub도 링크하지 않으므로 세지
+# 않는 것이 맞다. "뒤가 통째로 사라진다"고 여기를 고치면 판정면이 GitHub보다 넓어진다.
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _FENCED_CODE = re.compile(
     r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*\1[^\n]*$|\Z)", re.MULTILINE | re.DOTALL

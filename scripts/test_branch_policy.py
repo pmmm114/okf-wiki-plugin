@@ -516,3 +516,14 @@ def test_closing_issues_skips_foreign_repo(body):
     같은 번호의 **이 repo 이슈**를 닫는 오작동.
     """
     assert bp.closing_issues(body, repo="o/r") == []
+
+
+def test_unclosed_fence_swallows_to_end_like_github():
+    """닫는 펜스가 없으면 문서 끝까지 코드블록 — GFM 규격과 같은 판정면을 유지한다.
+
+    자체 리뷰에서 "뒤의 Closes가 사라진다"로 보였으나, GitHub도 그 참조를 링크하지
+    않으므로 세지 않는 것이 맞다. 여기를 "고치면" 게이트가 GitHub보다 넓어진다.
+    """
+    assert bp.closing_issues("```\n예시\n\nCloses #250\n") == []
+    # 닫힌 펜스는 그 뒤를 정상적으로 센다 — 삼킴이 펜스 범위에 한정됨을 함께 고정한다.
+    assert bp.closing_issues("```\n예시\n```\n\nCloses #250\n") == [250]
