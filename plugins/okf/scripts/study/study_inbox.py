@@ -93,12 +93,19 @@ def append(
 
 
 def near_duplicates(
-    runtime: str | Path, ident: str, threshold: int = study_simhash.DEFAULT_THRESHOLD
-) -> list[str]:
-    """``ident``와 SimHash 해밍거리 ``threshold`` 이하인 다른 후보 id들 — **자문 전용**.
+    runtime: str | Path, ident: str, top_k: int = study_simhash.DEFAULT_TOP_K
+) -> list[dict]:
+    """``ident``와 가까운 다른 후보 **상위 K** — ``[{id, distance}]``, 거리 오름차순.
 
-    재서술된 근사중복(정확 해시가 놓치는 것)을 표면화한다. 자동병합·게이팅 없음,
-    정확 해시 앵커를 대체하지 않는다(#133). 임계는 실측 튜닝 대상.
+    재서술된 근사중복(정확 해시가 놓치는 것)을 표면화한다. **자문 전용** — 자동병합·
+    게이팅 없고 정확 해시 앵커를 대체하지 않는다(#133).
+
+    임계 필터가 아니라 상위 K인 이유는 #306에 있다: 한국어 재서술 쌍의 실측 거리가
+    11~32라 임계 3은 사실상 발화하지 않았고, 그 빈 결과가 '근사중복 없음'으로 읽혔다.
+    거리를 함께 실어 판정을 사람·모델에게 넘긴다.
+
+    지문이 없는 후보(토큰 0개 = 판정 불가)는 **양쪽 모두 제외**한다 — 0으로 접어
+    비교하면 무관한 것들이 거리 0으로 묶인다.
     """
     if not study_store.available():
         return []
@@ -107,11 +114,12 @@ def near_duplicates(
     if not target:
         return []
     target_int = int(target, 16)
-    return [
-        cid
+    scored = [
+        {"id": cid, "distance": study_simhash.hamming(target_int, int(hx, 16))}
         for cid, hx in fingerprints
-        if cid != ident and hx and study_simhash.hamming(target_int, int(hx, 16)) <= threshold
+        if cid != ident and hx
     ]
+    return sorted(scored, key=lambda h: (h["distance"], h["id"]))[:top_k]
 
 
 def candidate_meta(runtime: str | Path, ident: str) -> dict:

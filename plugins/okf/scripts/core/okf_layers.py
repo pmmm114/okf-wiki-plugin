@@ -330,15 +330,44 @@ def ungrounded_paths(spec: dict, layer_map: dict, graph: dict) -> list[str]:
     ]
 
 
+# 접지 린트 경고 코드 (#306) — 소비자가 **문구가 아니라 코드로** 분기하게 하는 기계 축.
+# 린트가 자문(warn·exit 0)인 것은 LAYERS.md가 규정한 설계 의도이고 이 상수가 그것을
+# 바꾸지 않는다. 바꾸는 것은 "무엇이 떴는지"를 기계로 읽을 수 있는가 하나다.
+WARN_DERIVATION_ORDER = "derivation_order"
+WARN_UNGROUNDED = "ungrounded"
+WARN_NO_SOURCE = "no_source"
+
+WARN_CODES: dict[str, str] = {
+    WARN_DERIVATION_ORDER: (
+        "파생 대상이 더 낮은 층이 아니다 — derived_from 대상을 낮은 층으로 고쳐라"
+    ),
+    WARN_UNGROUNDED: "상위 층 개념에 근거가 없다 — derived_from을 잇거나 근거 개념을 마저 써라",
+    WARN_NO_SOURCE: "정보 층 개념에 출처가 없다 — resource를 채워라",
+}
+
+
+def check_findings(spec: dict, layer_map: dict, graph: dict) -> list[dict]:
+    """``[{path, code, message}]`` — 코드가 붙은 판정 목록(순수 함수)."""
+    return [
+        {"path": path, "code": code, "message": message}
+        for path, code, message in _check_coded(spec, layer_map, graph)
+    ]
+
+
 def check(spec: dict, layer_map: dict, graph: dict) -> list[tuple[str, str]]:
-    """(경로, 경고문) 목록을 반환한다 — 순수 함수(서브프로세스 없음)."""
+    """(경로, 경고문) 목록 — 기존 호출자 보존용 얇은 래퍼."""
+    return [(path, message) for path, _code, message in _check_coded(spec, layer_map, graph)]
+
+
+def _check_coded(spec: dict, layer_map: dict, graph: dict) -> list[tuple[str, str, str]]:
+    """(경로, 코드, 경고문) 목록을 반환한다 — 순수 함수(서브프로세스 없음)."""
     order = spec["order"]
     rank = {value: index for index, value in enumerate(order)}
     dfield = spec["derivation_field"]
     rules = spec.get("rules", {})
     typed = graph.get("typed_edges", [])
     resource = {n["file"]: n.get("resource") for n in graph.get("nodes", [])}
-    findings: list[tuple[str, str]] = []
+    findings: list[tuple[str, str, str]] = []
 
     # 1. 정초 순서 — 파생 대상은 엄격히 낮은 층
     if rules.get("derivation_strictly_downward"):
@@ -348,6 +377,7 @@ def check(spec: dict, layer_map: dict, graph: dict) -> list[tuple[str, str]]:
                 findings.append(
                     (
                         edge["from"],
+                        WARN_DERIVATION_ORDER,
                         f"정초 순서 위반: `{edge['to']}`({dst})가 "
                         f"`{edge['from']}`({src})보다 낮은 층이 아님",
                     )
@@ -355,14 +385,18 @@ def check(spec: dict, layer_map: dict, graph: dict) -> list[tuple[str, str]]:
 
     # 2. 접지(상위) — 지식·지혜는 근거(derived_from) 필요
     for path in ungrounded_paths(spec, layer_map, graph):
-        findings.append((path, f"미접지: {layer_map[path]} 개념에 근거(`{dfield}`) 없음"))
+        findings.append(
+            (path, WARN_UNGROUNDED, f"미접지: {layer_map[path]} 개념에 근거(`{dfield}`) 없음")
+        )
 
     # 3. 접지(정보) — 정보는 출처(resource) 필요
     if rules.get("information_requires_source"):
         base = order[0]
         for path, layer in sorted(layer_map.items()):
             if layer == base and not resource.get(path):
-                findings.append((path, f"미접지: {base} 개념에 출처(`resource`) 없음"))
+                findings.append(
+                    (path, WARN_NO_SOURCE, f"미접지: {base} 개념에 출처(`resource`) 없음")
+                )
 
     return findings
 
@@ -411,6 +445,13 @@ def lint(bundle: str) -> list[tuple[str, str]]:
     spec = load_layers_spec()
     layer_map, graph = gather(bundle, spec)
     return check(spec, layer_map, graph)
+
+
+def lint_findings(bundle: str) -> list[dict]:
+    """``[{path, code, message}]`` — 기계 소비용 린트 결과(#306)."""
+    spec = load_layers_spec()
+    layer_map, graph = gather(bundle, spec)
+    return check_findings(spec, layer_map, graph)
 
 
 def _print_signals(payload: dict) -> None:
@@ -500,7 +541,12 @@ def main(argv: list[str] | None = None) -> int:
         metavar="LAYER",
         help="이 층 개념이 접지할 하위층 후보를 출력(승격 접지용, 린트 대신)",
     )
-    ap.add_argument("--json", action="store_true", help="후보를 JSON으로(--candidates-for와 함께)")
+    ap.add_argument(
+        "--json",
+        action="store_true",
+        help="기계 소비 JSON — 린트는 {count, warns:[{path,code,message}]}, "
+        "--candidates-for와 함께면 후보 목록",
+    )
     args = ap.parse_args(argv)
     if not os.path.isdir(args.bundle):
         print(f"오류: 번들 디렉터리가 아님: {args.bundle}", file=sys.stderr)
@@ -523,9 +569,13 @@ def main(argv: list[str] | None = None) -> int:
                     print(line)
         return 0
 
-    findings = lint(args.bundle)
-    for path, msg in findings:
-        print(f"warn {path}  {msg}")
+    findings = lint_findings(args.bundle)
+    if args.json:
+        # `--json`은 **추가지 대체가 아니다** — 사람이 읽는 요약은 그대로 남는다.
+        print(json.dumps({"count": len(findings), "warns": findings}, ensure_ascii=False, indent=2))
+        return 1 if (findings and args.strict) else 0
+    for item in findings:
+        print(f"warn {item['path']}  [{item['code']}] {item['message']}")
     print(f"접지 린트: warn {len(findings)}건" if findings else "접지 린트: 위반 없음")
     return 1 if (findings and args.strict) else 0
 
