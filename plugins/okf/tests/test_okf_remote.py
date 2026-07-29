@@ -959,3 +959,25 @@ def test_study_md_does_not_match_refresh_reason_strings():
             assert quoted not in body, (
                 f"study.md가 reason 값 {quoted}을 판정 키로 쓴다 — 분기는 `code`로 한다"
             )
+
+
+def test_doctor_flags_missing_upstream_instead_of_saying_nothing(monkeypatch, tmp_path):
+    """upstream이 없으면 doctor가 **비교 불가**라고 말한다 — 침묵은 "신선하다"로 읽힌다.
+
+    `_ahead_behind`가 `(None, None)`을 내면 `if behind:`·`if ahead:`가 둘 다 falsy라
+    신선도 줄이 통째로 사라졌다(#298 DA리뷰). detached는 이미 전용 줄이 있으므로
+    중복 경고하지 않는다.
+    """
+    src = _origin(tmp_path)
+    monkeypatch.setenv(okf_vault.VAULT_ENV, _url(src))
+    clone_path = okf_remote.clone()["clone_path"]
+    _git(clone_path, "branch", "--unset-upstream", okf_remote._current_branch(clone_path))
+
+    joined = "\n".join(okf_remote.doctor_vault_notes(_url(src)))
+    assert "추적 upstream 없음" in joined, joined
+
+    # detached는 전용 줄만 — 같은 상황을 두 번 경고하지 않는다
+    _detach(clone_path)
+    joined = "\n".join(okf_remote.doctor_vault_notes(_url(src)))
+    assert "detached HEAD" in joined
+    assert "추적 upstream 없음" not in joined, joined

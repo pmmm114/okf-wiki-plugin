@@ -784,6 +784,11 @@ def doctor_vault_notes(pointer: str) -> list[str]:
     if branch is None:
         lines.append("  브랜치: ⚠ detached HEAD — 관리형 clone 정리 필요")
     ahead, behind = _ahead_behind(clone_path)
+    if branch is not None and ahead is None:
+        # `(None, None)`이면 `if behind:`·`if ahead:`가 둘 다 falsy라 신선도 줄이 통째로
+        # 사라진다 — 침묵은 "신선하다"로 읽힌다(#298). detached는 위에 전용 줄이 있으므로
+        # 같은 상황을 두 번 경고하지 않는다.
+        lines.append("  신선도: ⚠ 추적 upstream 없음 — origin과 비교 불가(refresh도 갱신 못 함)")
     if behind:
         lines.append(f"  신선도: ⚠ origin보다 {behind}커밋 뒤 — /study 진입 시 갱신(refresh)")
     if ahead:
