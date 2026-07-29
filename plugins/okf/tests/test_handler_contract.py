@@ -110,7 +110,8 @@ def test_extractors_fail_loud_when_they_find_nothing(tmp_path):
     """
     for extract, arg in (
         (_doc_env_keys, "환경변수 표가 없는 문서"),
-        (_doc_stdin_concept_keys, '"concept": {}'),
+        # 블록은 매치되지만 필드가 0건인 입력 — 새로 넣은 자기검증을 실제로 태운다
+        (_doc_stdin_concept_keys, '"concept": { 서식이 바뀐 예시 }'),
     ):
         with pytest.raises(AssertionError):
             extract(arg)

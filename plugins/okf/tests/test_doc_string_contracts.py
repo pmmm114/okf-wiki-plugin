@@ -224,17 +224,33 @@ def _script_basenames() -> dict[str, Path]:
 
 
 def _wired_names() -> set[str]:
-    """실행 경로에 **배선된** 스크립트 이름 — 훅 · 커맨드 · 다른 스크립트가 부르는 것."""
-    wired: set[str] = set()
+    """실행 경로에 **배선된** 스크립트 이름 — 훅 · 커맨드가 부르거나 다른 스크립트가 import.
+
+    "다른 파일에 이름이 보이면 배선"으로 하지 않는다 — 주석·docstring의 **언급**이
+    배선으로 세어져 죽은 스크립트가 살아 있는 것처럼 통과한다. 실제로 `okf_hooks.py`의
+    모듈 docstring이 대체된 셸 3종을 이름으로 열거하고 있다. 그래서 판별을 좁힌다.
+
+    - 훅·커맨드: 실행 표면이므로 **파일명 등장**이 곧 호출이다.
+    - 다른 스크립트: ``import <stem>``/``from <stem> import`` 꼴만 센다(언급 제외).
+
+    셸 스크립트는 import 개념이 없으므로 훅·커맨드 표면에서만 배선된다.
+    """
     scripts = _script_basenames()
     surfaces = [HOOKS_JSON.read_text(encoding="utf-8")] if HOOKS_JSON.is_file() else []
     surfaces += [p.read_text(encoding="utf-8") for p in COMMANDS.rglob("*.md")]
+    sources = {name: path.read_text(encoding="utf-8") for name, path in scripts.items()}
+
+    wired: set[str] = set()
     for name, path in scripts.items():
-        stem = path.stem
-        others = [p.read_text(encoding="utf-8") for p in scripts.values() if p != path]
-        if any(name in text for text in surfaces) or any(
-            re.search(rf"\b(?:import\s+{stem}\b|{re.escape(name)})", text) for text in others
-        ):
+        if any(name in text for text in surfaces):
+            wired.add(name)
+            continue
+        if path.suffix != ".py":
+            continue
+        imported = re.compile(
+            rf"^\s*(?:import\s+{path.stem}\b|from\s+{path.stem}\s+import\b)", re.M
+        )
+        if any(imported.search(text) for other, text in sources.items() if other != name):
             wired.add(name)
     return wired
 
@@ -274,7 +290,10 @@ def _repo_script_names() -> set[str]:
     return {
         p.name
         for p in REPO.rglob("*")
-        if p.suffix in (".py", ".sh") and p.is_file() and ".git/" not in p.as_posix()
+        if p.suffix in (".py", ".sh")
+        and p.is_file()
+        # 점디렉토리(.git·.venv·캐시)는 산출물이라 소스 이름의 근거가 아니다
+        and not any(part.startswith(".") for part in p.relative_to(REPO).parts[:-1])
     }
 
 
