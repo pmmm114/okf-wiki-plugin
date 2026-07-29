@@ -18,8 +18,10 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
 import study
 import study_dispatch
+import study_trust
 
 COMMANDS = Path(study.__file__).resolve().parents[2] / "commands"
 
@@ -49,6 +51,13 @@ def _vault(tmp_path, *, handlers, tracked=False):
 def _dispatch(project, capsys):
     study.main(["dispatch", str(project), "--concept-path", "x.md"])
     return _out(capsys)
+
+
+def _dispatch_trusted(project, capsys):
+    """trust까지 승인된 정상 상태에서 디스패치 — 게이트 3축을 전부 통과시킨다."""
+    study_trust.main(["approve", str(project)])
+    capsys.readouterr()
+    return _dispatch(project, capsys)
 
 
 # --- 모든 차단 코드가 복구 지시를 갖는다 ---------------------------------------
@@ -134,3 +143,84 @@ def test_commands_do_not_match_note_strings():
     for name in ("study.md", "okf-promote.md"):
         body = (COMMANDS / name).read_text(encoding="utf-8")
         assert "핸들러 미승인" not in body, f"{name}이 note 문자열을 매칭한다"
+
+
+# --- failed[]도 판결 축이다 (#296) ---------------------------------------------
+#
+# 배선·커밋·trust 승인이 전부 끝난 정상 상태에서 핸들러가 죽으면 `reflected: false`인데
+# `blockers`가 비고 `note`도 없었다 — 두 커맨드 문서가 정의한 복구 지시가 하나도 나가지
+# 않는다. 실측 페이로드:
+#   {"ran": [], "failed": [{"name": "kb-pr", "code": 1}], "skipped": [], ...}  EXIT=0
+
+_FAIL_BODY = '#!/bin/sh\ncat > /dev/null\necho "push 실패: 오프라인" >&2\nexit 1\n'
+_BAD_INTERP = "#!/nonexistent/interp\n"
+
+
+def _handler(tmp_path, body, *, executable=True, tracked=True):
+    """`.okf-wiki.json` + 핸들러 하나를 갖춘 repo. 실행권한·추적 여부를 따로 준다."""
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "t@e.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+    h = tmp_path / "scripts" / "h.sh"
+    h.parent.mkdir(parents=True, exist_ok=True)
+    h.write_text(body, encoding="utf-8")
+    if executable:
+        h.chmod(h.stat().st_mode | stat.S_IXUSR)
+    (tmp_path / ".okf-wiki.json").write_text(
+        json.dumps(
+            {
+                "study": {
+                    "capture": "review",
+                    "handlers": [{"name": "kb", "command": "scripts/h.sh"}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    if tracked:
+        subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "commit", "-m", "h"], cwd=tmp_path, capture_output=True, check=True)
+    return tmp_path
+
+
+def _handlers_of(project):
+    return json.loads((project / ".okf-wiki.json").read_text(encoding="utf-8"))["study"]["handlers"]
+
+
+def test_verdict_rejects_non_executable_handler(tmp_path):
+    """실행권한 없는 핸들러는 게이트에서 걸려야 한다 — 지금은 3축을 전부 통과한다.
+
+    `docs/adopting-study.md`가 fail-closed를 선언하고 사람에게 `chmod +x`를 시키는데,
+    mode 100644 핸들러는 모든 게이트를 지나 `subprocess.run`에서 OSError로 떨어졌다.
+    """
+    project = _handler(tmp_path, "#!/bin/sh\nexit 0\n", executable=False)
+    verdict = study_dispatch._verdict(project, _handlers_of(project)[0], lambda _n, _p: True)
+    assert verdict["code"] == study_dispatch.CODE_NOT_EXECUTABLE, verdict
+
+
+def test_dispatch_promotes_handler_failure_to_blocker(tmp_path, capsys):
+    """핸들러 exit≠0이 `blockers`에 코드로 올라오고 복구 지시가 붙는다."""
+    project = _handler(tmp_path, _FAIL_BODY)
+    out = _dispatch_trusted(project, capsys)
+    assert out["reflected"] is False
+    assert [b["code"] for b in out["blockers"]] == [study_dispatch.CODE_HANDLER_FAILED], out
+    assert out["blockers"][0]["recovery"].strip()
+    assert out.get("note", "").strip(), "복구 지시가 사람용 한 줄로도 나가야 한다"
+
+
+@pytest.mark.parametrize("body", [_FAIL_BODY, _BAD_INTERP])
+def test_failed_items_have_uniform_shape(tmp_path, capsys, body):
+    """비0 종료와 실행 불가(OSError)가 같은 키 집합을 낸다 — 소비처가 분기로 갈리지 않게."""
+    project = _handler(tmp_path, body)
+    out = _dispatch_trusted(project, capsys)
+    assert out["failed"], out
+    for item in out["failed"]:
+        assert {"name", "code", "reason"} <= set(item), item
+        assert item["code"] == study_dispatch.CODE_HANDLER_FAILED
+
+
+def test_handler_output_is_preserved(tmp_path, capsys):
+    """핸들러가 남긴 통지가 판결에 남는다 — `capture_output`이 삼키면 원인이 사라진다."""
+    project = _handler(tmp_path, _FAIL_BODY)
+    out = _dispatch_trusted(project, capsys)
+    assert "push 실패: 오프라인" in out["failed"][0].get("output", ""), out["failed"]

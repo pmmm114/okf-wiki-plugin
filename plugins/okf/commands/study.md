@@ -46,7 +46,7 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
 
 7. **디스패치**: 승격 개념마다 `study.py dispatch <project> --source manual --concept-path <경로> --concept-type <type> --concept-topic <topic> --concept-layer <layer>`. 결과의 **기계 필드**로 분기한다(한국어 `note`를 매칭하지 말 것 — 문구가 바뀌면 조용히 깨진다).
    - `reflected: true` → 원격 반영 경로를 탔다. 다음으로.
-   - `reflected: false` → `blockers[]`의 각 항목에 `code`와 **실행 가능한 복구 지시**(`recovery`)가 있다. 그 지시를 그대로 사용자에게 보인다. 코드별 의미: `unwired`(배선 없음 — `/okf-init --vault`) · `untracked`(핸들러 미커밋 — vault repo에 커밋, 관리형 clone이면 브랜치→PR) · `untrusted`(이 머신 미승인 — `/study --trust`) · `escape`(command가 repo 밖 — 설정 수정). **어느 경우든 개념은 이미 로컬 번들에 승격·검증됐고 원격 반영만 보류된 상태다**(가시적 저하 — 승격을 되돌리지 않는다).
+   - `reflected: false` → `blockers[]`의 각 항목에 `code`와 **실행 가능한 복구 지시**(`recovery`)가 있다. 그 지시를 그대로 사용자에게 보인다. 코드별 의미: `unwired`(배선 없음 — `/okf-init --vault`) · `untracked`(핸들러 미커밋 — vault repo에 커밋, 관리형 clone이면 브랜치→PR) · `not_executable`(핸들러 실행권한 없음 — `chmod +x` 후 그 mode를 커밋) · `untrusted`(이 머신 미승인 — `/study --trust`) · `escape`(command가 repo 밖 — 설정 수정) · `handler_failed`(핸들러가 비-0으로 끝남 — 해당 항목의 `failed[].output`에 담긴 핸들러 통지를 함께 보이고, 원인을 고친 뒤 재디스패치하도록 안내한다). **어느 경우든 개념은 이미 로컬 번들에 승격·검증됐고 원격 반영만 보류된 상태다**(가시적 저하 — 승격을 되돌리지 않는다).
    - `reclaimed`(관리형 clone에서만 옴)가 비어 있지 않으면 **원격에 반영이 확인된** 잔재를 정리한 것이다(#216 V2). 경로 수만 한 줄로 보이고 넘어간다 — 미푸시 승격은 봉인되지 않으므로 여기 오지 않는다.
 
 8. **요약**: 승격/폐기/디스패치 결과를 알리고, 오래된 후보가 많으면 `/study --clear`를 제안한다 — `--clear`도 전량 discard(원장 기록)이므로 구조 노이즈가 남아 있으면 prune(3단계, `--dry-run` 선행)을 먼저 안내한다.

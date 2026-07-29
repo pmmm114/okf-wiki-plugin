@@ -23,7 +23,7 @@ argument-hint: "[<topic> | --layer <layer> | --bundle <path>]"
 6. **⑤ 결과 처리**: 반려는 사유별로 — 게이트·검증 실패는 제안을 수정해 4단계 재선별로, 근사중복 갱신 판정분은 스킬 §3 유지 플로우로(신설 아님 — 이 커맨드 밖). `lint_warns`의 의도적 dangle은 "미작성 지식 신호"로 안내한다.
 
 7. **⑥ 디스패치(원격 반영)**: 이 커맨드도 `/study`와 **같은 곳**(번들)에 쓰므로, 그 번들이 관리형 clone이면 승격분이 로컬 잔재로 남아 신선도 갱신을 막는다(#216 V4). 승격 개념마다 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study.py" dispatch <bundle의 repo 루트> --source manual --concept-path <경로> --concept-type <type> --concept-topic <topic> --concept-layer <layer>`를 실행한다.
-   - `reflected: false`면 `blockers[]`의 `code`·`recovery`로 분기한다(한국어 `note` 매칭 금지 — 문구가 바뀌면 조용히 깨진다): `unwired`(배선 없음) · `untracked`(핸들러 미커밋) · `untrusted`(이 머신 미승인) · `escape`(command가 repo 밖). 각 항목의 `recovery`를 **그대로** 보이고, 승격분이 로컬에만 남는다는 사실을 함께 알린다(무동의 파괴 금지 — 임의로 지우지 않는다).
+   - `reflected: false`면 `blockers[]`의 `code`·`recovery`로 분기한다(한국어 `note` 매칭 금지 — 문구가 바뀌면 조용히 깨진다): `unwired`(배선 없음) · `untracked`(핸들러 미커밋) · `not_executable`(핸들러 실행권한 없음) · `untrusted`(이 머신 미승인) · `escape`(command가 repo 밖) · `handler_failed`(핸들러가 비-0으로 끝남 — `failed[].output`의 통지를 함께 보인다). 각 항목의 `recovery`를 **그대로** 보이고, 승격분이 로컬에만 남는다는 사실을 함께 알린다(무동의 파괴 금지 — 임의로 지우지 않는다).
    - `reclaimed`가 오면 원격 반영이 확인된 잔재를 정리한 것이다. 경로 수만 보인다.
    - 로컬 경로 vault·비-clone 번들이면 이 단계는 무동작이다(디스패치가 스스로 판정).
 
