@@ -247,15 +247,18 @@ def apply_proposals(bundle: str, proposals: list[dict], run=_okf_run) -> dict:
     빠져나갔다 — 그때 stdout은 0바이트인데, 커맨드 문서는 ``promoted``/``rejected``/
     ``lint_warns``를 파싱하라고 지시하므로 소비처 계약이 파기된다. 게다가 배치 앞부분은
     이미 파일로 쓰이고 log에도 남은 상태라, 사용자에게 그 사실을 알릴 자리가 사라진다.
-    실패는 ``error: {code, stage, detail}``로 싣고 그때까지의 ``promoted``를 보존한다.
+    실패는 ``error: {code, stage, detail}``로 싣고 그때까지의 ``promoted``·``rejected``를
+    **둘 다** 보존한다 — 게이트 반려는 사용자가 제안을 고칠 근거이고, 크래시했다고
+    사라지면 "3개 중 2개가 왜 반려됐는지"를 다시 알아낼 방법이 없다.
     """
     promoted: list[dict] = []
+    rejected: list[dict] = []
     try:
-        return _apply_proposals(bundle, proposals, run, promoted)
+        return _apply_proposals(bundle, proposals, run, promoted, rejected)
     except Exception as exc:  # noqa: BLE001 — 계약 JSON은 어떤 실패에도 나가야 한다
         return {
             "promoted": promoted,
-            "rejected": [],
+            "rejected": rejected,
             "lint_warns": [],
             "error": {
                 "code": "engine_failed" if isinstance(exc, RuntimeError) else "internal_error",
@@ -265,18 +268,20 @@ def apply_proposals(bundle: str, proposals: list[dict], run=_okf_run) -> dict:
         }
 
 
-def _apply_proposals(bundle: str, proposals: list[dict], run, promoted: list[dict]) -> dict:
+def _apply_proposals(
+    bundle: str, proposals: list[dict], run, promoted: list[dict], rejected: list[dict]
+) -> dict:
     """``apply_proposals``의 본체 — 예외 경계 밖에서 실제 집행을 수행한다.
 
-    ``promoted``는 호출자가 넘긴 **같은 리스트**다. 중간에 죽어도 그때까지 집행된
-    것이 래퍼에 그대로 보여야 "무엇이 이미 쓰였는가"를 말할 수 있다.
+    ``promoted``·``rejected``는 호출자가 넘긴 **같은 리스트**다. 중간에 죽어도 그때까지
+    집행된 것과 반려된 것이 래퍼에 그대로 보여야 "무엇이 이미 쓰였고 무엇을 고쳐야
+    하는가"를 말할 수 있다.
     """
     spec = okf_layers.load_layers_spec()
     layer_map = _staged(
         run, "context", ["context", bundle, "--group-by", spec["field"], "--max-chars", str(10**9)]
     )
     layer_map = okf_layers.parse_layer_map(layer_map)
-    rejected: list[dict] = []
     batch_promoted: set[str] = set()
 
     for proposal in proposals:

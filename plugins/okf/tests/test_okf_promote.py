@@ -411,3 +411,24 @@ def test_main_separates_crash_from_rejection(bundle, monkeypatch, capsys):
         lambda *_a, **_k: {"promoted": [{"path": "x"}], "rejected": [], "lint_warns": []},
     )
     assert okf_promote.main(["apply", str(bundle), "--proposals", str(proposals)]) == 0
+
+
+def test_apply_preserves_rejections_on_engine_failure(bundle):
+    """크래시해도 그때까지의 **반려**가 남는다(#295 리뷰) — 고칠 근거가 사라지면 안 된다.
+
+    배치가 [게이트 반려, 정상] 순일 때 두 번째에서 엔진이 죽어도, 첫 번째의 반려 사유는
+    사용자가 제안을 고치는 유일한 단서다.
+    """
+    engine = FakeEngine(bundle)
+    original = engine.__call__
+
+    def boom(args):
+        if args[0] == "log":
+            raise RuntimeError("엔진 폭발(주입)")
+        return original(args)
+
+    bad = _proposal(bundle, target_layer="nonexistent-layer")
+    report = okf_promote.apply_proposals(str(bundle), [bad, _proposal(bundle)], run=boom)
+    assert report["error"]["stage"] == "log", report["error"]
+    assert report["rejected"], "크래시 전에 결정된 반려가 사라졌다"
+    assert any("어휘 위반" in r for r in report["rejected"][0]["reasons"]), report["rejected"]
