@@ -179,6 +179,15 @@ def gate_proposal(
         if rules.get("derivation_strictly_downward"):
             if dep_layer is None:
                 reasons.append(f"재료 미분류: {dep} — layer 없는 개념은 정초 재료 불가(엄격 하향)")
+            elif dep_layer not in rank:
+                # rank 밖 층은 **반려**다. 예전엔 `rank[dep_layer]`가 KeyError로 죽어
+                # 배치 중간에서 크래시했는데, 그 exit 1은 "반려 있음"과 같은 코드라
+                # 소비처가 구분할 수 없었다. 어휘 밖 값은 정초 관계를 판정할 수 없으므로
+                # `is None`(미분류)과 같은 부류로 흡수한다 — 판정 불가는 통과가 아니다.
+                reasons.append(
+                    f"재료 층 어휘 밖: {dep}({dep_layer}) — 허용: {order} "
+                    f"(오타이거나 렌더 파싱 오염일 수 있다)"
+                )
             elif target_layer in rank and rank[dep_layer] >= rank[target_layer]:
                 reasons.append(f"정초 역전: {dep}({dep_layer}) ≥ {target_layer}(§9 금지 5)")
         if dep in batch_promoted:
@@ -219,15 +228,54 @@ def render_concept(spec: dict, proposal: dict) -> str:
     return "\n".join(lines) + "\n\n" + body + "\n"
 
 
+def _staged(run, stage: str, argv: list[str]) -> str:
+    """엔진 호출에 **어느 단계에서 죽었는지**를 붙인다 — 사용자가 다음 행동을 고를 근거."""
+    try:
+        return run(argv)
+    except Exception as exc:
+        exc.okf_stage = stage  # type: ignore[attr-defined]
+        raise
+
+
 def apply_proposals(bundle: str, proposals: list[dict], run=_okf_run) -> dict:
     """게이트 통과분만 집행한다 — 쓰기 → validate --strict(실패 시 롤백·반려) →
     근거 사슬 감사 → log --kind Promotion → (통과분 있으면) index --write →
-    접지 린트(자문 warn 동봉). ``run``은 엔진 러너(테스트 주입점)."""
-    spec = okf_layers.load_layers_spec()
-    layer_map = okf_layers.parse_layer_map(
-        run(["context", bundle, "--group-by", spec["field"], "--max-chars", str(10**9)])
-    )
+    접지 린트(자문 warn 동봉). ``run``은 엔진 러너(테스트 주입점).
+
+    **어떤 경우에도 계약 JSON을 반환한다.** 예전에는 ``validate``만 감싸여 있어
+    ``context``·``graph``·``log``·``index`` 실패나 예기치 못한 예외가 traceback으로
+    빠져나갔다 — 그때 stdout은 0바이트인데, 커맨드 문서는 ``promoted``/``rejected``/
+    ``lint_warns``를 파싱하라고 지시하므로 소비처 계약이 파기된다. 게다가 배치 앞부분은
+    이미 파일로 쓰이고 log에도 남은 상태라, 사용자에게 그 사실을 알릴 자리가 사라진다.
+    실패는 ``error: {code, stage, detail}``로 싣고 그때까지의 ``promoted``를 보존한다.
+    """
     promoted: list[dict] = []
+    try:
+        return _apply_proposals(bundle, proposals, run, promoted)
+    except Exception as exc:  # noqa: BLE001 — 계약 JSON은 어떤 실패에도 나가야 한다
+        return {
+            "promoted": promoted,
+            "rejected": [],
+            "lint_warns": [],
+            "error": {
+                "code": "engine_failed" if isinstance(exc, RuntimeError) else "internal_error",
+                "stage": getattr(exc, "okf_stage", "unknown"),
+                "detail": str(exc),
+            },
+        }
+
+
+def _apply_proposals(bundle: str, proposals: list[dict], run, promoted: list[dict]) -> dict:
+    """``apply_proposals``의 본체 — 예외 경계 밖에서 실제 집행을 수행한다.
+
+    ``promoted``는 호출자가 넘긴 **같은 리스트**다. 중간에 죽어도 그때까지 집행된
+    것이 래퍼에 그대로 보여야 "무엇이 이미 쓰였는가"를 말할 수 있다.
+    """
+    spec = okf_layers.load_layers_spec()
+    layer_map = _staged(
+        run, "context", ["context", bundle, "--group-by", spec["field"], "--max-chars", str(10**9)]
+    )
+    layer_map = okf_layers.parse_layer_map(layer_map)
     rejected: list[dict] = []
     batch_promoted: set[str] = set()
 
@@ -253,8 +301,10 @@ def apply_proposals(bundle: str, proposals: list[dict], run=_okf_run) -> dict:
 
         chain = [
             line
-            for line in run(
-                ["graph", bundle, "--edges-from", spec["derivation_field"], "--chain", target_rel]
+            for line in _staged(
+                run,
+                "graph",
+                ["graph", bundle, "--edges-from", spec["derivation_field"], "--chain", target_rel],
             ).splitlines()
             if line.strip()
         ]
@@ -262,19 +312,25 @@ def apply_proposals(bundle: str, proposals: list[dict], run=_okf_run) -> dict:
         material_count = len(proposal.get("derived_from") or [])
         promoted_layer = proposal["target_layer"]
         summary = f"{proposal['description']} (layer {promoted_layer} ← 하위 {material_count}건)"
-        run(["log", "append", concept_dir, "-m", summary, "--kind", "Promotion"])
+        _staged(run, "log", ["log", "append", concept_dir, "-m", summary, "--kind", "Promotion"])
         layer_map[target_rel] = proposal["target_layer"]  # 같은 배치의 후속 제안이 접지 가능
         batch_promoted.add(target_rel)
         promoted.append({"path": target_rel, "layer": proposal["target_layer"], "chain": chain})
 
     lint_warns: list[str] = []
     if promoted:
-        run(["index", bundle, "--write"])
+        _staged(run, "index", ["index", bundle, "--write"])
         fresh_map = okf_layers.parse_layer_map(
-            run(["context", bundle, "--group-by", spec["field"], "--max-chars", str(10**9)])
+            _staged(
+                run,
+                "context",
+                ["context", bundle, "--group-by", spec["field"], "--max-chars", str(10**9)],
+            )
         )
         fresh_graph = json.loads(
-            run(["graph", bundle, "--edges-from", spec["derivation_field"], "--json"])
+            _staged(
+                run, "graph", ["graph", bundle, "--edges-from", spec["derivation_field"], "--json"]
+            )
         )
         lint_warns = [
             f"{path}  {message}" for path, message in okf_layers.check(spec, fresh_map, fresh_graph)
@@ -322,6 +378,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     report = apply_proposals(args.bundle, proposals)
     print(json.dumps(report, ensure_ascii=False, indent=2))
+    # 종료코드 3분기: 0 전량 승격 / 1 반려 있음 / 3 크래시. 예전엔 크래시가 반려와 같은
+    # 1이라, 커맨드 문서가 지시한 promoted·rejected 파싱이 무출력에 대해 실패했다.
+    if report.get("error"):
+        return 3
     return 1 if report["rejected"] else 0
 
 
