@@ -7,6 +7,7 @@ promote/discard가 vault 원장에도 append되고, is_resolved가 활성∪vaul
 from __future__ import annotations
 
 import json
+import os
 
 import okf_vault
 import pytest
@@ -79,7 +80,11 @@ def test_time_axis_requeue_blocked_end_to_end(monkeypatch, tmp_path):
     scratch.mkdir()
     payload = {
         "tool_input": {
-            "file_path": "/home/u/.claude/projects/p/memory/MEMORY.md",
+            # 캡처 입구로 **실제 인정되는** 경로여야 한다 — 아니면 "재큐 없음"이
+            # 원장 차단이 아니라 "메모리 파일이 아님" 때문이 되어 공회전한다(#305).
+            "file_path": os.path.join(
+                os.path.expanduser("~"), ".claude", "projects", "p", "memory", "MEMORY.md"
+            ),
             "content": f"* {snippet}\n",
         }
     }

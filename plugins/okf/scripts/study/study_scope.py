@@ -214,9 +214,19 @@ def memory_dir_candidates(project: str | Path) -> list[str]:
     return dirs
 
 
-# 레거시 느슨형 — 어느 프리픽스든 `/.claude/projects/<x>/memory/<f>.md`로 끝나면 인정.
-# 구현 교체 전의 유일한 판정이었고, 합집합 후보로 유지해 무회귀를 보장한다(#91 R3).
-_LEGACY_MEMORY_RE = re.compile(r"/\.claude/projects/[^/]+/memory/[^/]+\.md$")
+# 레거시 느슨형 — `/.claude/projects/<x>/memory/<f>.md` 꼴. 구현 교체 전의 유일한
+# 판정이었고, 합집합 후보로 유지해 무회귀를 보장한다(#91 R3).
+#
+# **위치는 홈·설정 디렉토리 하위로 앵커한다**(#305). 앵커가 없으면 repo 안
+# `docs/.claude/projects/x/memory/y.md` 같은 무관 파일이 메모리로 인정돼 inbox가
+# 오염된다. 무회귀의 대상은 프리픽스 자유도가 아니라 **`.claude` 하위 구조의 느슨함**
+# 이었으므로, 구조는 그대로 두고 위치만 묶는다.
+
+
+def _legacy_memory_re() -> re.Pattern[str]:
+    roots = {os.path.expanduser("~"), _config_dir()}
+    alt = "|".join(sorted(re.escape(r.rstrip("/")) for r in roots if r))
+    return re.compile(rf"^(?:{alt})(?:/.*)?/\.claude/projects/[^/]+/memory/[^/]+\.md$")
 
 
 def _default_form_re() -> re.Pattern[str]:
@@ -253,7 +263,7 @@ def is_memory_path(file_path: str, payload: dict | None, project: str | Path) ->
         if file_path.startswith(dir_.rstrip("/") + "/"):
             return True
     # L0 — 문서화된 기본형(CLAUDE_CONFIG_DIR 반영 — #16 수정) + 레거시 느슨형(무회귀)
-    if _default_form_re().search(file_path) or _LEGACY_MEMORY_RE.search(file_path):
+    if _default_form_re().search(file_path) or _legacy_memory_re().search(file_path):
         return True
     # L1 — transcript 형제 memory/ (관례 백스톱)
     transcript = (payload or {}).get("transcript_path")
