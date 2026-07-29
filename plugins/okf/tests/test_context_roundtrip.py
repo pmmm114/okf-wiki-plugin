@@ -173,3 +173,66 @@ def test_explore_builtin_payload_comes_from_real_engine(bundle: str):
     mapped = okf_explore._builtin_payload(bundle, "map", topic=topic, layer=None)
     assert okf_layers.validate_map_payload(mapped) == [], mapped
     assert _INFO[0] in json.dumps(mapped, ensure_ascii=False), f"맵이 재료를 잃었다: {mapped}"
+
+
+# --- 렌더 주입 면역 (#294) ------------------------------------------------------
+#
+# description은 스펙상 자유 텍스트라 다중행이 될 수 있고, 엔진 `validate --strict`는
+# 그것을 error 0 / warn 0으로 통과시킨다. 그런데 파서 3종이 `## ` 접두만 보고 섹션을
+# 전환하므로, description 안의 마크다운 헤딩 한 줄이 **가짜 층 섹션**을 만들어
+# 뒤따르는 정상 개념의 층을 뒤바꾼다. 특수 조작이 아니라 평범한 `description: |`이다.
+
+# 결함은 **description frontmatter** 경로다 — 본문 폴백은 이미 첫 문장·길이 절단으로
+# 보호돼 있다. `gist`가 description만 무가공 반환하는 것이 주입 통로다.
+_INJECTED_DESC = "이 개념은 문서 구조를 다룬다.\n## 배경\n섹션 제목 예시를 포함한다."
+_INJECT = ("inject.md", "fact", "information", "본문은 평범하다.")
+_AFTER = ("zz-after.md", "fact", "information", "주입 뒤에 오는 정상 개념이다.")
+
+
+@pytest.fixture(scope="module")
+def injected_render(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """다중행 description을 담은 실물 번들의 **엔진 실제 렌더**."""
+    root = tmp_path_factory.mktemp("injected")
+    spec = okf_layers.load_layers_spec()
+    _write(
+        root,
+        *_INJECT,
+        description=_INJECTED_DESC,
+        resource="https://example.invalid/src",
+    )
+    _write(root, *_AFTER, resource="https://example.invalid/src")
+    proc = subprocess.run(
+        [str(OKF), "context", str(root), "--group-by", spec["field"], "--max-chars", str(10**9)],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, f"엔진 호출 실패(rc={proc.returncode}): {proc.stderr.strip()}"
+    return proc.stdout
+
+
+def test_render_has_no_injected_section(injected_render: str):
+    """엔진 렌더의 섹션 헤딩은 층 어휘 + 미분류뿐이다 — gist가 개행을 흘리면 안 된다."""
+    spec = okf_layers.load_layers_spec()
+    allowed = {*spec["values"], "(unclassified)"}
+    heads = [ln[3:].strip() for ln in injected_render.split("\n") if ln.startswith("## ")]
+    assert set(heads) <= allowed, f"렌더에 층 어휘 밖 섹션: {sorted(set(heads) - allowed)}"
+
+
+def test_parse_layer_map_survives_injected_heading(injected_render: str):
+    """뒤따르는 정상 개념이 **frontmatter의 층 그대로** 분류된다."""
+    assert okf_layers.parse_layer_map(injected_render) == {
+        _INJECT[0]: _INJECT[2],
+        _AFTER[0]: _AFTER[2],
+    }
+
+
+def test_parse_layer_map_has_no_ghost_keys(injected_render: str):
+    """맵의 키는 전부 개념 경로다 — description 조각이 개념으로 둔갑하면 안 된다."""
+    ghosts = [k for k in okf_layers.parse_layer_map(injected_render) if not k.endswith(".md")]
+    assert not ghosts, f"유령 개념 키: {ghosts}"
+
+
+def test_parse_context_meta_survives_injected_heading(injected_render: str):
+    """메타 파서도 같은 면역을 갖는다 — 미분류 보존 축은 그대로."""
+    meta = {m["path"]: m["layer"] for m in okf_layers.parse_context_meta(injected_render)}
+    assert meta == {_INJECT[0]: _INJECT[2], _AFTER[0]: _AFTER[2]}

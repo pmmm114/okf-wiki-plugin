@@ -28,11 +28,18 @@ _GIST_MAX = 160
 
 
 def gist(doc: ParsedDoc) -> str:
-    """개념 1줄 요약 — description, 없으면 본문 첫 표 행·첫 문장(공유 표면)."""
+    """개념 1줄 요약 — description, 없으면 본문 첫 표 행·첫 문장(공유 표면).
+
+    **1줄이라는 계약을 description 경로에서도 지킨다.** `description`은 스펙상 자유
+    텍스트라 YAML 블록 스칼라로 다중행이 될 수 있는데(엔진은 taxonomy-neutral이라
+    validate가 막지 않는다), 그것을 그대로 흘리면 렌더 한 줄이 여러 줄로 벌어진다.
+    소비자는 이 렌더를 줄 단위로 파싱하므로 개행 하나가 곧 가짜 섹션·유령 항목이 된다.
+    본문 폴백 경로는 원래 첫 문장·길이 절단으로 이 계약을 지키고 있었다.
+    """
     fm = doc.frontmatter or {}
     desc = fm.get("description")
     if isinstance(desc, str) and desc.strip():
-        return desc.strip()
+        return " ".join(desc.split())[:_GIST_MAX]
     # 본문에서 추출: 첫 표 행 또는 헤딩이 아닌 첫 문장
     for line in doc.body.split("\n"):
         s = line.strip()

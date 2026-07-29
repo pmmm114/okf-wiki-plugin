@@ -57,18 +57,42 @@ def load_layers_spec(path: str = _LAYERS_MD) -> dict:
     return json.loads(blocks[-1])
 
 
+def _section_head(line: str, known: frozenset[str]) -> tuple[bool, str | None] | None:
+    """섹션 전환 판정 — ``(전환함, 현재 층|None)`` 또는 전환이 아니면 ``None``.
+
+    ``## `` 접두만 보면 **개념 줄에 섞여 들어온 마크다운 헤딩**이 섹션을 전환시킨다.
+    엔진이 렌더를 1줄/개념으로 지키더라도(#294에서 함께 고쳤다) 파서 쪽에서 한 번 더
+    막는다 — 판정 입력의 어휘는 LAYERS 단일원천이 정하는 닫힌 집합이고, 그 밖의
+    ``## X``는 섹션이 아니라 내용이다. 두 층 어디가 뚫려도 다른 한쪽이 남는다.
+    """
+    if not line.startswith("## "):
+        return None
+    head = line[3:].strip()
+    if head == _UNCLASSIFIED:
+        return True, None
+    if head in known:
+        return True, head
+    return None  # 어휘 밖 헤딩 = 섹션이 아니다(내용으로 흘려보낸다)
+
+
+def _known_layers() -> frozenset[str]:
+    """LAYERS 단일원천의 층 어휘 — 섹션으로 인정할 헤딩 집합."""
+    return frozenset(load_layers_spec()["values"])
+
+
 def parse_layer_map(context_output: str) -> dict:
     """``okf context --group-by <field>`` 출력에서 {개념경로: 층값}을 만든다.
 
     미분류 섹션·래퍼는 제외한다(층 미기재 개념은 맵에 없다). 각 개념 줄은 엔진
     형식 ``<경로> [<type>] …``이라 첫 ``' ['`` 앞이 경로다.
     """
+    known = _known_layers()
     layer_map: dict[str, str] = {}
     current: str | None = None
     for line in context_output.split("\n"):
-        if line.startswith("## "):
-            head = line[3:].strip()
-            current = None if head == _UNCLASSIFIED else head
+        switched = _section_head(line, known)
+        if switched is not None:
+            current = switched[1]
         elif line and line not in (_CTX_OPEN, _CTX_CLOSE) and current is not None:
             path = line.split(" [", 1)[0].strip()
             if path:
@@ -83,12 +107,13 @@ def parse_layer_sections(context_output: str) -> dict[str, list[str]]:
     (``<경로> [<type>] — <핵심>``)를 층별로 보존한다 — 승격 판정에 후보로 제시하기
     위함이다. 미분류 섹션·래퍼는 제외한다.
     """
+    known = _known_layers()
     sections: dict[str, list[str]] = {}
     current: str | None = None
     for line in context_output.split("\n"):
-        if line.startswith("## "):
-            head = line[3:].strip()
-            current = None if head == _UNCLASSIFIED else head
+        switched = _section_head(line, known)
+        if switched is not None:
+            current = switched[1]
         elif line and line not in (_CTX_OPEN, _CTX_CLOSE) and current is not None:
             sections.setdefault(current, []).append(line)
     return sections
@@ -102,12 +127,13 @@ def parse_context_meta(context_output: str) -> list[dict]:
     항목은 ``{path, type, description, layer}``이고 미분류는 ``layer=None``.
     개념 줄은 엔진 형식 ``<경로> [<type>] — <핵심>``이라 각 조각을 방어적으로 뽑는다.
     """
+    known = _known_layers()
     meta: list[dict] = []
     current: str | None = None
     for line in context_output.split("\n"):
-        if line.startswith("## "):
-            head = line[3:].strip()
-            current = None if head == _UNCLASSIFIED else head
+        switched = _section_head(line, known)
+        if switched is not None:
+            current = switched[1]
         elif line and line not in (_CTX_OPEN, _CTX_CLOSE):
             path = line.split(" [", 1)[0].strip()
             if not path:

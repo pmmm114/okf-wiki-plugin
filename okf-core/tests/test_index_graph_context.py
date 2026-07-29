@@ -5,7 +5,7 @@ import json
 import shutil
 from pathlib import Path
 
-from okf_core.context import build_context
+from okf_core.context import build_context, gist
 from okf_core.graph import build_graph, chain, linked_to
 from okf_core.index import write_indexes
 from okf_core.parser import parse
@@ -186,3 +186,38 @@ def test_graph_chain_traverses_provenance_downward(tmp_path):
     assert chain(g, "wise.md", via="derived_from") == ["info.md", "know.md"]
     assert chain(g, "know.md", via="derived_from") == ["info.md"]
     assert chain(g, "info.md", via="derived_from") == []  # 정보는 사슬의 뿌리
+
+
+# --- gist는 1줄 계약이다 (#294) -------------------------------------------------
+
+
+def test_gist_folds_multiline_description(tmp_path):
+    """다중행 `description`도 렌더에서는 한 줄이다 — 소비자가 줄 단위로 파싱한다.
+
+    `description`은 스펙상 자유 텍스트라 YAML 블록 스칼라로 여러 줄이 될 수 있고
+    `validate --strict`도 통과시킨다(엔진은 taxonomy-neutral). 그 개행이 렌더로 흘러
+    나가면 한 개념이 여러 줄로 벌어져, 소비자의 줄 단위 판정이 통째로 어긋난다.
+    """
+    (tmp_path / "index.md").write_text("# index\n\n- [a](a.md)\n", encoding="utf-8")
+    (tmp_path / "a.md").write_text(
+        '---\ntype: fact\ndescription: "첫 줄이다.\\n## 배경\\n둘째 줄이다."\n---\n\n답: 본문.\n',
+        encoding="utf-8",
+    )
+    doc = parse(tmp_path / "a.md")
+    summary = gist(doc)
+    assert "\n" not in summary, repr(summary)
+    assert summary == "첫 줄이다. ## 배경 둘째 줄이다."
+
+    body_lines = build_context(tmp_path).split("\n")[1:-1]
+    assert len([ln for ln in body_lines if ln.startswith("a.md ")]) == 1
+    assert not any(ln.startswith("## ") for ln in body_lines), body_lines
+
+
+def test_gist_truncates_long_description(tmp_path):
+    """description 경로도 본문 폴백과 같은 길이 상한을 쓴다 — 계약이 경로마다 갈리지 않게."""
+    (tmp_path / "index.md").write_text("# index\n\n- [a](a.md)\n", encoding="utf-8")
+    long_desc = "가" * 500
+    (tmp_path / "a.md").write_text(
+        f'---\ntype: fact\ndescription: "{long_desc}"\n---\n\n답: 본문.\n', encoding="utf-8"
+    )
+    assert len(gist(parse(tmp_path / "a.md"))) == 160
