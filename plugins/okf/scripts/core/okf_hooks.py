@@ -284,13 +284,20 @@ def hook_file_changed():
         return 0
     # 번들 소속 검사(#299). 없으면 **번들 밖 파일 변경에도** "대응 개념을 갱신하고
     # log.md에 엔트리를 추가하라"가 주입된다 — 존재하지 않는 개념을 찾게 만드는 오탐이다.
-    # 바로 옆 `hook_post_tool_use`가 이미 같은 접두 검사를 한다(같은 판정을 두 훅이
-    # 다르게 하고 있었다). 판정 방식도 그쪽과 같은 **정규화 없는 문자열 접두사**로 맞춘다.
-    project = _project_dir()
-    cfg = _load_config(project)
+    # 판정 방식은 `hook_post_tool_use`와 같은 **정규화 없는 문자열 접두사**로 맞춘다.
+    #
+    # 대상 번들은 `resolve_inject`로 푼다 — 그냥 `_load_config(project)`를 쓰면 vault
+    # 폴백(#91 V3) 사용자에게 **기능이 사라진다**. 그 모드에서는 프로젝트에 설정이
+    # 없고 watchPaths가 vault 번들을 가리키므로, 프로젝트 설정만 보면 감시 중인 파일이
+    # 바뀌어도 영원히 무동작이다(오탐을 고치다 무음을 만드는 꼴).
+    resolved = okf_vault.resolve_inject(_project_dir())
+    target = resolved["target"]
+    if target is None:
+        return 0
+    cfg = _load_config(target)
     if cfg is None:
         return 0
-    prefix = f"{_bundle_dir(project, cfg)}/"
+    prefix = f"{_bundle_dir(target, cfg)}/"
     if not file_path.startswith(prefix):
         return 0
     _emit(

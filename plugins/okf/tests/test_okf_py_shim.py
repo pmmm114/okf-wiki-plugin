@@ -209,8 +209,11 @@ def _entry_points() -> set[str]:
             if token.endswith((".py", ".sh")):
                 roots.add(token.rsplit("/", 1)[-1])
     for md in (PLUGIN / "commands").rglob("*.md"):
+        # **호출 꼴**만 센다(`…/scripts/<하위>/<이름>`). 맨 이름 등장까지 뿌리로 삼으면
+        # 산문의 언급이 진입점이 되어 고아가 살아 있는 것처럼 보인다 — 도달성 게이트에서
+        # 관대함은 곧 **탐지 실패**다(U11이 문서 쪽 판별을 좁힌 것과 같은 이유).
         text = md.read_text(encoding="utf-8")
-        roots |= {name for name in _all_scripts() if name in text}
+        roots |= {name for name in _all_scripts() if "/scripts/" in text and f"/{name}" in text}
     return roots
 
 

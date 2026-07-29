@@ -73,3 +73,19 @@ def test_cli_prints_repo_relative_paths():
     for line in lines:
         assert not line.startswith("/"), line
         assert (hct.REPO / line).is_file(), line
+
+
+def test_module_stems_are_unique():
+    """훅 모듈 stem이 유일하다 — 셔틀은 flat 네임스페이스로 import한다.
+
+    `bin/okf-py`가 `scripts/core`와 `scripts/study`를 **둘 다** PYTHONPATH에 넣으므로
+    같은 stem이 양쪽에 있으면 앞선 것이 뒤를 가린다. 도출도 stem으로 색인하니 컴파일
+    대상이 조용히 한쪽만 남는다.
+    """
+    seen: dict[str, Path] = {}
+    dupes = []
+    for path in sorted(hct.SCRIPTS.rglob("*.py")):
+        prev = seen.setdefault(path.stem, path)
+        if prev != path:
+            dupes.append((path.stem, prev.name, path.name))
+    assert not dupes, f"stem 충돌: {dupes} — flat import에서 한쪽이 가려진다"

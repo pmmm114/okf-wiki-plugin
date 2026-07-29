@@ -150,6 +150,20 @@ def test_doctor_names_missing_uv(tmp_path, monkeypatch):
 def test_doctor_reports_shuttle_smoke(tmp_path, monkeypatch):
     """셔틀 스모크 실패를 별도 사실로 보고한다(uv 유무와 별개 축)."""
     monkeypatch.setattr(okf_doctor.shutil, "which", lambda name: f"/usr/bin/{name}")
-    monkeypatch.setattr(okf_doctor, "_smoke_okf", lambda: (False, "rc=127"))
+    monkeypatch.setattr(okf_doctor, "_smoke_okf", lambda: (okf_doctor.SMOKE_FAILED, "rc=127"))
     section = okf_doctor.run(str(tmp_path)).split("[실행 전제]", 1)[1].split("[", 1)[0]
     assert "rc=127" in section, section
+
+
+def test_doctor_does_not_call_timeout_a_failure(tmp_path, monkeypatch):
+    """시간 초과는 ⚠가 아니다 — 셔틀 첫 실행은 의존성 해소로 느릴 수 있다.
+
+    멀쩡한 설치를 고장으로 지목하는 진단은 메우려던 공백보다 나쁘다.
+    """
+    monkeypatch.setattr(okf_doctor.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        okf_doctor, "_smoke_okf", lambda: (okf_doctor.SMOKE_UNKNOWN, "20초 안에 응답 없음")
+    )
+    section = okf_doctor.run(str(tmp_path)).split("[실행 전제]", 1)[1].split("[", 1)[0]
+    assert "확인 미완료" in section, section
+    assert "⚠ 스모크 실패" not in section, section

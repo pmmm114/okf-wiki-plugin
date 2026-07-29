@@ -133,27 +133,35 @@ def _vault_notes(project: str) -> list[str]:
 
 _SMOKE_TIMEOUT = 20.0
 
+SMOKE_OK = "ok"
+SMOKE_FAILED = "failed"
+SMOKE_UNKNOWN = "unknown"
 
-def _smoke_okf() -> tuple[bool, str]:
-    """``bin/okf --help`` 스모크 — (성공 여부, 실패 사유). 성공이면 사유는 빈 문자열.
 
-    호출 자체가 되는지만 본다(엔진 기능은 이 진단의 관심이 아니다).
+def _smoke_okf() -> tuple[str, str]:
+    """``bin/okf --help`` 스모크 — (판정, 상세). 판정은 위 세 상수 중 하나.
+
+    **시간 초과를 실패로 세지 않는다.** 셔틀은 ``uv run --project``라 첫 실행이 의존성
+    해소로 오래 걸릴 수 있다 — 그것을 ⚠로 보고하면 진단 도구가 멀쩡한 설치를 고장으로
+    지목한다. 오탐을 내는 진단은 메우려던 공백보다 나쁘다.
     """
     okf = Path(__file__).resolve().parents[2] / "bin" / "okf"
     if not okf.is_file():
-        return False, f"셔틀 없음({okf})"
+        return SMOKE_FAILED, f"셔틀 없음({okf})"
+    if not os.access(okf, os.X_OK):
+        return SMOKE_FAILED, "실행 비트 없음"
     try:
         proc = subprocess.run(
             [str(okf), "--help"], capture_output=True, timeout=_SMOKE_TIMEOUT, check=False
         )
     except OSError as exc:
-        return False, f"실행 불가({exc.__class__.__name__})"
+        return SMOKE_FAILED, f"실행 불가({exc.__class__.__name__})"
     except subprocess.TimeoutExpired:
-        return False, f"시간 초과({_SMOKE_TIMEOUT:g}초)"
+        return SMOKE_UNKNOWN, f"{_SMOKE_TIMEOUT:g}초 안에 응답 없음(첫 실행은 의존성 해소로 느리다)"
     if proc.returncode != 0:
         tail = proc.stderr.decode("utf-8", "replace").strip().splitlines()
-        return False, f"rc={proc.returncode}" + (f" — {tail[-1]}" if tail else "")
-    return True, ""
+        return SMOKE_FAILED, f"rc={proc.returncode}" + (f" — {tail[-1]}" if tail else "")
+    return SMOKE_OK, ""
 
 
 def _prereq_notes() -> list[str]:
@@ -169,9 +177,11 @@ def _prereq_notes() -> list[str]:
         lines.append(f"  uv: {uv}")
     else:
         lines.append("  uv: ⚠ PATH에 없음 — 엔진 호출(bin/okf)이 조용히 실패한다. uv를 설치하라")
-    ok, why = _smoke_okf()
-    if ok:
+    verdict, why = _smoke_okf()
+    if verdict == SMOKE_OK:
         lines.append("  bin/okf: 실행 확인(--help)")
+    elif verdict == SMOKE_UNKNOWN:
+        lines.append(f"  bin/okf: 확인 미완료 — {why}")
     else:
         lines.append(f"  bin/okf: ⚠ 스모크 실패({why}) — 주입·그래프 조회가 무동작이 된다")
     python = shutil.which("python3") or shutil.which("python")

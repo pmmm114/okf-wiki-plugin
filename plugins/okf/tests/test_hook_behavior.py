@@ -839,3 +839,31 @@ def test_okf_hooks_diagnoses_unspawnable_shuttle(henv):
     assert res.returncode == 0
     assert res.stdout == b""
     assert "실행 불가".encode() in res.stderr, res.stderr
+
+
+def test_file_changed_uses_vault_fallback_bundle(henv, tmp_path, monkeypatch):
+    """vault 폴백(#91 V3) 사용자에게도 file-changed가 산다.
+
+    번들 소속 검사를 넣으면서 프로젝트 설정만 보면, 설정이 없는 것이 정상인 vault
+    폴백 모드에서 감시 중인 파일이 바뀌어도 **영원히 무동작**이 된다 — 오탐을 고치다
+    무음을 만드는 꼴이다. 대상 번들은 SessionStart와 같은 해소를 거쳐야 한다.
+    """
+    vault = tmp_path / "vault"
+    (vault / ".okf").mkdir(parents=True)
+    (vault / ".okf" / "a.md").write_text("# doc\n", encoding="utf-8")
+    (vault / ".okf-wiki.json").write_text("{}", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(vault)], check=True)
+    # 프로젝트에는 설정이 **없다** — 폴백이 성립하는 조건 그대로
+    assert not (henv.project / ".okf-wiki.json").exists()
+
+    payload = json.dumps({"file_path": str(vault / ".okf" / "a.md")}).encode()
+    res = run_hook(
+        henv.scripts,
+        "file-changed",
+        project=henv.project,
+        stdin=payload,
+        stub=henv.stub,
+        env_override={"OKF_VAULT_PROJECT": str(vault)},
+    )
+    assert res.returncode == 0, res.stderr
+    assert sem(res) is not None, "vault 폴백에서 무음이면 기능이 사라진 것이다"
