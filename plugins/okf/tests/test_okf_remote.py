@@ -705,3 +705,38 @@ def test_local_pointer_to_managed_clone_uses_clone_wording(tmp_path):
     joined = "\n".join(okf_remote.local_residue_notes(vault, pathspec=".okf"))
     assert "fetch 이력이 없어" not in joined  # 스탬프가 있으므로 거짓이 아니어야 한다
     assert "자동 정리" in joined  # 실제로 회수되므로 이 안내가 맞다
+
+
+# --- refresh 사유는 닫힌 코드 집합이다 (#297) -----------------------------------
+#
+# `study.md` 0a가 한국어 `reason` 리터럴로 분기하는데, 그 값 집합이 코드에서 닫혀 있지
+# 않았다. 문서 분기는 3종인데 코드 반환은 8종이라 `locked`·`clone 미생성`·미지원
+# transport는 모델에 지정된 행동이 없었다. #274가 dispatch에 한 전환의 잔여 축이다.
+
+
+def test_refresh_reasons_have_recovery():
+    """모든 refresh 코드에 실행 가능한 복구 지시가 있다(BLOCKERS와 같은 형태)."""
+    assert okf_remote.REFRESH_REASONS, "REFRESH_REASONS 상수가 없다"
+    for code, recovery in okf_remote.REFRESH_REASONS.items():
+        assert recovery.strip(), f"{code}에 복구 지시가 없다"
+
+
+def test_study_md_branches_on_every_refresh_code():
+    """`study.md`가 **모든** refresh 코드에 분기를 갖는다 — 코드가 늘면 문서 미갱신이 red.
+
+    `test_dispatch_verdict.py`의 `test_commands_branch_on_every_blocker_code`와 동형이다.
+    코드값 표기(백틱)를 요구해 산문에 우연히 걸리는 것을 막는다.
+    """
+    body = (Path(okf_remote.__file__).resolve().parents[2] / "commands" / "study.md").read_text(
+        encoding="utf-8"
+    )
+    missing = [c for c in okf_remote.REFRESH_REASONS if f"`{c}`" not in body]
+    assert not missing, f"study.md에 분기 없는 refresh 코드: {missing}"
+
+
+def test_refresh_returns_code_on_every_path(tmp_path, monkeypatch):
+    """반환 경로마다 `code`가 실린다 — 한국어 `reason`은 사람용 표시로만 남는다."""
+    monkeypatch.setattr(okf_vault, "read_pointer", lambda: None)
+    out = okf_remote.refresh()
+    assert out["code"] == okf_remote.CODE_NOT_URL, out
+    assert out["refreshed"] is False

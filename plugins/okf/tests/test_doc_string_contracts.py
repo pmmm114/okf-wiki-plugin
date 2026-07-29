@@ -29,6 +29,7 @@ LAYERS.md의 개념 서술 예시(``~이면 ~하라``), 사용자 발화 인용(
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -71,9 +72,8 @@ CONTRACTS = (
     ("commands/okf-init.md", ".okf-wiki.json 없음", "core/okf_vault.py", None, True),
     ("commands/okf-init.md", "대상 없음", "core/okf_vault.py", None, True),
     ("commands/okf-init.md", "git repo 아님", "core/okf_vault.py", None, True),
-    # --- 전환 예정: remote refresh 사유 — #274가 dispatch에 한 전환의 잔여 축 ------
-    ("commands/study.md", "미봉인 잔재", "core/okf_remote.py", None, True),
-    ("commands/study.md", "fetch 실패", "core/okf_remote.py", None, True),
+    # (remote refresh 사유는 #297이 `code` enum으로 전환해 여기서 빠졌다 —
+    #  `test_okf_remote.py::test_study_md_branches_on_every_refresh_code`가 대신 잠근다)
     # --- 영구 허용: doctor는 **출력 텍스트 자체가 산출물**이라 문구 계약이 정당하다.
     #     커맨드 문서가 "자체 해석을 덧붙이지 말 것"으로 못박은 설계와 정합한다(#280 범위 제외).
     ("commands/okf-doctor.md", "[회복]", "study/study_doctor.py", '("회복"', False),
@@ -112,15 +112,37 @@ def _registered(auto_only: bool) -> set[tuple[str, str]]:
 # --- G2 대조: 인용한 것이 생산자에 실존하는가 --------------------------------
 
 
+def _string_literals(path: Path) -> set[str]:
+    """소스의 **완결된** 문자열 리터럴 집합(AST 기준)."""
+    return {
+        node.value
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+
 @pytest.mark.parametrize(
-    ("doc", "literal", "source", "needle"),
-    [(d, lit, src, needle or lit) for d, lit, src, needle, _auto in CONTRACTS],
+    ("doc", "literal", "source", "needle", "auto"),
+    [(d, lit, src, needle or lit, auto) for d, lit, src, needle, auto in CONTRACTS],
     ids=[f"{Path(d).stem}:{lit[:16]}" for d, lit, *_ in CONTRACTS],
 )
-def test_quoted_literal_exists_in_producer(doc: str, literal: str, source: str, needle: str):
-    """문서가 인용한 문자열이 생산자 소스에 실존한다 — 표현을 다듬으면 여기서 걸린다."""
+def test_quoted_literal_exists_in_producer(doc, literal, source, needle, auto):
+    """문서가 인용한 문자열이 생산자 소스에 실존한다 — 표현을 다듬으면 여기서 걸린다.
+
+    ``auto=True``(필드 값 꼴)는 **리터럴 정확 일치**를 요구한다. 부분일치면 접미 확장이
+    새 나간다 — 실측: ``okf_remote``의 ``"fetch 실패"``를 바꿔도 같은 파일의
+    ``"fetch 실패(오프라인/인증)"``가 바늘을 만족해 전 스위트가 초록이었다.
+    ``auto=False``(런타임 합성·소프트 참조)는 완결된 리터럴이 아니므로 부분일치로 남긴다.
+    """
     src = SCRIPTS / source
     assert src.is_file(), f"생산자 소스 없음: {source}"
+    if auto:
+        assert needle in _string_literals(src), (
+            f"{doc}이 인용한 {literal!r}가 {source}의 **완결된 리터럴**로 없다 — "
+            "생산자가 표현을 바꿨거나(접미가 붙었거나) 문서가 틀렸다. "
+            "문서를 고치거나 기계 필드로 전환하라."
+        )
+        return
     assert needle in src.read_text(encoding="utf-8"), (
         f"{doc}이 인용한 {literal!r}의 생산자 문자열({needle!r})이 {source}에 없다 — "
         "생산자가 표현을 바꿨거나 문서가 틀렸다. 문서를 고치거나 기계 필드로 전환하라."
