@@ -216,3 +216,21 @@ def test_main_reports_execution_error_on_git_failure(tmp_path, monkeypatch, caps
     monkeypatch.setenv("PATH", f"{fake}:{os.environ['PATH']}")
     assert scan.main() == 2
     assert "실행 오류" in capsys.readouterr().err
+
+
+def test_missing_gitignore_is_normal_not_execution_error(tmp_path):
+    """`.gitignore` 없는 repo는 통과다 — 정상 상태를 고장으로 보고하지 않는다(#303 리뷰).
+
+    git은 없는 파일을 `--exclude-from`으로 주면 rc=128로 죽는다. 그것을 실행 오류로
+    올리면 fail-closed가 과녁을 넘어 정상 repo를 막는다.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "t@e"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "t"], check=True)
+    (tmp_path / "a.txt").write_text("x\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-qm", "i"], check=True, capture_output=True
+    )
+    assert not (tmp_path / ".gitignore").exists()
+    assert scan.tracked_but_ignored(tmp_path) == []

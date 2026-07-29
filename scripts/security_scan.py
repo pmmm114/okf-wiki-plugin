@@ -107,6 +107,13 @@ def tracked_but_ignored(root: Path = _ROOT) -> list[str]:
     설정에 따라 달라진다** — 로컬에서만 붉어지거나 CI에서만 붉어지는 게이트가 된다.
     후자는 repo에 커밋된 `.gitignore` 하나만 보므로 어디서 돌려도 같은 답이 나온다.
     """
+    if not (root / ".gitignore").is_file():
+        # 무시 규칙 파일이 없는 것은 **정상 상태**다 — 무시 대상이 없으니 위반도 없다.
+        # git은 없는 파일을 `--exclude-from`으로 주면 rc=128로 죽는데, 그것을 실행
+        # 오류로 올리면 `.gitignore` 없는 repo에서 게이트가 통과 대신 오류가 된다
+        # (#303 리뷰에서 실측). fail-closed는 "고장을 통과로 보고하지 않는다"이지
+        # "정상 상태를 고장으로 보고한다"가 아니다.
+        return []
     proc = _git(root, "ls-files", "--cached", "--ignored", "--exclude-from=.gitignore")
     return [ln for ln in proc.stdout.split("\n") if ln]
 
