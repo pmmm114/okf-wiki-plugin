@@ -184,3 +184,14 @@ def test_render_without_rubric_is_unchanged():
     text = okf_promote.render_concept(SPEC, _proposal(rubric=None))
     assert "## 자기검증" not in text
     assert text.endswith("# 본문\n")
+
+
+def test_promote_md_states_rubric_is_required_and_persisted():
+    """`okf-promote.md`가 rubric의 **실제 계약**을 말한다 — 정의만 해 놓고 끝내지 않는다.
+
+    문서가 필드를 계약으로 적어 두고 코드가 읽지도 저장하지도 않던 것이 이 유닛의 배경이다.
+    코드를 고친 뒤 문서가 그대로면 이번엔 반대 방향으로 어긋난다(요구되는데 안 적혀 있음).
+    """
+    body = (PLUGIN / "commands" / "okf-promote.md").read_text(encoding="utf-8")
+    assert "rubric은 상위 층" in body and "필수" in body, "필수 여부가 문서에 없다"
+    assert "## 자기검증" in body, "영속 위치가 문서에 없다"
