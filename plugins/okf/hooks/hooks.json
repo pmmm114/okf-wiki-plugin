@@ -11,13 +11,15 @@
     "PostToolUse": [
       { "matcher": "Write|Edit",
         "hooks": [ { "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/post_tool_use.sh", "args": [] } ] },
-      { "matcher": "Write",
+          "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_hooks.py", "post-tool-use"] } ] },
+      { "matcher": "Write|Edit",
         "hooks": [ { "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",
           "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/study/study_hook.py"] } ] } ],
     "FileChanged": [
       { "hooks": [ { "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/scripts/file_changed.sh", "args": [] } ] } ]
+          "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_hooks.py", "file-changed"] } ] } ]
   }
 }

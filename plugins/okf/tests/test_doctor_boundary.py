@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import okf_doctor
+
 PLUGIN = Path(__file__).resolve().parent.parent
 SCRIPTS_CORE = PLUGIN / "scripts" / "core"
 SCRIPTS_STUDY = PLUGIN / "scripts" / "study"
@@ -121,3 +123,47 @@ def test_doctor_full_sections_with_study_present(tmp_path):
     out = res.stdout.decode("utf-8")
     for section in ("[위치]", "[캡처]", "[주입]", "[Vault]", "[캡처 입구]", "[스토어]", "[inbox]"):
         assert section in out
+
+
+# --- 실행 전제 진단 (#299) ------------------------------------------------------
+#
+# 훅·커맨드는 `bin/okf`(uv 경유 엔진)와 `bin/okf-py`(인터프리터 셔틀)를 통해서만
+# 동작한다. 그 전제가 깨지면(uv 부재·venv 손상) 엔진 호출이 `except OSError: return None`
+# 으로 흡수되어 **"설정이 없다"와 구분되지 않는다** — 사용자가 보는 것은 양쪽 다 무출력이다.
+# doctor가 그 전제를 직접 점검하지 않으면 진단할 방법이 없다(전문에 uv 참조 0건이었다).
+
+
+def test_doctor_reports_execution_prerequisites(tmp_path):
+    """doctor 출력에 실행 전제 절이 있다."""
+    out = okf_doctor.run(str(tmp_path))
+    assert "[실행 전제]" in out, out
+
+
+def test_doctor_names_missing_uv(tmp_path, monkeypatch):
+    """`uv`가 안 보이면 그 사실을 말한다 — 무음이면 '설정 없음'과 구분되지 않는다."""
+    monkeypatch.setattr(okf_doctor.shutil, "which", lambda name: None)
+    out = okf_doctor.run(str(tmp_path))
+    assert "uv" in out
+    assert "⚠" in out.split("[실행 전제]", 1)[1].split("[", 1)[0]
+
+
+def test_doctor_reports_shuttle_smoke(tmp_path, monkeypatch):
+    """셔틀 스모크 실패를 별도 사실로 보고한다(uv 유무와 별개 축)."""
+    monkeypatch.setattr(okf_doctor.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(okf_doctor, "_smoke_okf", lambda: (okf_doctor.SMOKE_FAILED, "rc=127"))
+    section = okf_doctor.run(str(tmp_path)).split("[실행 전제]", 1)[1].split("[", 1)[0]
+    assert "rc=127" in section, section
+
+
+def test_doctor_does_not_call_timeout_a_failure(tmp_path, monkeypatch):
+    """시간 초과는 ⚠가 아니다 — 셔틀 첫 실행은 의존성 해소로 느릴 수 있다.
+
+    멀쩡한 설치를 고장으로 지목하는 진단은 메우려던 공백보다 나쁘다.
+    """
+    monkeypatch.setattr(okf_doctor.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        okf_doctor, "_smoke_okf", lambda: (okf_doctor.SMOKE_UNKNOWN, "20초 안에 응답 없음")
+    )
+    section = okf_doctor.run(str(tmp_path)).split("[실행 전제]", 1)[1].split("[", 1)[0]
+    assert "확인 미완료" in section, section
+    assert "⚠ 스모크 실패" not in section, section

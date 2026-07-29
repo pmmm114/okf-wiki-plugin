@@ -1,24 +1,22 @@
-"""sh↔py 훅 차동 파리티 하네스 (#69).
+"""훅 동작 기대값 테이블 (#69 · #299).
 
-동일성 전제가 아니라 케이스별 기대값 테이블이다 — 오류 정책 통일(#69)로
-갈라지는 의도적 비파리티는 sh/py 기대 exit code를 따로 명시한다. 전수 목록:
+훅 3종(session-start·post-tool-use·file-changed)의 **Python 단일 구현**을 케이스별
+기대값으로 고정한다. 예전에는 셸 구현과의 차동 파리티 하네스였는데, `hooks.json`이
+셸을 배선하고 py 구현이 죽은 코드로 남아 있던 시기의 형태다 — #299가 배선을 py로
+옮기고 `.sh` 3종을 지우면서 대조 대상이 사라졌다.
 
-  ① jq 부재: sh만 조용한 무동작 — PATH 조작 없이 재현 불가라 케이스 제외(문서화만).
-  ② 깨진 config: session-start는 양쪽 exit 0(sh는 jq 오류가 테스트형 치환이라
-     흡수됨), post-tool-use는 sh 5 → py 0.
-  ③ 비JSON payload: sh 5 → py 0. 빈 stdin은 양쪽 0(jq는 빈 입력에 무출력 성공).
-  ④ config·payload 타입 불량(context 비객체, 배열 payload): sh는 jq 오류
-     전파(5) → py는 기본값 관용/무동작 0.
-  ⑤ okf 타임아웃: py만 상한(기본 30초, OKF_HOOKS_TIMEOUT로 단축 가능) — 초과 시
-     프로세스 그룹 회수 + stderr 1줄 + 실패 동치. sh는 무한 대기(Claude Code
-     60초 훅 타임아웃에 맡김). py 단독 테스트로 고정.
-  ⑥ 읽기 불가 하위 디렉토리: sh는 pipefail로 JSON 방출 후 exit 1(출력 폐기됨),
-     py는 부분 결과 exit 0(의도된 변경). 차동 테스트로 고정(root에서는 skip).
-  ⑦ 비정수 숫자 표기(maxChars 1e3 등): jq는 버전 의존 표기(1.7 "1E+3"),
-     py는 str(float) — argv 표기 비파리티. 실엔진은 --max-chars가 int라 양쪽 다
-     거부·무동작 동치이므로 케이스 제외(문서화만).
+py 단독으로 남기면서 고정한 것(셸 시절과 달라진 계약):
 
-나머지 케이스는 sh == py(exit 0, stdout 의미 동일, okf 호출 인자 동일).
+  ① **jq 부재 무음이 없다.** 셸 구현은 `command -v jq || exit 0`으로 시작해, jq 없는
+     PATH에서 rc=0·무출력을 냈다 — "번들 밖 파일이라 해당 없음"과 **완전히 같은
+     신호**라 진단이 불가능했다. Python 구현에는 그 경로 자체가 없다.
+  ② **file-changed가 번들 소속을 본다.** 셸 구현은 검사가 없어 번들 밖 파일 변경에도
+     "대응 개념을 갱신하라"를 주입했고, 그 오탐이 이 표에 계약으로 박혀 있었다.
+  ③ 깨진 config·비JSON payload·타입 불량은 전부 rc 0 + 무동작(관용).
+  ④ okf 호출에 상한이 있다(기본 30초, `OKF_HOOKS_TIMEOUT`) — 초과 시 프로세스 그룹
+     회수 + stderr 1줄 + 실패 동치.
+  ⑤ 읽기 불가 하위 디렉토리는 **부분 결과 + rc 0**(셸은 pipefail로 출력째 폐기).
+
 엔진은 bin/okf 스텁으로 격리하고(호출 기록·응답을 OKF_STUB_DIR로 제어),
 실엔진 E2E는 uv가 있을 때만 2케이스 돈다.
 """
@@ -34,11 +32,6 @@ from types import SimpleNamespace
 import pytest
 
 PLUGIN = Path(__file__).resolve().parent.parent
-SH = {
-    "session-start": "session_start.sh",
-    "post-tool-use": "post_tool_use.sh",
-    "file-changed": "file_changed.sh",
-}
 FC_MSG = (
     "번들 파일 변경 감지: {file} — 대응 개념 문서를 갱신하고 "
     "가장 가까운 log.md에 일자 엔트리를 추가하라(§7)."
@@ -60,10 +53,8 @@ exit "$(cat "$OKF_STUB_DIR/exit" 2>/dev/null || echo 0)"
 @pytest.fixture()
 def henv(tmp_path):
     scripts = tmp_path / "plugin" / "scripts"
-    # 실제 배치 구조 미러링(#145 U5): 레거시 .sh는 scripts/ 루트, py는 scripts/core/
+    # 실제 배치 구조 미러링(#145 U5) — 훅은 전부 scripts/core/의 Python이다(#299).
     (scripts / "core").mkdir(parents=True)
-    for name in SH.values():
-        shutil.copy2(PLUGIN / "scripts" / name, scripts / name)
     # okf_remote는 okf_hooks가 SessionStart URL 신선도로 import하는 core 모듈(#153).
     for name in ["okf_hooks.py", "okf_vault.py", "okf_remote.py"]:
         shutil.copy2(PLUGIN / "scripts" / "core" / name, scripts / "core" / name)
@@ -78,11 +69,8 @@ def henv(tmp_path):
     return SimpleNamespace(scripts=scripts, stub=stub, project=project)
 
 
-def run_hook(scripts, kind, hook, *, project, stdin=b"", stub=None, env_override=None, cwd=None):
-    if kind == "sh":
-        cmd = [str(scripts / SH[hook])]
-    else:
-        cmd = [sys.executable, str(scripts / "core" / "okf_hooks.py"), hook]
+def run_hook(scripts, hook, *, project, stdin=b"", stub=None, env_override=None, cwd=None):
+    cmd = [sys.executable, str(scripts / "core" / "okf_hooks.py"), hook]
     env = os.environ.copy()
     env["CLAUDE_PROJECT_DIR"] = str(project)
     if stub is not None:
@@ -123,9 +111,10 @@ def read_and_reset_calls(stub):
 # payload: 미지정=빈 stdin / dict·list=JSON 직렬화 / bytes=원문 그대로
 # bundle: 번들 상대 md 파일 목록(디렉토리 자동 생성), bundle_at: 번들 위치(기본 .okf)
 # stub: bin/okf 스텁 응답 {stdout, stderr, exit}
-# 기대값: sh_rc/py_rc(기본 0/0), out: "none"(기본)|"same", ctx: additionalContext
-#   리터럴(양쪽 동일 + 명시값), calls: "same"(기본)|"none"|"skip", stderr:
-#   None(무검사)|"empty"|"nonempty"|"boom"(양쪽 포함)
+# 기대값: rc(기본 0), out: "none"(기본)|"emit", ctx: additionalContext 리터럴
+#   (`{proj}`는 프로젝트 경로로 치환), calls_contain: okf 호출 인자에 있어야 할 조각.
+#   `calls_contain`이 없으면 **엔진을 부르지 않았음**을 단언한다 — 기본을 관대하게
+#   두면 배선이 끊겨 아무것도 안 불러도 통과한다. stderr: None|"empty"|"nonempty"|"boom"
 CASES = [
     # ── session-start ──
     dict(id="ss-config-부재", hook="session-start", calls="none"),
@@ -151,6 +140,7 @@ CASES = [
         stub={"stdout": "CTX\n"},
         out="same",
         ctx="CTX",
+        calls_contain="context ",
     ),
     dict(
         id="ss-inject-문자열-false",
@@ -160,6 +150,7 @@ CASES = [
         stub={"stdout": "CTX\n"},
         out="same",
         ctx="CTX",
+        calls_contain="context ",
     ),
     dict(id="ss-번들-부재", hook="session-start", config={}, calls="none"),
     dict(
@@ -249,8 +240,7 @@ CASES = [
         config={"context": False},
         bundle=["a.md"],
         stub={"stdout": "CTX\n"},
-        sh_rc=5,
-        py_rc=0,
+        rc=0,
         out="py-only",
         ctx="CTX",
         calls="skip",
@@ -283,6 +273,7 @@ CASES = [
         bundle=["a.md"],
         stub={"stderr": "boom\n", "exit": 3},
         stderr="boom",
+        calls_contain="context ",
     ),
     dict(
         id="ss-ctx-빈문자열도-출력",  # 빈 컨텍스트여도 성공 경로는 JSON 1개
@@ -292,6 +283,7 @@ CASES = [
         stub={"stdout": ""},
         out="same",
         ctx="",
+        calls_contain="context ",
     ),
     # ── post-tool-use ──
     dict(
@@ -305,8 +297,7 @@ CASES = [
         hook="post-tool-use",
         config="{broken",
         payload={"tool_input": {"file_path": "/x/a.md"}},
-        sh_rc=5,
-        py_rc=0,
+        rc=0,
         calls="none",
     ),
     dict(
@@ -315,8 +306,7 @@ CASES = [
         config={},
         bundle=["a.md"],
         payload=b"notjson",
-        sh_rc=5,
-        py_rc=0,
+        rc=0,
         calls="none",
     ),
     dict(
@@ -333,8 +323,7 @@ CASES = [
         config={},
         bundle=["a.md"],
         payload=[1],
-        sh_rc=5,
-        py_rc=0,
+        rc=0,
         calls="none",
     ),
     dict(
@@ -414,6 +403,7 @@ CASES = [
         stub={"stdout": "b.md\n"},
         out="same",
         ctx=PTU_MSG.format(rel="a.md", links="b.md"),
+        calls_contain="graph ",
     ),
     dict(
         id="ptu-file_path-후행개행",  # $(jq -r) 스트립 — rel·--linked-to 인자 등가
@@ -433,6 +423,7 @@ CASES = [
         bundle=["a.md"],
         payload={"tool_input": {"file_path": "{proj}/.okf/a.md"}},
         stub={"stdout": "\n"},
+        calls_contain="graph ",
     ),
     dict(
         id="ptu-graph-실패-stderr-억제",  # graph는 stderr 억제 + 실패=링크 없음
@@ -442,62 +433,92 @@ CASES = [
         payload={"tool_input": {"file_path": "{proj}/.okf/a.md"}},
         stub={"stderr": "boom\n", "exit": 3},
         stderr="empty",
+        calls_contain="graph ",
     ),
     # ── file-changed ──
+    #
+    # 번들 소속 검사가 생겼다(#299). 예전에는 검사가 아예 없어 **번들 밖 파일 변경에도**
+    # "대응 개념 문서를 갱신하고 log.md에 엔트리를 추가하라"가 주입됐다 — 존재하지 않는
+    # 개념을 찾게 만드는 오탐이고, 그 오탐이 이 표에 계약으로 고정돼 있었다(`/x/y.md`가
+    # 출력을 낸다는 케이스). 안/밖을 쪼개 **밖은 무출력**으로 뒤집는다. 바로 옆
+    # post-tool-use는 처음부터 같은 접두 검사를 하고 있었다.
     dict(
-        id="fc-file_path",  # 설정·번들 검사 없음 — config 부재에서도 동작
+        id="fc-번들-안-file_path",
+        hook="file-changed",
+        config={},
+        bundle=["y.md"],
+        payload={"file_path": "{proj}/.okf/y.md"},
+        out="emit",
+        ctx=FC_MSG.format(file="{proj}/.okf/y.md"),
+    ),
+    dict(
+        id="fc-번들-밖-무출력",  # 오탐 계약 폐기 — 검사 없던 시절엔 여기서 출력이 났다
+        hook="file-changed",
+        config={},
+        bundle=["y.md"],
+        payload={"file_path": "/x/y.md"},
+    ),
+    dict(
+        id="fc-config-부재-무출력",  # 번들을 특정할 수 없으면 판정하지 않는다
         hook="file-changed",
         payload={"file_path": "/x/y.md"},
-        out="same",
-        ctx=FC_MSG.format(file="/x/y.md"),
-        calls="none",
+    ),
+    dict(
+        id="fc-커스텀-bundlePath-안",
+        hook="file-changed",
+        config={"bundlePath": "kb"},
+        bundle=["y.md"],
+        bundle_at="kb",
+        payload={"file_path": "{proj}/kb/y.md"},
+        out="emit",
+        ctx=FC_MSG.format(file="{proj}/kb/y.md"),
     ),
     dict(
         id="fc-path-폴백",
         hook="file-changed",
-        payload={"path": "z.md"},
-        out="same",
-        ctx=FC_MSG.format(file="z.md"),
-        calls="none",
+        config={},
+        bundle=["z.md"],
+        payload={"path": "{proj}/.okf/z.md"},
+        out="emit",
+        ctx=FC_MSG.format(file="{proj}/.okf/z.md"),
     ),
     dict(
-        id="fc-false-후-path-폴백",
+        id="fc-false-후-path-폴백",  # null·false만 다음 후보로 넘어간다
         hook="file-changed",
-        payload={"file_path": False, "path": "z.md"},
-        out="same",
-        ctx=FC_MSG.format(file="z.md"),
-        calls="none",
+        config={},
+        bundle=["z.md"],
+        payload={"file_path": False, "path": "{proj}/.okf/z.md"},
+        out="emit",
+        ctx=FC_MSG.format(file="{proj}/.okf/z.md"),
     ),
     dict(
-        id="fc-숫자-file_path",
+        id="fc-숫자-file_path",  # 문자열화되지만 번들 밖이라 무출력
         hook="file-changed",
+        config={},
+        bundle=["y.md"],
         payload={"file_path": 7},
-        out="same",
-        ctx=FC_MSG.format(file="7"),
-        calls="none",
     ),
-    dict(id="fc-키-부재", hook="file-changed", payload={}, calls="none"),
+    dict(id="fc-키-부재", hook="file-changed", config={}, payload={}),
     dict(
-        id="fc-file_path-개행뿐",  # $(jq -r) 스트립 후 빈 값 — [ -n ] 실패 등가
+        id="fc-file_path-개행뿐",  # 스트립 후 빈 값
         hook="file-changed",
+        config={},
         payload={"file_path": "\n"},
-        calls="none",
     ),
     dict(
         id="fc-file_path-후행개행",
         hook="file-changed",
-        payload={"file_path": "z.md\n"},
-        out="same",
-        ctx=FC_MSG.format(file="z.md"),
-        calls="none",
+        config={},
+        bundle=["z.md"],
+        payload={"file_path": "{proj}/.okf/z.md\n"},
+        out="emit",
+        ctx=FC_MSG.format(file="{proj}/.okf/z.md"),
     ),
     dict(
-        id="fc-비JSON-payload",  # 비파리티 ③ — sh 5 → py 0
+        id="fc-비JSON-payload",
         hook="file-changed",
         payload=b"oops",
-        sh_rc=5,
-        py_rc=0,
-        calls="none",
+        rc=0,
     ),
     dict(id="fc-빈-stdin", hook="file-changed", payload=b"", calls="none"),
 ]
@@ -527,48 +548,36 @@ def _setup(henv, case):
 
 
 @pytest.mark.parametrize("case", CASES, ids=[c["id"] for c in CASES])
-def test_parity(henv, case):
+def test_hook_behavior(henv, case):
     payload = _setup(henv, case)
-    sh_res = run_hook(
-        henv.scripts, "sh", case["hook"], project=henv.project, stdin=payload, stub=henv.stub
-    )
-    sh_calls = read_and_reset_calls(henv.stub)
-    py_res = run_hook(
-        henv.scripts, "py", case["hook"], project=henv.project, stdin=payload, stub=henv.stub
-    )
-    py_calls = read_and_reset_calls(henv.stub)
+    res = run_hook(henv.scripts, case["hook"], project=henv.project, stdin=payload, stub=henv.stub)
+    calls = read_and_reset_calls(henv.stub)
 
-    assert sh_res.returncode == case.get("sh_rc", 0), sh_res.stderr
-    assert py_res.returncode == case.get("py_rc", 0), py_res.stderr
+    assert res.returncode == case.get("rc", 0), res.stderr
 
-    out = case.get("out", "none")
-    if out == "none":
-        assert sh_res.stdout == b""
-        assert py_res.stdout == b""
-    elif out == "py-only":
-        assert sh_res.stdout == b""
-        assert sem(py_res) is not None
+    if case.get("out", "none") == "none":
+        assert res.stdout == b"", res.stdout
     else:
-        assert sem(sh_res) == sem(py_res)
-        assert sem(py_res) is not None
+        assert sem(res) is not None
     if "ctx" in case:
-        assert sem(py_res)["hookSpecificOutput"]["additionalContext"] == case["ctx"]
+        expected = case["ctx"].replace("{proj}", str(henv.project))
+        assert sem(res)["hookSpecificOutput"]["additionalContext"] == expected
 
-    calls = case.get("calls", "same")
-    if calls == "none":
-        assert sh_calls == "" and py_calls == ""
-    elif calls == "same":
-        assert sh_calls == py_calls
+    # `calls` 기본이 **"none"**이다(sh 대조가 있던 시절의 "same"이 아니라). 엔진을
+    # 부르는 케이스는 `calls_contain`으로 무엇을 불렀는지 **명시**해야 한다 — 기본을
+    # 관대하게 두면 배선이 끊겨 아무것도 부르지 않아도 통과한다.
     if "calls_contain" in case:
-        assert case["calls_contain"] in py_calls
+        assert case["calls_contain"] in calls, calls  # 무엇을 불렀는지 명시한 케이스
+    elif case.get("calls", "none") == "none":
+        assert calls == "", calls
 
     stderr = case.get("stderr")
     if stderr == "empty":
-        assert sh_res.stderr == b"" and py_res.stderr == b""
+        assert res.stderr == b"", res.stderr
     elif stderr == "nonempty":
-        assert sh_res.stderr != b"" and py_res.stderr != b""
+        assert res.stderr != b""
     elif stderr == "boom":
-        assert b"boom" in sh_res.stderr and b"boom" in py_res.stderr
+        assert b"boom" in res.stderr
 
 
 def test_watch_paths_find_equivalence(henv):
@@ -585,13 +594,10 @@ def test_watch_paths_find_equivalence(henv):
     (henv.project / ".okf-wiki.json").write_text("{}")
     (henv.stub / "stdout").write_text("CTX\n")
 
-    results = {}
-    for kind in ("sh", "py"):
-        res = run_hook(henv.scripts, kind, "session-start", project=henv.project, stub=henv.stub)
-        assert res.returncode == 0, res.stderr
-        results[kind] = sem(res)["hookSpecificOutput"]["watchPaths"]
+    res = run_hook(henv.scripts, "session-start", project=henv.project, stub=henv.stub)
+    assert res.returncode == 0, res.stderr
     expected = sorted(str(bundle / rel) for rel in [".hidden.md", "root.md", "sub/nested.md"])
-    assert results["sh"] == results["py"] == expected
+    assert sem(res)["hookSpecificOutput"]["watchPaths"] == expected
 
 
 def test_watch_paths_symlink_bundle_root(henv):
@@ -603,10 +609,9 @@ def test_watch_paths_symlink_bundle_root(henv):
     (henv.project / ".okf-wiki.json").write_text("{}")
     (henv.stub / "stdout").write_text("CTX\n")
 
-    for kind in ("sh", "py"):
-        res = run_hook(henv.scripts, kind, "session-start", project=henv.project, stub=henv.stub)
-        assert res.returncode == 0, res.stderr
-        assert sem(res)["hookSpecificOutput"]["watchPaths"] == [], kind
+    res = run_hook(henv.scripts, "session-start", project=henv.project, stub=henv.stub)
+    assert res.returncode == 0, res.stderr
+    assert sem(res)["hookSpecificOutput"]["watchPaths"] == []
 
 
 def test_pwd_fallback(henv):
@@ -617,19 +622,15 @@ def test_pwd_fallback(henv):
     (henv.stub / "stdout").write_text("CTX\n")
 
     for value in (None, ""):
-        results = []
-        for kind in ("sh", "py"):
-            res = run_hook(
-                henv.scripts,
-                kind,
-                "session-start",
-                project=henv.project,
-                stub=henv.stub,
-                env_override={"CLAUDE_PROJECT_DIR": value, "PWD": str(henv.project)},
-            )
-            assert res.returncode == 0, res.stderr
-            results.append(sem(res))
-        assert results[0] == results[1] is not None
+        res = run_hook(
+            henv.scripts,
+            "session-start",
+            project=henv.project,
+            stub=henv.stub,
+            env_override={"CLAUDE_PROJECT_DIR": value, "PWD": str(henv.project)},
+        )
+        assert res.returncode == 0, res.stderr
+        assert sem(res) is not None, value
 
 
 def test_pwd_stale_reset(henv, tmp_path):
@@ -642,21 +643,17 @@ def test_pwd_stale_reset(henv, tmp_path):
     stale = tmp_path / "stale"
     stale.mkdir()
 
-    results = []
-    for kind in ("sh", "py"):
-        res = run_hook(
-            henv.scripts,
-            kind,
-            "session-start",
-            project=henv.project,
-            stub=henv.stub,
-            env_override={"CLAUDE_PROJECT_DIR": None, "PWD": str(stale)},
-            cwd=str(henv.project),
-        )
-        assert res.returncode == 0, res.stderr
-        results.append(sem(res))
-    assert results[0] == results[1] is not None
-    assert str(henv.project) in results[1]["hookSpecificOutput"]["watchPaths"][0]
+    res = run_hook(
+        henv.scripts,
+        "session-start",
+        project=henv.project,
+        stub=henv.stub,
+        env_override={"CLAUDE_PROJECT_DIR": None, "PWD": str(stale)},
+        cwd=str(henv.project),
+    )
+    assert res.returncode == 0, res.stderr
+    assert sem(res) is not None
+    assert str(henv.project) in sem(res)["hookSpecificOutput"]["watchPaths"][0]
 
 
 def test_watch_paths_non_utf8_filename(henv):
@@ -672,19 +669,18 @@ def test_watch_paths_non_utf8_filename(henv):
     (henv.project / ".okf-wiki.json").write_text("{}")
     (henv.stub / "stdout").write_text("CTX\n")
 
-    results = {}
-    for kind in ("sh", "py"):
-        res = run_hook(henv.scripts, kind, "session-start", project=henv.project, stub=henv.stub)
-        assert res.returncode == 0, res.stderr
-        results[kind] = sem(res)["hookSpecificOutput"]["watchPaths"]
-    assert results["sh"] == results["py"]
-    assert str(bundle / "� bad.md") in results["py"]
+    res = run_hook(henv.scripts, "session-start", project=henv.project, stub=henv.stub)
+    assert res.returncode == 0, res.stderr
+    assert str(bundle / "� bad.md") in sem(res)["hookSpecificOutput"]["watchPaths"]
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root는 디렉토리 권한을 무시")
-def test_unreadable_subdir_divergence(henv):
-    """비파리티 ⑥ 고정: 읽기 불가 하위 디렉토리 — sh는 JSON 방출 후 pipefail
-    exit 1(출력 폐기), py는 부분 결과 exit 0(의도된 변경)."""
+def test_unreadable_subdir_yields_partial_result(henv):
+    """읽기 불가 하위 디렉토리는 **부분 결과 + exit 0**이다.
+
+    셸 구현은 pipefail로 JSON을 방출한 뒤 exit 1이라 그 출력이 통째로 폐기됐다 —
+    읽을 수 있는 파일까지 함께 사라진다. 의도된 변경이라 계약으로 남긴다.
+    """
     bundle = henv.project / ".okf"
     locked = bundle / "locked"
     locked.mkdir(parents=True)
@@ -693,14 +689,11 @@ def test_unreadable_subdir_divergence(henv):
     (henv.stub / "stdout").write_text("CTX\n")
     locked.chmod(0o000)
     try:
-        sh_res = run_hook(henv.scripts, "sh", "session-start", project=henv.project, stub=henv.stub)
-        read_and_reset_calls(henv.stub)
-        py_res = run_hook(henv.scripts, "py", "session-start", project=henv.project, stub=henv.stub)
+        res = run_hook(henv.scripts, "session-start", project=henv.project, stub=henv.stub)
     finally:
         locked.chmod(0o755)
-    assert sh_res.returncode == 1 and sh_res.stderr != b""
-    assert py_res.returncode == 0 and py_res.stderr == b""
-    assert sem(py_res)["hookSpecificOutput"]["watchPaths"] == [str(bundle / "a.md")]
+    assert res.returncode == 0 and res.stderr == b""
+    assert sem(res)["hookSpecificOutput"]["watchPaths"] == [str(bundle / "a.md")]
 
 
 def test_okf_timeout_diagnosable_and_reaps(henv):
@@ -716,7 +709,6 @@ def test_okf_timeout_diagnosable_and_reaps(henv):
 
     res = run_hook(
         henv.scripts,
-        "py",
         "session-start",
         project=henv.project,
         stub=henv.stub,
@@ -768,13 +760,9 @@ def test_e2e_session_start_real_engine(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     bundle = _real_bundle(project)
-    results = {}
-    for kind in ("sh", "py"):
-        res = run_hook(PLUGIN / "scripts", kind, "session-start", project=project)
-        assert res.returncode == 0, res.stderr
-        results[kind] = sem(res)
-    assert results["sh"] == results["py"]
-    hso = results["py"]["hookSpecificOutput"]
+    res = run_hook(PLUGIN / "scripts", "session-start", project=project)
+    assert res.returncode == 0, res.stderr
+    hso = sem(res)["hookSpecificOutput"]
     assert hso["additionalContext"].startswith("<okf-context>")
     assert sorted(str(bundle / f) for f in ["a.md", "b.md", "index.md"]) == hso["watchPaths"]
 
@@ -785,10 +773,97 @@ def test_e2e_post_tool_use_real_engine(tmp_path):
     project.mkdir()
     bundle = _real_bundle(project)
     payload = json.dumps({"tool_input": {"file_path": str(bundle / "b.md")}}).encode()
-    results = {}
-    for kind in ("sh", "py"):
-        res = run_hook(PLUGIN / "scripts", kind, "post-tool-use", project=project, stdin=payload)
-        assert res.returncode == 0, res.stderr
-        results[kind] = sem(res)
-    assert results["sh"] == results["py"] is not None
-    assert "a.md" in results["py"]["hookSpecificOutput"]["additionalContext"]
+    res = run_hook(PLUGIN / "scripts", "post-tool-use", project=project, stdin=payload)
+    assert res.returncode == 0, res.stderr
+    assert sem(res) is not None
+    assert "a.md" in sem(res)["hookSpecificOutput"]["additionalContext"]
+
+
+# ── 훅 3종의 오류 정책 통일 (#299) ────────────────────────────────────────────
+#
+# 전면 `except`가 무음이면 내부 오류(예: study.db 손상)가 "메모리 파일 아님"·
+# "capture=off"와 **완전히 같은 신호**가 된다. rc는 그대로 0이다(훅은 세션을 깨지
+# 않는다) — 바꾸는 것은 진단의 유무뿐이다.
+
+STUDY_HOOKS = [
+    ("study_session.py", b""),
+    ("study_hook.py", b'{"tool_input":{"file_path":"/x/MEMORY.md"}}'),
+]
+
+# import 시점이 아니라 **run() 안**에서 터뜨린다 — 모듈 import 실패는 전면 except가
+# 감싸는 구간 밖이라(모듈 최상단) 다른 경로를 검사하게 된다.
+BOOM_SCOPE = """\
+def is_memory_path(file_path, payload, project):
+    return True
+
+
+def resolve_capture(project):
+    raise RuntimeError("boom")
+"""
+
+
+@pytest.mark.parametrize(("script", "stdin"), STUDY_HOOKS, ids=[s for s, _ in STUDY_HOOKS])
+def test_study_hooks_diagnose_on_unexpected_error(tmp_path, script, stdin):
+    """study 훅이 예상 외 예외에서 stderr 1줄을 남기고 rc 0을 유지한다."""
+    # 훅 스크립트를 tmp로 복사한다 — Python은 **스크립트 디렉토리**를 sys.path[0]에
+    # 두므로, PYTHONPATH만 조작하면 진짜 study_scope가 먼저 잡혀 아무것도 안 터진다.
+    (tmp_path / "study_scope.py").write_text(BOOM_SCOPE, encoding="utf-8")
+    shutil.copy2(PLUGIN / "scripts" / "study" / script, tmp_path / script)
+    env = {
+        **os.environ,
+        "CLAUDE_PROJECT_DIR": str(tmp_path),
+        "PYTHONPATH": os.pathsep.join(
+            [str(PLUGIN / "scripts" / "study"), str(PLUGIN / "scripts" / "core")]
+        ),
+    }
+    res = subprocess.run(
+        [sys.executable, str(tmp_path / script)],
+        input=stdin,
+        env=env,
+        capture_output=True,
+        timeout=60,
+    )
+    assert res.returncode == 0, res.stderr  # fail-fast 유지 — rc는 바뀌지 않는다
+    assert res.stdout == b""
+    assert res.stderr != b"", "무음이면 오류와 '해당 없음'이 구분되지 않는다"
+
+
+def test_okf_hooks_diagnoses_unspawnable_shuttle(henv):
+    """셔틀을 spawn조차 못하면 stderr 1줄을 남긴다 — '링크 없음'과 구분되게."""
+    (henv.project / ".okf-wiki.json").write_text("{}")
+    (henv.project / ".okf").mkdir()
+    (henv.project / ".okf" / "a.md").write_text("# doc\n")
+    (henv.scripts.parent / "bin" / "okf").unlink()  # OSError(ENOENT) 유발
+
+    res = run_hook(henv.scripts, "session-start", project=henv.project, stub=henv.stub)
+    assert res.returncode == 0
+    assert res.stdout == b""
+    assert "실행 불가".encode() in res.stderr, res.stderr
+
+
+def test_file_changed_uses_vault_fallback_bundle(henv, tmp_path, monkeypatch):
+    """vault 폴백(#91 V3) 사용자에게도 file-changed가 산다.
+
+    번들 소속 검사를 넣으면서 프로젝트 설정만 보면, 설정이 없는 것이 정상인 vault
+    폴백 모드에서 감시 중인 파일이 바뀌어도 **영원히 무동작**이 된다 — 오탐을 고치다
+    무음을 만드는 꼴이다. 대상 번들은 SessionStart와 같은 해소를 거쳐야 한다.
+    """
+    vault = tmp_path / "vault"
+    (vault / ".okf").mkdir(parents=True)
+    (vault / ".okf" / "a.md").write_text("# doc\n", encoding="utf-8")
+    (vault / ".okf-wiki.json").write_text("{}", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(vault)], check=True)
+    # 프로젝트에는 설정이 **없다** — 폴백이 성립하는 조건 그대로
+    assert not (henv.project / ".okf-wiki.json").exists()
+
+    payload = json.dumps({"file_path": str(vault / ".okf" / "a.md")}).encode()
+    res = run_hook(
+        henv.scripts,
+        "file-changed",
+        project=henv.project,
+        stdin=payload,
+        stub=henv.stub,
+        env_override={"OKF_VAULT_PROJECT": str(vault)},
+    )
+    assert res.returncode == 0, res.stderr
+    assert sem(res) is not None, "vault 폴백에서 무음이면 기능이 사라진 것이다"

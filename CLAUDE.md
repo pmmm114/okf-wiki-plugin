@@ -38,7 +38,7 @@ OKF 번들 엔진(`okf-core/`) + Claude Code 플러그인(`plugins/okf/`) + 배�
 - 루트 `pyproject.toml`은 pre-commit·`pip install <루트>` 소비용 **셔틀**, 엔진 메타 단일원천은 `okf-core/pyproject.toml`. 두 버전 **동기**, main은 **버전-중립 `0.0.0.dev0`** — minor 선점(`0.(Y+1).0.dev0`) 금지, 번호는 컷 때 도출, 릴리스 컷 커밋만 dev 없는 `X.Y.Z`(게이트: `test_version_sync`; `docs/releasing.md`, #164).
 - 엔진(`okf-core/src/`)은 **Claude를 모른다** — `CLAUDE_`·claude 참조 금지, 엔진 호출은 플러그인 쪽에서만(게이트: 무참조 grep).
 - 이 repo는 **특정 소비처·목적지 repo를 모른다**(목적지 무참조) — 코드·문서·설정·이슈·커밋 어디에도 목적지 repo명 하드코딩 금지. `study` 같은 소비처 확장은 **계약만**(stdin 아이템·env var) 정의하고 핸들러·목적지는 소비처가 자기 repo에 주입(엔진이 Claude를 모르는 것과 같은 계층 원리). denylist에 repo명을 넣는 것 자체가 참조이므로 **이 CLAUDE.md가 1차 게이트** — 예시·핸들러명은 중립 placeholder로.
-- 플러그인 스크립트(훅·헬퍼)는 **Python으로** — shell 신규 작성 금지(`jq`+`bash` 대신 `json`·`pathlib`, 실행 `uv run python`, 엔진 호출 `bin/okf`). 기존 `scripts/*.sh`는 레거시 — 손대는 김에 이관. shell 예외는 `bin/`의 exec 셔틀(`okf`·`okf-py`)뿐.
+- 플러그인 스크립트(훅·헬퍼)는 **Python으로** — shell 신규 작성 금지(`jq`+`bash` 대신 `json`·`pathlib`, 실행 `uv run python`, 엔진 호출 `bin/okf`). 레거시 `scripts/*.sh` 3종은 #299에서 이관·삭제 완료 — 이제 shell은 `bin/`의 exec 셔틀(`okf`·`okf-py`) **둘뿐**이고, 훅 `command`가 셔틀이 아니면 게이트가 막는다(`test_okf_py_shim`). `jq` 의존이 사라진 것이 이관의 실익이다 — 셸 훅은 `command -v jq || exit 0`으로 시작해 jq 없는 PATH에서 **무음 무동작**이었고, 그 신호가 "해당 없음"과 구분되지 않았다.
 - (#108) 훅·커맨드의 Python은 bare `python3` 금지, `bin/okf-py` 경유 — 훅 spawn은 로그인 쉘 PATH 미보장이라 ENOENT. `hooks.json`은 exec form(`args` 존재 → 셸 없음)이라 `command` 따옴표를 안 벗기므로 `command`는 따옴표·공백 없는 단일 실행파일로 두고 경로·서브커맨드는 `args` 배열로 — 따옴표를 넣으면 `posix_spawn` ENOENT 재발. 둘 다 그렙 게이트가 차단.
 
 ## 작업 플로우

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import study_inbox
 import study_scope
+from okf_hooks import diagnose as _diagnose
 
 
 def run(project: str | Path) -> str | None:
@@ -38,6 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         message = run(project)
     except Exception:  # 훅은 세션을 깨지 않는다(fail-fast)
+        _diagnose("study_session")  # rc 무변경, 진단만 남긴다(#299)
         return 0
     if message:
         print(

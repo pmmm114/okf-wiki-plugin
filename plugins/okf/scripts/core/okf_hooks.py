@@ -144,7 +144,13 @@ def _run_okf(args, suppress_stderr):
         proc = subprocess.Popen(
             [okf, *args], stdout=subprocess.PIPE, stderr=stderr, start_new_session=True
         )
-    except OSError:
+    except OSError as exc:
+        # 셔틀을 spawn조차 못한 것이다(uv 부재·권한·경로 손상). 무음으로 두면 이 실패가
+        # "링크가 없다"·"설정이 없다"와 **완전히 같은 무출력**이 되어 진단 경로가 없다(#299).
+        # 반환값은 그대로 실패 동치(None) — 바꾸는 것은 진단의 유무뿐이다.
+        print(
+            f"okf_hooks: okf {args[0]} 실행 불가({exc.__class__.__name__}) — 생략", file=sys.stderr
+        )
         return None
     try:
         out, _ = proc.communicate(timeout=_okf_timeout())
@@ -276,6 +282,24 @@ def hook_file_changed():
         file_path = _payload_str(payload.get("path"))
     if not file_path:
         return 0
+    # 번들 소속 검사(#299). 없으면 **번들 밖 파일 변경에도** "대응 개념을 갱신하고
+    # log.md에 엔트리를 추가하라"가 주입된다 — 존재하지 않는 개념을 찾게 만드는 오탐이다.
+    # 판정 방식은 `hook_post_tool_use`와 같은 **정규화 없는 문자열 접두사**로 맞춘다.
+    #
+    # 대상 번들은 `resolve_inject`로 푼다 — 그냥 `_load_config(project)`를 쓰면 vault
+    # 폴백(#91 V3) 사용자에게 **기능이 사라진다**. 그 모드에서는 프로젝트에 설정이
+    # 없고 watchPaths가 vault 번들을 가리키므로, 프로젝트 설정만 보면 감시 중인 파일이
+    # 바뀌어도 영원히 무동작이다(오탐을 고치다 무음을 만드는 꼴).
+    resolved = okf_vault.resolve_inject(_project_dir())
+    target = resolved["target"]
+    if target is None:
+        return 0
+    cfg = _load_config(target)
+    if cfg is None:
+        return 0
+    prefix = f"{_bundle_dir(target, cfg)}/"
+    if not file_path.startswith(prefix):
+        return 0
     _emit(
         "FileChanged",
         {
@@ -286,6 +310,27 @@ def hook_file_changed():
         },
     )
     return 0
+
+
+def diagnose(source: str) -> None:
+    """전면 ``except``의 **진단 1줄**. 반환 코드는 호출자가 정한다.
+
+    훅의 fail-fast(세션을 깨지 않는다)는 의도된 설계이고 이 함수는 그것을 바꾸지 않는다
+    — 바꾸는 것은 **무음의 유무**다. 출력이 0줄이면 내부 오류(예: study.db 손상)가
+    "메모리 파일 아님"·"capture=off"와 **완전히 같은 신호**가 되어 진단이 불가능하다.
+
+    훅 3종의 단일 오류 정책이다(#299) — 각자 다른 문구·다른 스위치를 쓰면 소비처가
+    무엇을 켜야 상세를 보는지 알 수 없다.
+    """
+    if os.environ.get("OKF_HOOKS_DEBUG"):
+        import traceback
+
+        traceback.print_exc()
+    else:
+        print(
+            f"{source}: 예상 외 오류 — OKF_HOOKS_DEBUG=1로 재실행하면 상세 출력",
+            file=sys.stderr,
+        )
 
 
 HOOKS = {
@@ -307,15 +352,7 @@ def main(argv):
             print(f"okf_hooks: {skip.args[0]}", file=sys.stderr)
         return 0
     except Exception:
-        if os.environ.get("OKF_HOOKS_DEBUG"):
-            import traceback
-
-            traceback.print_exc()
-        else:
-            print(
-                "okf_hooks: 예상 외 오류 — OKF_HOOKS_DEBUG=1로 재실행하면 상세 출력",
-                file=sys.stderr,
-            )
+        diagnose("okf_hooks")
         return 1
 
 

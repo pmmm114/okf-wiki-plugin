@@ -20,9 +20,12 @@ runs:
     - name: 훅 py3.10 하한 게이트
       # 훅은 소비처의 파이썬으로 도는데 그게 몇인지 모른다. 하한을 3.10으로 잡고
       # 컴파일만 확인한다 — 상위 문법이 섞이면 소비처에서 SyntaxError로 죽는다.
+      #
+      # 대상은 **손으로 적지 않는다**(#299). 적혀 있던 시절엔 core 3파일뿐이라
+      # 배선된 study 훅 2종과 그 import 폐포가 검사 밖이었다 — 훅이 늘어도 목록은
+      # 그대로라 게이트만 조용히 좁아진다. hooks.json 배선에서 도출한다.
       shell: bash
       run: |
-        uv run --python 3.10 --no-project python -m py_compile \
-          plugins/okf/scripts/core/okf_hooks.py \
-          plugins/okf/scripts/core/okf_vault.py \
-          plugins/okf/scripts/core/okf_remote.py
+        mapfile -t targets < <(python3 scripts/hook_compile_targets.py)
+        printf '대상 %d개\n' "${#targets[@]}"
+        uv run --python 3.10 --no-project python -m py_compile "${targets[@]}"
