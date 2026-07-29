@@ -75,10 +75,24 @@ _TOP_KEY = re.compile(r"^(?P<indent>[ \t]*)(?P<key>[A-Za-z0-9_.\-]+):")
 # --- 검사 --------------------------------------------------------------------
 
 
+class GitError(RuntimeError):
+    """git 호출이 비-0으로 끝남 — 검사 결과가 아니라 **실행 오류**다."""
+
+
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    """git 실행. 비-0이면 ``GitError`` — 실패를 빈 목록으로 흡수하지 않는다(#303).
+
+    예전에는 rc를 보지 않아, git이 죽으면 추적 파일이 0개가 되고 모든 검사가 "위반
+    없음"으로 통과했다. 실측: 가짜 ``git``(exit 128) PATH에서
+    ``"보안 게이트 통과: 추적 파일 0개, 검사 4종"`` + exit 0 — 고장이 정상 문장으로
+    보고된다. 이 스크립트가 막는 것이 "올라가면 안 되는 것"이라 방향은 fail-closed다.
+    """
+    proc = subprocess.run(
         ["git", "-C", str(root), *args], capture_output=True, text=True, check=False
     )
+    if proc.returncode != 0:
+        raise GitError(f"git {' '.join(args)} 실패(rc={proc.returncode}): {proc.stderr.strip()}")
+    return proc
 
 
 def tracked_files(root: Path = _ROOT) -> list[str]:
@@ -225,7 +239,7 @@ def collect(root: Path = _ROOT) -> list[tuple[str, list[str]]]:
 def main() -> int:
     try:
         results = collect()
-    except OSError as exc:  # git 부재·파일 접근 실패는 판정이 아니라 실행 오류다
+    except (OSError, GitError) as exc:  # git 부재·실패·파일 접근 오류는 판정이 아니다
         print(f"보안 게이트 실행 오류: {exc}", file=sys.stderr)
         return 2
 
@@ -238,7 +252,12 @@ def main() -> int:
                 print(f"  - {item}")
         return 1
 
-    print(f"보안 게이트 통과: 추적 파일 {len(tracked_files())}개, 검사 {len(results)}종")
+    try:
+        count = len(tracked_files())
+    except (OSError, GitError) as exc:
+        print(f"보안 게이트 실행 오류: {exc}", file=sys.stderr)
+        return 2
+    print(f"보안 게이트 통과: 추적 파일 {count}개, 검사 {len(results)}종")
     return 0
 
 

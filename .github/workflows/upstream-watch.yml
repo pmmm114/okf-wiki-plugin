@@ -16,12 +16,25 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - name: 업스트림 비교
         id: diff
+        # `shell: bash`는 `-o pipefail`을 켠다(#303). 없으면 파이프의 마지막 명령(`cut`)
+        # 종료코드만 남아 `git ls-remote` 실패가 rc=0 + 빈 문자열이 된다. 빈 값은 lock
+        # 핀과 항상 불일치라 **허위 갱신 이슈**가 열리고, 제목 중복 체크 때문에 그
+        # 허위 이슈가 남아 있는 동안 진짜 갱신이 이후 막힌다.
+        shell: bash
         run: |
           lock_spec=$(python3 -c "import json; print([e['ref'] for e in json.load(open('okf-core/vendor/vendor.lock'))['entries'] if e['name']=='okf-spec'][0])")
           lock_oracle=$(python3 -c "import json; print([e['ref'] for e in json.load(open('okf-core/vendor/vendor.lock'))['entries'] if e['name']=='okf-validate-oracle'][0])")
           live_spec=$(git ls-remote https://github.com/GoogleCloudPlatform/knowledge-catalog HEAD | cut -f1)
           live_oracle_line=$(git ls-remote --tags --sort=-v:refname https://github.com/scaccogatto/okf-skills 'refs/tags/okf--v*' | head -1)
           live_oracle=$(echo "$live_oracle_line" | cut -f1)
+          # pipefail이 잡지 못하는 경우도 있다(원격이 0건을 정상 반환). 빈 값으로 비교하면
+          # 항상 "갱신"이므로, 조회 실패는 이슈 생성이 아니라 **잡 실패**로 표면화한다.
+          for name in live_spec live_oracle; do
+            if [ -z "${!name}" ]; then
+              echo "업스트림 조회 실패: $name이 비었습니다 — 허위 갱신 이슈를 막기 위해 실패시킵니다" >&2
+              exit 1
+            fi
+          done
           live_oracle_tag=$(echo "$live_oracle_line" | cut -f2 | sed 's|refs/tags/||')
           changed=""
           if [ "$lock_spec" != "$live_spec" ]; then changed="okf-spec"; fi

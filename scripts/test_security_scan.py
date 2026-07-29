@@ -11,9 +11,11 @@ repo가 깨끗한지와 **일부러 만든 위반을 잡는지**를 함께 본�
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
+import pytest
 import security_scan as scan
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -185,3 +187,32 @@ def test_vendor_is_exempt_from_machine_path_check(tmp_path):
     target.write_text(f"{_USERS}someone-real/x\n", encoding="utf-8")
     assert scan.machine_paths([rel], tmp_path) == []
     assert scan.machine_paths(["okf-core/src/x.md"], tmp_path) == []  # 없는 파일은 건너뛴다
+
+
+# --- git 실패는 판정이 아니라 실행 오류다 (#303) --------------------------------
+
+
+def test_git_failure_raises_instead_of_empty_list(tmp_path, monkeypatch):
+    """git이 죽으면 빈 목록이 아니라 `GitError` — 고장을 "위반 없음"으로 흡수하지 않는다.
+
+    변경 전 실측: 가짜 `git`(exit 128)에서
+    `"보안 게이트 통과: 추적 파일 0개, 검사 4종"` + exit 0.
+    """
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    (fake / "git").write_text("#!/bin/sh\nexit 128\n", encoding="utf-8")
+    (fake / "git").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake}:{os.environ['PATH']}")
+    with pytest.raises(scan.GitError):
+        scan.tracked_files(tmp_path)
+
+
+def test_main_reports_execution_error_on_git_failure(tmp_path, monkeypatch, capsys):
+    """실행 오류는 exit 2 — 위반(1)·통과(0)와 구분된다."""
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    (fake / "git").write_text("#!/bin/sh\nexit 128\n", encoding="utf-8")
+    (fake / "git").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake}:{os.environ['PATH']}")
+    assert scan.main() == 2
+    assert "실행 오류" in capsys.readouterr().err
