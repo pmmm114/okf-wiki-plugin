@@ -29,7 +29,16 @@ import hashlib
 import re
 
 BITS = 64
-DEFAULT_THRESHOLD = 3  # 64비트 지문의 보수적 기본 해밍 임계(검증된 값 아님 — 실측 튜닝)
+
+# 자문 목록 기본 크기(#306). 예전에는 해밍 임계 3이었는데, **한국어에서 사실상 발화하지
+# 않았다** — 실측 재서술 쌍 4개의 거리가 11·27·30·32로 임계 3에 드는 것이 하나도 없다.
+# bigram 토큰이라 어순·조사만 바뀌어도 지문이 흩어지는 성질이고, 그 위에 임계를 얹으면
+# `near`가 사실상 항상 빈 결과를 낸다. 그 빈 결과가 '무검사'가 아니라 '근사중복 없음'으로
+# 읽힌다 — 자문이 조용히 사라진 것이 결과를 낸 것처럼 보이는 꼴이다.
+#
+# 알고리즘은 그대로 두고 **거리 오름차순 상위 K + 거리 표기**로 바꾼다. 자문 전용이라
+# (자동병합 없음) 목록에 오르는 것 자체가 판정이 아니고, 거리는 사람·모델이 본다.
+DEFAULT_TOP_K = 5
 
 # 공백이 어절을 가르지 않는 문자군 — 가나(3040-30ff)·한자(3400-4dbf, 4e00-9fff)·
 # 한글 음절(ac00-d7af). 리터럴 대신 코드포인트로 적어 편집기·터미널에 의존하지 않는다.
@@ -56,11 +65,17 @@ def _tokens(text: str) -> list[str]:
     return tokens
 
 
-def fingerprint(text: str, bits: int = BITS) -> int:
-    """텍스트의 SimHash 지문(정수). 토큰이 없으면 0."""
+def fingerprint(text: str, bits: int = BITS) -> int | None:
+    """텍스트의 SimHash 지문(정수). 토큰이 없으면 **판정 불가(None)**.
+
+    예전에는 0을 돌려줬다. 그러면 토크나이저가 다루지 않는 문자군(키릴·그리스 등)의
+    스니펫이 전부 지문 0으로 접혀 **서로 해밍거리 0**이 된다 — 무관한 둘이 "같은 지식의
+    변주"로 제시된다(실측). 판정 불가를 0이라는 **유효한 값**으로 표현한 것이 원인이라,
+    값이 아니라 부재로 돌려준다.
+    """
     tokens = _tokens(text)
     if not tokens:
-        return 0
+        return None
     vector = [0] * bits
     for token in tokens:
         digest = int(hashlib.sha1(token.encode("utf-8")).hexdigest(), 16)
@@ -73,9 +88,10 @@ def fingerprint(text: str, bits: int = BITS) -> int:
     return value
 
 
-def fingerprint_hex(text: str, bits: int = BITS) -> str:
-    """지문을 16진 문자열로(SQLite 저장용 — 64비트 부호 오버플로 회피)."""
-    return f"{fingerprint(text, bits):0{bits // 4}x}"
+def fingerprint_hex(text: str, bits: int = BITS) -> str | None:
+    """지문을 16진 문자열로(SQLite 저장용). 판정 불가는 None — 저장도 하지 않는다."""
+    value = fingerprint(text, bits)
+    return None if value is None else f"{value:0{bits // 4}x}"
 
 
 def hamming(a: int, b: int) -> int:

@@ -256,10 +256,15 @@ def test_same_layer_near_is_advisory():
         "existing.md [Fact] — orders table customer_id column",  # 동일 토큰 → dist 0
         "unrelated.md [Fact] — zzzqqq alpha beta gamma delta",  # 다른 토큰
     ]
-    hits = study.same_layer_near(snippet, lines, 0)
-    assert [h["path"] for h in hits] == ["existing.md"]
+    # 상위 K는 임계가 아니라 **순위**다(#306) — 가장 가까운 것이 먼저 오고 거리가 붙는다
+    hits = study.same_layer_near(snippet, lines, 5)
+    assert hits[0]["path"] == "existing.md"
     assert hits[0]["distance"] == 0
     assert hits[0]["gist"] == "orders table customer_id column"
+    assert hits[-1]["distance"] > 0  # 무관한 것은 뒤로 밀린다(사라지는 것이 아니라)
+
+    # K=1이면 가장 가까운 하나만
+    assert [h["path"] for h in study.same_layer_near(snippet, lines, 1)] == ["existing.md"]
 
 
 def test_same_layer_near_empty_when_no_same_layer_concepts():
