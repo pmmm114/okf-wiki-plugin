@@ -82,13 +82,27 @@ def build_graph(root: str | Path, edges_from: str | None = None) -> dict:
     return graph
 
 
-def linked_to(graph: dict, query: str) -> list[str]:
-    """query가 경로 또는 resource URI에 부분일치하는 노드로 들어오는 역링크 파일 목록."""
-    matched = {
-        n["file"]
-        for n in graph["nodes"]
-        if query in n["file"] or (n["resource"] and query in n["resource"])
-    }
+def linked_to(graph: dict, query: str, exact: bool = False) -> list[str]:
+    """query에 걸리는 노드로 들어오는 역링크 파일 목록.
+
+    기본은 **부분일치**다 — 사람이 손으로 치는 탐색이 그것을 기대한다("promotion을
+    링크하는 게 뭐지"). 그대로 둔다.
+
+    ``exact=True``는 경로·resource **정확 일치**다. 호출자가 이미 정규 경로를 쥐고
+    있을 때 쓴다. 부분일치로 정규 경로를 물으면 **짧은 파일명이 긴 파일명을 삼킨다**
+    — ``"a.md"``가 ``banana.md``를 물어, 무관한 개념이 "이 파일을 링크한다"며 컨텍스트로
+    주입된다(#300). 파일명이 짧을수록 오탐 폭이 크다.
+    """
+    if exact:
+        matched = {
+            n["file"] for n in graph["nodes"] if query == n["file"] or query == n["resource"]
+        }
+    else:
+        matched = {
+            n["file"]
+            for n in graph["nodes"]
+            if query in n["file"] or (n["resource"] and query in n["resource"])
+        }
     return sorted({e["from"] for e in graph["edges"] if e["to"] in matched})
 
 
@@ -122,14 +136,22 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="okf graph", description="번들 링크 그래프")
     ap.add_argument("bundle", help="번들 디렉터리 경로")
     ap.add_argument("--json", action="store_true", help="nodes/edges JSON 출력")
-    ap.add_argument("--linked-to", metavar="P", help="경로·resource 부분일치 역링크 조회")
+    # 둘은 **배타**다. 함께 오면 조용히 한쪽을 이기게 두지 않는다 — 어느 판정이
+    # 적용됐는지 호출자가 알 수 없는 상태가 이 계열의 문제다(#300).
+    backlink = ap.add_mutually_exclusive_group()
+    backlink.add_argument("--linked-to", metavar="P", help="경로·resource 부분일치 역링크 조회")
+    backlink.add_argument(
+        "--linked-to-exact",
+        metavar="P",
+        help="경로·resource **정확 일치** 역링크 조회(정규 경로를 쥔 호출자용)",
+    )
     ap.add_argument("--edges-from", metavar="KEY", help="frontmatter 리스트 키를 타입 엣지로")
     ap.add_argument("--chain", metavar="C", help="개념 C의 근거 사슬 하향 순회(--edges-from 필요)")
     args = ap.parse_args(argv)
 
     bundle = Path(args.bundle)
     if not bundle.is_dir():
-        print(f"오류: 번들 디렉터리가 아님: {bundle}")
+        print(f"오류: 번들 디렉터리가 아님: {bundle}", file=sys.stderr)
         return 2
 
     if args.chain is not None:
@@ -142,7 +164,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     graph = build_graph(bundle, edges_from=args.edges_from)
-    if args.linked_to is not None:
+    if args.linked_to_exact is not None:
+        for rel in linked_to(graph, args.linked_to_exact, exact=True):  # 무매칭이면 무출력
+            print(rel)
+    elif args.linked_to is not None:
         for rel in linked_to(graph, args.linked_to):  # 무매칭이면 무출력
             print(rel)
     elif args.json:

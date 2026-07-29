@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import sys
 from pathlib import Path
 
 LOG_NAME = "log.md"
@@ -61,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
 
     directory = Path(args.directory)
     if not directory.is_dir():
-        print(f"오류: 디렉터리가 아님: {directory}")
+        print(f"오류: 디렉터리가 아님: {directory}", file=sys.stderr)
         return 2
     print(append_entry(directory, args.message, kind=args.kind))
     return 0

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import posixpath
+import sys
 from pathlib import Path
 
 from okf_core.bundle import DEFAULT_RULES_VERSION, dir_tree, partition, rules_for
@@ -105,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
 
     bundle = Path(args.bundle)
     if not bundle.is_dir():
-        print(f"오류: 번들 디렉터리가 아님: {bundle}")
+        print(f"오류: 번들 디렉터리가 아님: {bundle}", file=sys.stderr)
         return 2
     if args.write:
         for rel in write_indexes(bundle):

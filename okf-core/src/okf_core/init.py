@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from okf_core import logmd
@@ -43,11 +44,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         created = init_bundle(args.target)
     except FileExistsError as exc:
-        print(f"오류: 비어 있지 않은 디렉터리 — 덮어쓰지 않음: {exc}")
-        print("기존 번들의 index 재생성은 `okf index <path> --write`를 사용")
+        print(f"오류: 비어 있지 않은 디렉터리 — 덮어쓰지 않음: {exc}", file=sys.stderr)
+        # 복구 지시도 실패 메시지의 일부다 — stdout으로 내면 산출물(생성 파일 목록)
+        # 자리에 문장이 섞인다. 오류문은 stderr로 갔는데 이 줄만 stdout이었다.
+        print("기존 번들의 index 재생성은 `okf index <path> --write`를 사용", file=sys.stderr)
         return 2
     except NotADirectoryError as exc:
-        print(f"오류: 디렉터리가 아님: {exc}")
+        print(f"오류: 디렉터리가 아님: {exc}", file=sys.stderr)
         return 2
     for name in created:
         print(name)
