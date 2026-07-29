@@ -175,3 +175,19 @@ def test_config_dir_override_is_still_memory(tmp_path, monkeypatch):
     real.parent.mkdir(parents=True)
     real.write_text("- 사실.\n", encoding="utf-8")
     assert study_scope.is_memory_path(str(real), {}, tmp_path / "repo") is True
+
+
+def test_ambiguous_colon_prose_is_kept_as_body():
+    """키처럼 보이는 **한국어 산문**은 frontmatter로 보지 않는다 — 비대칭 판단.
+
+    매핑꼴 판별을 넓혀 콜론이 든 아무 줄이나 키로 인정하면, `결정: 이렇게 한다.` 같은
+    실사실이 frontmatter로 삼켜져 **조용히 유실**된다. 좁게 잡으면 반대로 한국어 키를
+    쓴 진짜 frontmatter가 본문으로 남아 인박스에 잡음이 하나 는다.
+
+    유실은 비가역이고 잡음은 사용자가 버리면 그만이라, **좁은 쪽**을 고른다(#216이
+    폐기/보존에 쓴 것과 같은 비대칭). 이 선택을 여기 고정해 두어, 넓히는 변경이
+    오면 그 대가를 다시 계산하게 한다.
+    """
+    text = "---\n결정: 이렇게 하기로 했다.\n\n---\n\n둘째 블록.\n"
+    blocks = study_blocks.concept_blocks(text)
+    assert blocks[0] == ["결정: 이렇게 하기로 했다."], blocks
