@@ -121,3 +121,52 @@ def test_run_op_rejects_contract_violation_fail_visible(tmp_path):
 
     with pytest.raises(RuntimeError, match="JSON이 아님"):
         okf_explore.run_op(str(bundle), "signals", project=str(project), execute=not_json)
+
+
+# --- 중첩 bundlePath에서 project 해소 (#301) -----------------------------------
+#
+# `run_op`가 `dirname(abspath(bundle))`로 프로젝트 루트를 추정했다. 중첩
+# `bundlePath`(`docs/.okf` 등)에서는 그 디렉토리에 `.okf-wiki.json`이 없어, **승인된**
+# 외부 제공자가 안내 한 줄 없이 미실행되고 내장 폴백으로 조용히 떨어진다 —
+# '설정을 못 찾은 것'이 '설정 없음'으로 읽히는 같은 계열이다.
+
+
+def _nested_project(tmp_path, provider):
+    """설정은 repo 루트에, 번들은 `docs/.okf`에 있는 배치."""
+    root = tmp_path / "repo"
+    bundle = root / "docs" / ".okf"
+    bundle.mkdir(parents=True)
+    (root / ".okf-wiki.json").write_text(
+        json.dumps({"bundlePath": "docs/.okf", "explore": {"provider": provider}}),
+        encoding="utf-8",
+    )
+    return root, bundle
+
+
+def test_nested_bundle_resolves_to_trusted_provider(tmp_path):
+    """중첩 번들에서도 `--project` 없이 **승인된** 제공자로 해소된다.
+
+    예전에는 `dirname(bundle)`(=`docs/`)에 설정이 없어 `provider: None`이 나왔고,
+    그러면 안내 한 줄 없이 내장 폴백이다 — 사용자는 자기 제공자가 안 돌았다는 사실
+    자체를 모른다.
+    """
+    provider = "mytool explore"
+    root, bundle = _nested_project(tmp_path, provider)
+    okf_explore.approve(str(root), provider)
+
+    status = okf_explore.resolve(okf_explore.project_root(str(bundle)))
+    assert status["provider"] == provider, status
+    assert status["trusted"] is True, status
+
+
+def test_run_op_project_resolution_prefers_config_bearing_ancestor(tmp_path):
+    """해소 결과가 **설정이 있는 조상**이다 — dirname 추정이 아니라."""
+    root, bundle = _nested_project(tmp_path, "mytool explore")
+    assert okf_explore.project_root(str(bundle)) == str(root.resolve())
+
+
+def test_project_root_falls_back_to_parent_when_no_config(tmp_path):
+    """설정이 어디에도 없으면 기존 추정으로 폴백한다(무회귀)."""
+    bundle = tmp_path / "loose" / ".okf"
+    bundle.mkdir(parents=True)
+    assert okf_explore.project_root(str(bundle)) == str(bundle.parent)

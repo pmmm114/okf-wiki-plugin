@@ -27,7 +27,12 @@ def capture_trace(project: str) -> list[str]:
     block = study_scope.study_block(okf_vault.load_config(project))
     vault, reason = okf_vault.vault_state()
     scope = study_scope.resolve_capture(project)
-    if block is not None and study_scope.is_vault_scope(block.get("scope")):
+    if scope["config_error"]:
+        # 이 분기가 없으면 "study 블록 없음"이 나간다(#301). 블록이 **있는데** 파일이
+        # 파싱되지 않은 것이라, 사용자는 존재하는 설정을 다시 쓰라는 안내를 받고
+        # 그 사이 캡처는 무음으로 꺼져 있다. 기계 축으로 갈라 문장을 뒤집는다.
+        why = ".okf-wiki.json 파스 실패 — 설정을 읽지 못했다(블록 유무는 판정 불가)"
+    elif block is not None and study_scope.is_vault_scope(block.get("scope")):
         why = 'study 블록의 scope:"vault" 위임'
     elif block is not None:
         why = "프로젝트 study 블록 존재(명시가 이긴다)"
