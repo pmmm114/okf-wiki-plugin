@@ -221,3 +221,19 @@ def test_gist_truncates_long_description(tmp_path):
         f'---\ntype: fact\ndescription: "{long_desc}"\n---\n\n답: 본문.\n', encoding="utf-8"
     )
     assert len(gist(parse(tmp_path / "a.md"))) == 160
+
+
+def test_gist_truncation_changes_long_single_line_description(tmp_path):
+    """**의도된 동작 변경**: 160자 초과 단일행 description은 이제 잘린다(#294 리뷰).
+
+    개행 접기만이 결함 수정이고 길이 절단은 계약 통일이다 — 본문 폴백 경로가 원래
+    `_GIST_MAX`를 지키고 있었고, description만 무제한이면 "1줄 요약"이 경로마다 다른
+    것을 뜻한다. 다만 이건 기존 번들의 출력을 **바꾸는** 변경이므로 여기 못 박는다:
+    단일행이라고 무조건 불변인 것이 아니라, 단일행 **이고 160자 이하**일 때 불변이다.
+    """
+    (tmp_path / "index.md").write_text("# index\n\n- [a](a.md)\n", encoding="utf-8")
+    (tmp_path / "a.md").write_text(
+        f'---\ntype: fact\ndescription: "{"가" * 300}"\n---\n\n답: 본문.\n', encoding="utf-8"
+    )
+    summary = gist(parse(tmp_path / "a.md"))
+    assert len(summary) == 160 and summary == "가" * 160

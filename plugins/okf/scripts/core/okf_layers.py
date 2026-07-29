@@ -57,8 +57,14 @@ def load_layers_spec(path: str = _LAYERS_MD) -> dict:
     return json.loads(blocks[-1])
 
 
-def _section_head(line: str, known: frozenset[str]) -> tuple[bool, str | None] | None:
-    """섹션 전환 판정 — ``(전환함, 현재 층|None)`` 또는 전환이 아니면 ``None``.
+_NOT_A_SECTION = object()  # "섹션 아님"과 "미분류 섹션(None)"을 구분하는 센티널
+
+
+def _section_head(line: str, known: frozenset[str]):
+    """섹션 전환 판정 — 층 값 · 미분류면 ``None`` · 섹션이 아니면 ``_NOT_A_SECTION``.
+
+    ``None``이 이미 "미분류 섹션"을 뜻하므로 "섹션이 아님"을 같은 값으로 표현할 수
+    없다. 불리언을 덧붙이면 항상 참인 죽은 값이 되므로 센티널을 쓴다.
 
     ``## `` 접두만 보면 **개념 줄에 섞여 들어온 마크다운 헤딩**이 섹션을 전환시킨다.
     엔진이 렌더를 1줄/개념으로 지키더라도(#294에서 함께 고쳤다) 파서 쪽에서 한 번 더
@@ -66,13 +72,13 @@ def _section_head(line: str, known: frozenset[str]) -> tuple[bool, str | None] |
     ``## X``는 섹션이 아니라 내용이다. 두 층 어디가 뚫려도 다른 한쪽이 남는다.
     """
     if not line.startswith("## "):
-        return None
+        return _NOT_A_SECTION
     head = line[3:].strip()
     if head == _UNCLASSIFIED:
-        return True, None
+        return None
     if head in known:
-        return True, head
-    return None  # 어휘 밖 헤딩 = 섹션이 아니다(내용으로 흘려보낸다)
+        return head
+    return _NOT_A_SECTION  # 어휘 밖 헤딩 = 섹션이 아니다(내용으로 흘려보낸다)
 
 
 def _known_layers() -> frozenset[str]:
@@ -85,14 +91,18 @@ def parse_layer_map(context_output: str) -> dict:
 
     미분류 섹션·래퍼는 제외한다(층 미기재 개념은 맵에 없다). 각 개념 줄은 엔진
     형식 ``<경로> [<type>] …``이라 첫 ``' ['`` 앞이 경로다.
+
+    **섹션으로 인정하는 헤딩은 LAYERS 어휘 + 미분류뿐이다**(#294) — 이 파서들은 층
+    축 전용이다. 다른 축으로 ``--group-by``한 출력을 먹이면 아무것도 분류되지 않는다.
+    현재 호출자는 전부 ``spec["field"]``(층)를 쓴다.
     """
     known = _known_layers()
     layer_map: dict[str, str] = {}
     current: str | None = None
     for line in context_output.split("\n"):
-        switched = _section_head(line, known)
-        if switched is not None:
-            current = switched[1]
+        head = _section_head(line, known)
+        if head is not _NOT_A_SECTION:
+            current = head
         elif line and line not in (_CTX_OPEN, _CTX_CLOSE) and current is not None:
             path = line.split(" [", 1)[0].strip()
             if path:
@@ -111,9 +121,9 @@ def parse_layer_sections(context_output: str) -> dict[str, list[str]]:
     sections: dict[str, list[str]] = {}
     current: str | None = None
     for line in context_output.split("\n"):
-        switched = _section_head(line, known)
-        if switched is not None:
-            current = switched[1]
+        head = _section_head(line, known)
+        if head is not _NOT_A_SECTION:
+            current = head
         elif line and line not in (_CTX_OPEN, _CTX_CLOSE) and current is not None:
             sections.setdefault(current, []).append(line)
     return sections
@@ -131,9 +141,9 @@ def parse_context_meta(context_output: str) -> list[dict]:
     meta: list[dict] = []
     current: str | None = None
     for line in context_output.split("\n"):
-        switched = _section_head(line, known)
-        if switched is not None:
-            current = switched[1]
+        head = _section_head(line, known)
+        if head is not _NOT_A_SECTION:
+            current = head
         elif line and line not in (_CTX_OPEN, _CTX_CLOSE):
             path = line.split(" [", 1)[0].strip()
             if not path:
