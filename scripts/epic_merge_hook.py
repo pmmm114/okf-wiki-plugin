@@ -20,7 +20,13 @@ import subprocess
 import sys
 
 import epic_prs
-from branch_policy import DEFAULT_BRANCH, EPIC_PREFIX, _epic_number, closing_issues
+from branch_policy import (
+    DEFAULT_BRANCH,
+    EPIC_PREFIX,
+    MULTI_UNIT_MARKER,
+    _epic_number,
+    closing_issues,
+)
 
 # Epic 이슈에서 이 봇 코멘트를 다시 찾기 위한 숨은 마커(upsert 키).
 ROSTER_MARKER = "<!-- okf-epic-roster -->"
@@ -35,13 +41,30 @@ def _gh(*args: str) -> str:
     return subprocess.run(["gh", *args], capture_output=True, text=True, check=True).stdout
 
 
-def close_sub_issue(body: str) -> int | None:
-    """머지된 유닛 PR이 ``Closes``한 sub-issue를 닫는다(단수 — 게이트가 ≤1 보장)."""
+def close_sub_issue(body: str) -> list[int]:
+    """머지된 유닛 PR이 ``Closes``한 sub-issue를 **전량** 닫는다.
+
+    "게이트가 ≤1을 보장한다"는 전제로 ``closes[0]``만 닫던 시절이 있었는데, 그 전제는
+    거짓이다 — ``check_closing_issues``는 ``MULTI_UNIT_MARKER``가 있으면 2건 이상을
+    통과시킨다. 마커를 정당하게 쓴 원자적 변경에서 첫 하나만 닫히고 나머지는 열린 채
+    남아, 통합 PR이 `Epic 미완결`로 red가 됐다. 전제를 고치는 대신 전량을 닫는다.
+
+    참조 판정은 ``branch_policy.closing_issues``와 **같은 함수**를 쓴다 — 게이트가 세는
+    것과 후처리가 닫는 것이 갈리면, 게이트가 통과시킨 PR이 엉뚱한 이슈를 닫는다.
+    """
     closes = closing_issues(body)
     if not closes:
-        return None
-    _gh("issue", "close", str(closes[0]), "--reason", "completed")
-    return closes[0]
+        return []
+    if len(closes) > 1:
+        refs = ", ".join(f"#{n}" for n in closes)
+        print(
+            f"경고: 닫는 이슈가 {len(closes)}건입니다({refs}) — 전부 닫습니다. "
+            f"유닛당 PR이 기본이므로 `{MULTI_UNIT_MARKER}` 마커의 의도를 확인하세요",
+            file=sys.stderr,
+        )
+    for num in closes:
+        _gh("issue", "close", str(num), "--reason", "completed")
+    return closes
 
 
 def roster_comment_body(prs: list[dict]) -> str:

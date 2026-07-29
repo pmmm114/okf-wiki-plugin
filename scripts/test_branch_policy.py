@@ -449,3 +449,81 @@ def test_cli_check_pr_reads_base_ref(monkeypatch):
     monkeypatch.delenv("PR_BASE_SHA", raising=False)
     monkeypatch.delenv("PR_HEAD_SHA", raising=False)
     assert bp.main(["--check-pr"]) == 1  # 유닛이 자기 Epic을 닫음 → 위반
+
+
+# --- 닫는 이슈: GitHub이 실제로 해석하는 텍스트만 판정 대상 (#302) --------------
+#
+# 게이트가 GitHub보다 **넓게** 세면 정상 PR이 red가 되고, 그 red를 푸는 유일한
+# 처방(`policy:multi-unit`)이 머지 후 무관한 이슈를 닫는 데까지 이어진다. 실제로
+# 기본 PR 템플릿의 주석 예시 `Closes #12`가 그 경로였다.
+
+
+def test_real_pr_template_counts_zero_closing_issues():
+    """**실파일** 기본 PR 템플릿 원문에는 닫는 이슈가 0건이어야 한다.
+
+    픽스처가 아니라 `.github/pull_request_template.md`를 그대로 태운다 — 템플릿에
+    주석 예시가 다시 들어오면 여기서 red가 난다.
+    """
+    body = bp.PR_TEMPLATE.read_text(encoding="utf-8")
+    assert bp.closing_issues(body) == []
+
+
+def test_real_pr_template_plus_one_close_counts_one():
+    """템플릿을 그대로 두고 실제 `Closes`를 하나 적으면 정확히 그 하나만 세어야 한다."""
+    body = bp.PR_TEMPLATE.read_text(encoding="utf-8") + "\n\nCloses #250\n"
+    assert bp.closing_issues(body) == [250]
+    assert bp.check_closing_issues(body, "main", "fix/x") == []
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("<!-- 예: Closes #12 -->\nCloses #250", [250]),  # HTML 주석은 판정 대상 아님
+        ("<!--\nCloses #12\n-->\nCloses #250", [250]),  # 여러 줄 주석
+        ("```\nCloses #12\n```\nCloses #250", [250]),  # 펜스 코드블록
+        ("~~~\nCloses #12\n~~~\nCloses #250", [250]),  # 물결 펜스
+        ("`Closes #12` 라고 씁니다\nCloses #250", [250]),  # 인라인 코드
+        ("> 리뷰어: Closes #12 로 적으세요", [12]),  # 인용은 GitHub이 링크한다 — 센다
+    ],
+)
+def test_closing_issues_ignores_noncounting_regions(body, expected):
+    assert bp.closing_issues(body) == expected
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Closes https://github.com/o/r/issues/250",
+        "Closes o/r#250",
+    ],
+)
+def test_closing_issues_reads_qualified_forms(body):
+    """GitHub이 실제로 닫는 URL·`owner/repo#N` 형태도 읽어야 한다(같은 repo)."""
+    assert bp.closing_issues(body, repo="o/r") == [250]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Closes https://github.com/other/repo/issues/5",
+        "Closes other/repo#5",
+    ],
+)
+def test_closing_issues_skips_foreign_repo(body):
+    """다른 repo를 가리키는 참조는 이 repo의 이슈를 닫지 않는다 — 세지 않는다.
+
+    세면 두 가지가 동시에 깨진다: 유닛 뭉침 오탐(red), 그리고 머지 후처리가
+    같은 번호의 **이 repo 이슈**를 닫는 오작동.
+    """
+    assert bp.closing_issues(body, repo="o/r") == []
+
+
+def test_unclosed_fence_swallows_to_end_like_github():
+    """닫는 펜스가 없으면 문서 끝까지 코드블록 — GFM 규격과 같은 판정면을 유지한다.
+
+    자체 리뷰에서 "뒤의 Closes가 사라진다"로 보였으나, GitHub도 그 참조를 링크하지
+    않으므로 세지 않는 것이 맞다. 여기를 "고치면" 게이트가 GitHub보다 넓어진다.
+    """
+    assert bp.closing_issues("```\n예시\n\nCloses #250\n") == []
+    # 닫힌 펜스는 그 뒤를 정상적으로 센다 — 삼킴이 펜스 범위에 한정됨을 함께 고정한다.
+    assert bp.closing_issues("```\n예시\n```\n\nCloses #250\n") == [250]

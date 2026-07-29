@@ -68,8 +68,35 @@ _EPIC_REF = re.compile(r"^epic/(\d+)-")
 _PR_SUFFIX = re.compile(r"\(#\d+\)\s*$")
 _HEADING = re.compile(r"^##\s+(?P<text>.+?)\s*$", re.MULTILINE)
 
-# GitHub이 머지 때 이슈를 닫는 키워드 + 이슈 번호. `Refs`는 닫지 않으므로 세지 않는다.
-_CLOSING = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)", re.IGNORECASE)
+# GitHub이 머지 때 이슈를 닫는 키워드 + 이슈 참조. `Refs`는 닫지 않으므로 세지 않는다.
+#
+# 참조는 GitHub이 인정하는 세 꼴 전부를 읽는다 — `#N` · `owner/repo#N` · 이슈 URL.
+# 앞의 두 꼴만 읽던 시절, URL로 적은 진짜 Closes를 게이트도 머지 후처리도 못 봤다.
+_CLOSING = re.compile(
+    r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+"
+    r"(?:"
+    r"https?://github\.com/(?P<uowner>[\w.-]+)/(?P<urepo>[\w.-]+)/issues/(?P<unum>\d+)"
+    r"|(?P<qowner>[\w.-]+)/(?P<qrepo>[\w.-]+)#(?P<qnum>\d+)"
+    r"|#(?P<num>\d+)"
+    r")",
+    re.IGNORECASE,
+)
+
+# 판정 **대상이 아닌** 구간 — GitHub이 여기 있는 `#N`을 이슈 참조로 링크하지 않는다.
+# 실제 사고: 기본 PR 템플릿의 주석 예시(`<!-- 예: Closes #12 -->`)가 세어져 정상 PR이
+# red가 됐고, 그 red를 푸는 유일한 처방(`policy:multi-unit`)을 따르면 머지 후처리가
+# 주석의 `#12` — 이 repo에 실재하는 무관한 이슈 — 를 닫는 데까지 이어졌다.
+#
+# 인용(`> …`)은 **지우지 않는다**. GitHub은 인용 안 참조도 링크하므로, 지우면 게이트가
+# GitHub보다 관대해져 진짜 뭉침이 새어 나간다. 판정면은 GitHub보다 넓어도 좁아도 안 된다.
+# 닫는 펜스가 없으면 문서 끝까지 코드블록이다 — CommonMark/GFM 규격이고 `\Z` 대안이
+# 그것을 그대로 옮긴 것이다. 그 뒤의 `Closes #N`은 GitHub도 링크하지 않으므로 세지
+# 않는 것이 맞다. "뒤가 통째로 사라진다"고 여기를 고치면 판정면이 GitHub보다 넓어진다.
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+_FENCED_CODE = re.compile(
+    r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*\1[^\n]*$|\Z)", re.MULTILINE | re.DOTALL
+)
+_INLINE_CODE = re.compile(r"`[^`\n]+`")
 # 정말로 쪼갤 수 없는 원자적 변경의 탈출구(docs/branching.md). 본문에 사유와 함께 단다.
 MULTI_UNIT_MARKER = "policy:multi-unit"
 
@@ -184,11 +211,41 @@ def check_pr_body(body: str, base_ref: str = DEFAULT_BRANCH, head_ref: str = "")
     return []
 
 
-def closing_issues(body: str) -> list[int]:
-    """본문의 GitHub closing 키워드가 닫는 이슈 번호들(중복 제거, 등장 순서)."""
+def strip_noncounting(body: str) -> str:
+    """GitHub이 이슈 참조로 해석하지 **않는** 구간을 지운 본문.
+
+    HTML 주석·펜스 코드블록·인라인 코드. 인용은 지우지 않는다(위 상수 주석 참조).
+    """
+    text = _HTML_COMMENT.sub("", body or "")
+    text = _FENCED_CODE.sub("", text)
+    return _INLINE_CODE.sub("", text)
+
+
+def closing_issues(body: str, repo: str | None = None) -> list[int]:
+    """본문의 GitHub closing 키워드가 **이 repo에서** 닫는 이슈 번호들(중복 제거, 등장 순서).
+
+    ``repo``(``owner/name``)는 한정 참조(``owner/repo#N``·이슈 URL)가 이 repo를
+    가리키는지 판정하는 기준이다. 기본값은 ``GITHUB_REPOSITORY`` 환경변수.
+
+    다른 repo를 가리키는 한정 참조는 **세지 않는다** — 이 repo의 이슈를 닫지 않기
+    때문이다. 세면 유닛 뭉침 오탐(red)과, 머지 후처리가 같은 번호의 *이 repo* 이슈를
+    닫는 오작동이 동시에 난다.
+
+    repo를 알 수 없으면(로컬 훅 등) 한정 참조를 **센다** — fail-closed. 로컬이 CI보다
+    관대해지면 "로컬 통과 → CI red"가 되므로 방향을 반대로 둔다.
+    """
+    known = repo if repo is not None else os.environ.get("GITHUB_REPOSITORY") or None
     seen: dict[int, None] = {}
-    for m in _CLOSING.finditer(body or ""):
-        seen.setdefault(int(m.group(1)), None)
+    for m in _CLOSING.finditer(strip_noncounting(body)):
+        if m.group("num"):
+            seen.setdefault(int(m.group("num")), None)
+            continue
+        if m.group("unum"):
+            owner, name, num = m.group("uowner"), m.group("urepo"), m.group("unum")
+        else:
+            owner, name, num = m.group("qowner"), m.group("qrepo"), m.group("qnum")
+        if known is None or f"{owner}/{name}".lower() == known.lower():
+            seen.setdefault(int(num), None)
     return list(seen)
 
 
