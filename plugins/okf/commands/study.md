@@ -17,6 +17,8 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
    **`code`로 분기한다**(한국어 `reason`·`warning` 매칭 금지 — 사람용 표시일 뿐이고 문구가 바뀌면 조용히 깨진다). 코드 집합은 `okf_remote.REFRESH_REASONS`가 단일원천이고 각 코드에 실행 가능한 복구 지시가 붙어 있다.
    - `ok` → 최신 base다. 계속. `discarded`가 있으면 **원격에 이미 담긴** 잔재를 폐기해 정체를 푼 것이므로(#216 V1) 그 경로 목록을 한 줄로 보인다.
    - `unsealed_residue` → 원격 어디에도 없는 잔재가 ff를 막고 있다. **폐기하지 않았다**(지식 유실 금지). `warning`을 **그대로** 보이고 그 지시대로 처리한 뒤 재시도하도록 안내한다 — `warning`은 배선 여부로 갈린다(배선됨 → 디스패치로 반영 / 미배선 → `/okf-init --vault`로 배선). 여기서 임의로 "디스패치하라"를 덧붙이지 않는다(반영 경로가 없는 vault에는 실행 불가능한 지시다). 강제 stash·머지 금지 — clone을 wedge시킨다(U3-2).
+   - `ff_retry_failed` → 봉인 잔재는 **폐기했는데도** ff가 여전히 막힌 것이다(#298). 위 분기와 사실관계가 반대이므로 안내를 섞지 않는다 — `discarded` 경로 목록을 한 줄로 보이고(원격에 담긴 것이라 회수 가능), 남은 잔재에 대해 `warning`을 그대로 보인 뒤 **캐시로 계속**한다.
+   - `detached` · `no_upstream` → 관리형 clone의 git 상태가 비정상이라 ff 대상을 정할 수 없다. **잔재 회수에 들어가지 않았으므로 아무것도 폐기되지 않았다.** `REFRESH_REASONS`의 복구 지시를 보이고 **캐시로 계속**한다.
    - `diverged` · `fetch_failed` · `offline` · `locked` → `warning`을 보이고 **캐시로 계속**한다 (승격은 진행되나 stale base 위일 수 있으니, 핸들러 PR 단계에서 rebase로 정리).
    - `clone_missing` → 처방이 다르다. 캐시로 계속하지 말고 `/okf-init --vault`로 관리형 clone을 만들도록 안내하고 종료한다 — 승격할 워킹트리 자체가 없다.
    - `not_url` → URL vault가 아니다(로컬 경로 vault·프로젝트 스코프). **무동작으로 그냥 넘어간다.**
