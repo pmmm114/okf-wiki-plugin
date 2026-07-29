@@ -17,6 +17,10 @@
         "hooks": [ { "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",
           "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/study/study_hook.py"] } ] } ],
+    "Stop": [
+      { "hooks": [ { "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/study/study_reflect.py"] } ] } ],
     "FileChanged": [
       { "hooks": [ { "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",
