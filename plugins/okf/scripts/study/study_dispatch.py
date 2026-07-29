@@ -6,7 +6,7 @@
 ``OKF_CONCEPT_TYPE``·``OKF_CONCEPT_TOPIC``·``OKF_CONCEPT_PATH``·``OKF_CONCEPT_LAYER``
 (인식층 값 — 어휘는 LAYERS.md 단일원천, 한국어 정보·지식·지혜는 그 **라벨**이다, #189 U5).
 
-실행 전 게이트는 3축이고 판정은 ``_verdict`` 하나에만 산다 — ``dispatch``(실행)와
+실행 전 게이트는 4축이고 판정은 ``_verdict`` 하나에만 산다 — ``dispatch``(실행)와
 ``dispatchability``(질의)가 **같은 판정**을 쓴다(#266 U1). 두 곳에서 판정하면 한쪽만
 고쳐지는 드리프트가 생기고, 설정 존재 여부 같은 프록시로 답하면 "배선은 됐는데 나가지
 못하는" 구간이 통과로 읽힌다.
@@ -14,7 +14,13 @@
 1. **경로 검사**(``escape``) — ``command``는 repo 트리 안으로 정규화돼야 한다(심링크·
    ``..`` 탈출 거부).
 2. **git 추적**(``untracked``) — 미추적 거부, fail-closed. 스캐폴드 직후가 이 상태다.
-3. **trust 게이트**(``untrusted``) — ``trust_check(name, path)``. 미승인이면 보류.
+3. **실행권한**(``not_executable``) — mode 100644면 거부(#296). 없으면 exec가 OSError로
+   떨어져 판결 축 밖에서만 보였다.
+4. **trust 게이트**(``untrusted``) — ``trust_check(name, path)``. 미승인이면 보류.
+
+게이트를 통과한 뒤의 **실행 실패**도 같은 축으로 말한다(``handler_failed``) — 배선·커밋·
+실행권한·trust가 전부 끝난 정상 상태에서 핸들러가 죽는 것이 가장 흔한 미반영 사유인데,
+그 상태가 판결 밖이면 "왜 안 나갔는가"에 답이 없다.
 
 한 핸들러의 실패·거부가 나머지를 막지 않는다(실패 격리). 이 모듈은 디스패치를
 스스로 트리거하지 않는 **라이브러리**이며, 안전 기본값 없이 실행하지 않도록
@@ -39,13 +45,22 @@ class CommandError(ValueError):
 
 # 디스패치 차단 사유 코드 — 소비처가 분기하는 **기계 축**이다(#266 U1).
 # 자연어 ``reason``은 사람에게 보이는 표시일 뿐 판정 입력이 아니다: 문구를 다듬는 일이
-# 기능 고장이 되지 않게 한다. ``dispatch``의 ``failed[].code``는 프로세스 exit code로
-# 의미가 다르다 — 배열이 달라 문맥으로 구분된다.
+# 기능 고장이 되지 않게 한다.
+#
+# ``failed[].code``도 **같은 축**이다(#296). 예전에는 프로세스 exit code를 그 자리에
+# 담아 "배열이 달라 문맥으로 구분된다"고 두었는데, 그 결과 실행 실패가 판결(``blockers``)
+# 밖으로 빠져 정상 배선 상태에서 핸들러가 죽어도 복구 지시가 하나도 나가지 않았다.
+# 프로세스 종료코드는 ``failed[].exit_code``로 옮겼다.
 CODE_ESCAPE = "escape"
 CODE_UNTRACKED = "untracked"
+CODE_NOT_EXECUTABLE = "not_executable"
 CODE_UNTRUSTED = "untrusted"
 CODE_UNWIRED = "unwired"
+CODE_HANDLER_FAILED = "handler_failed"
 CODE_OK = "ok"
+
+# 핸들러 통지 보존 길이 — 원인을 알아볼 만큼만 남기고 페이로드를 부풀리지 않는다.
+_OUTPUT_TAIL_LINES = 20
 
 # 차단 코드 → **실행 가능한 복구 지시**. 문서 게이트가 이 집합 **전체**를 대조한다(#266 U2).
 #
@@ -57,8 +72,13 @@ BLOCKERS: dict[str, str] = {
     CODE_UNTRACKED: (
         "핸들러 파일이 git 미추적이다 — vault repo에 커밋하라(관리형 clone이면 브랜치→PR)"
     ),
+    CODE_NOT_EXECUTABLE: "핸들러에 실행권한이 없다 — `chmod +x <command>` 후 그 mode를 커밋하라",
     CODE_UNTRUSTED: "이 머신에서 핸들러가 미승인이다 — `/study --trust`로 승인하라",
     CODE_UNWIRED: "원격 반영 경로가 없다 — `/okf-init --vault`로 핸들러를 배선하라",
+    CODE_HANDLER_FAILED: (
+        "핸들러가 비-0으로 끝났다 — `failed[].output`의 통지를 보고 원인을 고친 뒤 "
+        "재디스패치하라(승격분은 로컬 번들에 남아 있다)"
+    ),
 }
 
 
@@ -88,8 +108,8 @@ def is_git_tracked(project: str | Path, path: str | Path) -> bool:
 def _verdict(project: str | Path, handler: dict, trust_check=None) -> dict:
     """핸들러 **하나**의 디스패치 가능성 판정 — ``{name, code, reason, path}``.
 
-    게이트 순서(경로 → git 추적 → trust)와 사유 문자열을 그대로 옮긴다. 사유는 문서·
-    테스트·소비처가 걸고 있는 표면이라 **바이트 그대로** 보존한다.
+    게이트 순서(경로 → git 추적 → 실행권한 → trust)와 사유 문자열을 그대로 옮긴다.
+    기존 세 축의 사유는 문서·테스트·소비처가 걸고 있는 표면이라 **바이트 그대로** 보존한다.
 
     ``trust_check``가 None이면 trust 축을 **평가하지 않는다**. 그때의 ``ok``는 "경로·추적
     2축 기준 준비됨"이지 "실행된다"가 아니다 — trust는 머신별 승인이라 별도 층이고,
@@ -108,6 +128,16 @@ def _verdict(project: str | Path, handler: dict, trust_check=None) -> dict:
             "reason": f"미추적 경로 거부: {command}",
             "path": None,
         }
+    # 실행권한은 **게이트 축**이다(#296). 없으면 exec가 OSError로 떨어져 `failed`에만 남는데,
+    # 그 자리는 판결 축 밖이라 "왜 안 나갔는가"가 사라진다. 추적 다음·trust 앞에 두는 이유:
+    # 파일이 repo 안에 커밋돼 있어야 mode를 말할 수 있고, trust는 머신별 승인이라 더 뒤다.
+    if not os.access(path, os.X_OK):
+        return {
+            "name": name,
+            "code": CODE_NOT_EXECUTABLE,
+            "reason": f"실행권한 없음: {command}",
+            "path": None,
+        }
     if trust_check is not None and not trust_check(name, path):
         return {"name": name, "code": CODE_UNTRUSTED, "reason": "trust 미승인", "path": None}
     return {"name": name, "code": CODE_OK, "reason": "", "path": path}
@@ -124,6 +154,32 @@ def dispatchability(project: str | Path, handlers: list[dict], trust_check=None)
     이 함수의 code 집합을 "전부"로 오해하면 미배선 상태가 판정 밖으로 빠진다.
     """
     return [_verdict(project, handler, trust_check) for handler in handlers]
+
+
+def _output_tail(stdout: str | None, stderr: str | None) -> str:
+    """핸들러 통지의 마지막 몇 줄 — 원인을 알아볼 만큼만 남긴다.
+
+    ``capture_output=True``라 이걸 싣지 않으면 핸들러가 남긴 유일한 통지가 사라진다.
+    참조 핸들러는 ``gh`` 부재를 print 후 exit 0으로 처리하는데, 그런 저하가 무음이 된다.
+    """
+    lines = [ln for stream in (stdout, stderr) for ln in (stream or "").splitlines() if ln.strip()]
+    return "\n".join(lines[-_OUTPUT_TAIL_LINES:])
+
+
+def _failure(name: str, *, reason: str, exit_code: int | None = None, output: str = "") -> dict:
+    """``failed[]`` 항목의 **단일 모양**(#296).
+
+    예전에는 OSError 분기가 ``{name, reason}``, 비0 분기가 ``{name, code}``로 키 집합이
+    갈려 소비처가 둘을 따로 다뤄야 했다. ``code``는 판결 축(``blockers``와 같은 어휘),
+    프로세스 종료코드는 ``exit_code``로 분리한다.
+    """
+    return {
+        "name": name,
+        "code": CODE_HANDLER_FAILED,
+        "reason": reason,
+        "exit_code": exit_code,
+        "output": output,
+    }
 
 
 def _handler_env(item: dict) -> dict:
@@ -202,12 +258,19 @@ def dispatch(
                 cwd=str(Path(project).resolve()),  # 핸들러 cwd = 승격 대상 repo 루트(#153 U2-4)
             )
         except OSError as exc:  # 실행 불가도 격리
-            failed.append({"name": name, "reason": str(exc)})
+            failed.append(_failure(name, reason=str(exc)))
             continue
         if result.returncode == 0:
             ran.append(name)
         else:
-            failed.append({"name": name, "code": result.returncode})
+            failed.append(
+                _failure(
+                    name,
+                    reason=f"핸들러가 비-0으로 끝남: exit {result.returncode}",
+                    exit_code=result.returncode,
+                    output=_output_tail(result.stdout, result.stderr),
+                )
+            )
     outcome = {"ran": ran, "failed": failed, "skipped": skipped}
     reclaimed = _reclaim_sealed_residue(project)
     if reclaimed is not None:

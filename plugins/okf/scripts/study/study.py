@@ -375,12 +375,16 @@ def _verdict_payload(
     ``reflected``는 "차단 없이 전 핸들러가 exit 0"이다 — **push 영수증이 아니다**(#237:
     계약상 0은 성공일 뿐이고 정본 템플릿조차 '변경 0'이면 push 없이 0을 낸다).
     """
+    # 차단 상태는 셋이다: 미배선 · 게이트 반려(`skipped`) · 실행 실패(`failed`).
+    # `failed`가 이 목록 밖에 있던 동안, 배선·커밋·trust가 전부 끝난 정상 상태에서
+    # 핸들러가 죽으면 `reflected: false`인데 `blockers`도 `note`도 비어 복구 지시가
+    # 하나도 나가지 않았다(#296). 세 상태가 같은 축으로 말해져야 한다.
     codes = (
         [{"code": study_dispatch.CODE_UNWIRED, "reason": "핸들러 없음", "name": None}]
         if unwired
         else [
             {"code": s.get("code", ""), "reason": s.get("reason", ""), "name": s.get("name")}
-            for s in skipped
+            for s in [*skipped, *(failed or [])]
         ]
     )
     blockers = [dict(c, recovery=study_dispatch.BLOCKERS.get(c["code"], "")) for c in codes]
