@@ -27,7 +27,10 @@ H1a. **캡처 준비 판정(스크립트 출력 `capture_ready` 기준 — 프�
 H1b. **writable 셋업 스캐폴드 제안(딸깍 저술, 선택)**: 승격을 원격에 **PR로 반영**하려면 vault에 핸들러 배선이 필요하다(주입만 쓸 거면 불필요). writable 준비 상태를 기계 판정한다 — `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study_scaffold_handler.py" status <clone_path(URL)|vault 경로(로컬)>`.
     - `ready: true` **그리고** `dispatchable: true` → 배선·capture·실제 게이트가 모두 통과. 안내 없이 H2로.
     - `ready: true` **인데** `dispatchable: false` → 설정은 끝났지만 **실제로는 나가지 못하는** 상태다(스캐폴드 직후가 여기다 — 핸들러가 아직 미커밋). 스캐폴드를 다시 제안하지 **말고**(멱등이라 무의미하다) `blockers[]`의 `code`별로 안내한다: `untracked` → 핸들러 파일을 vault repo에 커밋(관리형 clone이면 브랜치→PR)하라, `escape` → `command`가 repo 트리 밖을 가리킨다(설정을 고쳐라). 각 항목의 `reason`을 그대로 보인다.
-    - `ready: false` → 사용자에게 "`origin`에 PR을 여는 참조 핸들러(무참조)와 study 배선을 한 번에 깔까요?"를 알리고 **동의를 받아** `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study_scaffold_handler.py" scaffold <clone_path|vault 경로>` 를 실행한다(플러그인이 임의로 파일을 만들지 않는다 — 옵트인). 출력 `done`(수행 항목)· `guidance`(반영·trust 절차)를 **그대로** 전한다.
+    - `ready: false` → 사용자에게 "`origin`에 PR을 여는 참조 핸들러(무참조)와 study 배선을 한 번에 깔까요?"를 알리고 **동의를 받아** `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study_scaffold_handler.py" scaffold <clone_path|vault 경로>` 를 실행한다(플러그인이 임의로 파일을 만들지 않는다 — 옵트인). 결과의 `code`로 분기한다(`study_scaffold.SCAFFOLD_CODES`가 단일원천).
+      - `invalid_vault` → 유효 vault가 아니다. `reason`을 그대로 보이고 **종료한다**(H2로 가지 않는다).
+      - `config_parse_error` → vault의 `.okf-wiki.json`을 읽지 못했다. `reason`을 그대로 보이고 **종료한다** — 핸들러 파일은 만들어지지 않았다(원자성).
+      - `ok` → `done`(수행 항목)· `guidance`(반영·trust 절차)를 **그대로** 전한다.
       - `managed: true`(URL vault) → `guidance`가 **브랜치→PR로 원격 main에 반영**하는 절차다(관리형 clone 직접 커밋은 origin과 diverge하므로). 그대로 안내.
       - `managed: false`(로컬 경로 vault) → `guidance`가 vault repo **커밋** 절차다. 그대로 안내.
       - 동의하지 않으면 주입 전용으로 두고 H2로(강제하지 않는다). 전체 흐름·핸들러 계약은 docs/remote-vault.md.
@@ -36,8 +39,10 @@ H2. **trust 안내**: vault repo에 핸들러가 배선돼 있으면 로컬 승�
 **인자가 없으면 아래를 순서대로 수행하라.**
 
 1. **study 런타임 스캐폴드(가드 게이트 — 반드시 첫 단계)**: 프로젝트 루트에서 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study_scaffold.py"`를 실행한다.
-   - **exit 3(가드 거부, #104)**: cwd가 git repo가 아니다. 스크립트가 출력한 거부 사유·대안(`/okf-init --vault`)을 **그대로** 사용자에게 전하고 **종료한다** — 아래 2단계(번들)도 수행하지 않는다(로컬 산출물 0). 사용자가 사유를 보고도 로컬 스캐폴드를 명시적으로 원할 때만 `--force`로 재실행하고 2단계로 진행.
-   - exit 0: `.okf-study/.gitignore`(`*` + `!.gitignore`) 생성, `.okf-wiki.json`에 `study` 블록(`capture: "off"`, `handlers: []`) 보장(기존 키 보존). 출력에 vault 포인터 공존 고지("로컬 파이프라인이 vault 캡처보다 우선")가 있으면 그대로 전달.
+   출력은 `{ok, code, reason?, done?, notice?}` JSON이다. **`code`로 분기한다**(한국어 문장 매칭 금지 — 사람용 표시일 뿐이다). 코드 집합은 `study_scaffold.SCAFFOLD_CODES`가 단일원천이고 각 코드에 복구 지시(`recovery`)가 붙는다.
+   - `guard_refused`(exit 3, #104): cwd가 git repo가 아니다. `reason`과 대안(`/okf-init --vault`)을 **그대로** 전하고 **종료한다** — 아래 2단계(번들)도 수행하지 않는다(로컬 산출물 0). 사용자가 사유를 보고도 로컬 스캐폴드를 명시적으로 원할 때만 `--force`로 재실행하고 2단계로 진행.
+   - `config_parse_error`(exit 2): `.okf-wiki.json`을 읽지 못했다. `reason`을 그대로 보이고 **종료한다** — **2단계로 진행하지 않는다**(#307). 진행하면 `bundlePath`를 읽을 수 없어 기본값 `.okf`로 떨어져, 사용자가 지정한 위치가 아닌 곳에 번들이 생긴다. 파싱 실패 시 스캐폴드는 **아무것도 만들지 않으므로** 파일을 고치고 재실행하면 된다.
+   - `ok`(exit 0): `.okf-study/.gitignore`(`*` + `!.gitignore`) 생성, `.okf-wiki.json`에 `study` 블록(`capture: "off"`, `handlers: []`) 보장(기존 키 보존). `done`의 수행 항목과 `notice`(vault 포인터 공존 고지 — "로컬 파이프라인이 vault 캡처보다 우선")가 있으면 그대로 전달.
 
 2. **번들 스캐폴드**: `.okf-wiki.json`의 `bundlePath`(없으면 `.okf`)가 가리키는 디렉터리가 없으면 `"${CLAUDE_PLUGIN_ROOT}/bin/okf" init <bundlePath>`를 실행한다. 이미 있으면 건너뛴다(엔진 `init`은 비어있지 않은 디렉터리를 거부한다).
 

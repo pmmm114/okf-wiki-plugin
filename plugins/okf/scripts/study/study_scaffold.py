@@ -75,6 +75,23 @@ def ensure_study_gitignore(project: Path) -> str:
     return f"{STUDY_DIR}/.gitignore: 생성"
 
 
+def read_config(project: Path) -> dict | None:
+    """``.okf-wiki.json`` 파싱 — 부재는 None, 깨짐·비객체는 ValueError(#307).
+
+    쓰기 **전에** 부를 수 있도록 분리했다. 그래야 파싱 실패가 부분 산출물을 남기지 않는다.
+    """
+    config = Path(project) / CONFIG_NAME
+    if not config.exists():
+        return None
+    try:
+        data = json.loads(config.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{CONFIG_NAME} 파싱 실패 — {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"{CONFIG_NAME} 최상위가 객체가 아님")
+    return data
+
+
 def ensure_study_config(project: Path) -> str:
     """``.okf-wiki.json``에 study 블록을 보장하고 수행 상태 문자열을 반환한다."""
     config = project / CONFIG_NAME
@@ -100,9 +117,35 @@ def _write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+# 스캐폴드 결과 코드 (#307) — `okf-init.md`가 분기하는 기계 축. 예전에는 exit 코드와
+# 한국어 문장뿐이라, 문서가 정의한 상태 집합(exit 3·exit 0)이 코드가 내는 집합보다
+# **좁았다** — `exit 2`(설정 파싱 실패)에 지정된 행동이 아예 없었다.
+CODE_OK = "ok"
+CODE_GUARD_REFUSED = "guard_refused"
+CODE_CONFIG_PARSE_ERROR = "config_parse_error"
+CODE_INVALID_VAULT = "invalid_vault"
+
+SCAFFOLD_CODES: dict[str, str] = {
+    CODE_OK: "스캐폴드 완료 — 다음 단계로 진행하라",
+    CODE_GUARD_REFUSED: (
+        "git repo가 아니다 — `/okf-init --vault`를 쓰거나, 로컬 스캐폴드를 원하면 `--force`"
+    ),
+    CODE_CONFIG_PARSE_ERROR: (
+        "`.okf-wiki.json`을 읽지 못했다 — 파일을 고친 뒤 재실행하라(번들 단계로 진행 금지)"
+    ),
+    CODE_INVALID_VAULT: "유효 vault가 아니다 — `/okf-init --vault <경로|URL>`로 먼저 배선하라",
+}
+
+
 def scaffold(project: str | Path) -> list[str]:
-    """프로젝트 루트에 study 런타임을 스캐폴드하고 수행 상태 목록을 반환한다."""
+    """프로젝트 루트에 study 런타임을 스캐폴드하고 수행 상태 목록을 반환한다.
+
+    **설정 파싱을 먼저 검증한다**(#307). 예전에는 `.gitignore`를 만든 뒤 설정 단계에서
+    raise해, 파싱 실패인데도 `.okf-study/`가 남는 **부분 산출물**이 생겼다. 실패가
+    아무것도 남기지 않아야 재실행이 안전하다.
+    """
     project = Path(project)
+    read_config(project)  # 파싱 실패면 여기서 멈춘다 — 아직 아무것도 만들지 않았다
     return [ensure_study_gitignore(project), ensure_study_config(project)]
 
 
@@ -116,19 +159,32 @@ def main(argv: list[str] | None = None) -> int:
     if not args.force:
         reason = guard(args.project)
         if reason:
-            print(reason)
+            _emit(CODE_GUARD_REFUSED, reason=reason)
             return 3
     notice = vault_notice(args.project)
     try:
         lines = scaffold(args.project)
     except ValueError as exc:
-        print(f"오류: {exc}")
+        _emit(CODE_CONFIG_PARSE_ERROR, reason=str(exc))
         return 2
-    for line in lines:
-        print(line)
-    if notice:
-        print(notice)
+    _emit(CODE_OK, done=lines, notice=notice)
     return 0
+
+
+def _emit(code: str, *, reason: str | None = None, done=None, notice: str | None = None) -> None:
+    """결과를 `{ok, code, reason, ...}` 기계 필드로 낸다 — 사람용 문장도 함께 남긴다.
+
+    소비자(`okf-init.md`)는 `code`로 분기하고 `reason`을 그대로 보인다. 사람이 읽는
+    줄을 없애는 것이 아니라, 그 줄을 **판정 축에서 내리는** 것이다.
+    """
+    payload: dict = {"ok": code == CODE_OK, "code": code, "recovery": SCAFFOLD_CODES[code]}
+    if reason is not None:
+        payload["reason"] = reason
+    if done is not None:
+        payload["done"] = done
+    if notice:
+        payload["notice"] = notice
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

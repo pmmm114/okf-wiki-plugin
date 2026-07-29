@@ -103,6 +103,12 @@ def snapshot_materials(bundle: str, paths: list[str]) -> dict:
     return {"materials": materials, "missing": missing}
 
 
+# 제안 자기검증 필드(#307) — `okf-promote.md`가 정의한 계약. 상위 층 제안에 요구하고
+# 개념 파일에 영속시켜, 선별 표의 '새 인식·반증'이 그 자리의 즉흥이 아니라 **남는 기록**이
+# 되게 한다.
+RUBRIC_KEYS = ("new_insight", "falsification")
+
+
 def gate_proposal(
     spec: dict,
     layer_map: dict,
@@ -125,6 +131,22 @@ def gate_proposal(
     target_layer = proposal.get("target_layer")
     if target_layer not in rank:
         reasons.append(f"어휘 위반: target_layer {target_layer!r} (허용: {order})")
+
+    # rubric(자기검증) — 상위 층 제안에만 요구한다(#307). 문서가 계약으로 정의해 놓고
+    # 코드 어디에서도 읽지도 저장하지도 않아, 선별 표의 '새 인식·반증' 열이 **그 자리에서
+    # 지어낸 문장**이 되고 그것이 승인 근거로 쓰였다. 요구하는 것은 **필드의 존재**이지
+    # 내용의 진위가 아니다 — 진위는 사람의 몫이고, 여기서 하는 것은 "빈칸으로 통과하지
+    # 못하게" 하는 것뿐이다(출처·근거 날조 금지 원칙과 충돌하지 않는다).
+    if rank.get(target_layer, 0) >= 1:
+        rubric = proposal.get("rubric")
+        if not isinstance(rubric, dict):
+            reasons.append(
+                f"rubric 없음: {target_layer} 제안은 자기검증이 필요하다 ({RUBRIC_KEYS})"
+            )
+        else:
+            missing = [k for k in RUBRIC_KEYS if not str(rubric.get(k) or "").strip()]
+            if missing:
+                reasons.append(f"rubric 미기재: {missing} — 빈칸으로는 승인 근거가 되지 않는다")
 
     for field in _REQUIRED_TEXT_FIELDS:
         value = proposal.get(field)
@@ -225,7 +247,27 @@ def render_concept(spec: dict, proposal: dict) -> str:
         lines.append(f"resource: {resource}")
     lines.append("---")
     body = proposal["body"].strip("\n")
-    return "\n".join(lines) + "\n\n" + body + "\n"
+    rendered = "\n".join(lines) + "\n\n" + body + "\n"
+    return rendered + _render_rubric(proposal)
+
+
+def _render_rubric(proposal: dict) -> str:
+    """rubric을 본문 **고정 섹션**으로 영속한다 — 없으면 빈 문자열(하위층 등).
+
+    frontmatter가 아니라 본문에 두는 이유: rubric은 판정 축이 아니라 **읽히는 근거**다.
+    엔진의 frontmatter 계약(taxonomy-neutral)을 늘리지 않으면서, 개념을 여는 사람이
+    "무엇이 새 인식이고 무엇이면 반증되는가"를 함께 보게 한다.
+    """
+    rubric = proposal.get("rubric")
+    if not isinstance(rubric, dict):
+        return ""
+    rows = [(key, str(rubric.get(key) or "").strip()) for key in RUBRIC_KEYS]
+    if not any(value for _key, value in rows):
+        return ""
+    labels = {"new_insight": "새 인식", "falsification": "반증 조건"}
+    out = ["", "## 자기검증", ""]
+    out += [f"- **{labels[key]}**: {value}" for key, value in rows if value]
+    return "\n".join(out) + "\n"
 
 
 def _staged(run, stage: str, argv: list[str]) -> str:

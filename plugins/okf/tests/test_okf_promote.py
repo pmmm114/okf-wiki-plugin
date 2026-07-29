@@ -49,6 +49,12 @@ def _proposal(bundle, **over):
         "body": "# 연결\n\n[근거](/info.md) 위의 이해.",
         "derived_from": ["/info.md"],
         "materials": [_material(bundle)],
+        # 상위 층 제안은 자기검증이 필수다(#307) — 문서 계약이 코드에 걸린 뒤로
+        # 픽스처도 계약을 지켜야 한다.
+        "rubric": {
+            "new_insight": "두 사실을 잇는 이해.",
+            "falsification": "근거가 틀리면 무너진다.",
+        },
     }
     base.update(over)
     return base
