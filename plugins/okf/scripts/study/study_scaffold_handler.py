@@ -25,6 +25,7 @@ from pathlib import Path
 
 import okf_vault
 import study_dispatch
+import study_scaffold
 
 DEFAULT_NAME = "kb-pr"
 DEFAULT_COMMAND = "scripts/okf-open-pr.py"
@@ -289,7 +290,12 @@ def scaffold(
     """핸들러 생성 + study 배선을 멱등 수행하고 수행 상태·안내를 반환한다."""
     vault = Path(vault)
     if not okf_vault.valid_vault(vault):
-        return {"ok": False, "reason": "유효 vault 아님(.okf-wiki.json·git 필요)"}
+        return {
+            "ok": False,
+            "code": study_scaffold.CODE_INVALID_VAULT,
+            "reason": "유효 vault 아님(.okf-wiki.json·git 필요)",
+            "recovery": study_scaffold.SCAFFOLD_CODES[study_scaffold.CODE_INVALID_VAULT],
+        }
     # 쓰기 전에 config 파싱을 먼저 검증한다(valid_vault는 존재만 보고 파싱은 안 함) —
     # 깨진 config면 여기서 raise해 핸들러 파일이 orphan으로 남는 걸 막는다(원자성).
     _read_config(vault)
@@ -298,6 +304,7 @@ def scaffold(
     managed = okf_vault.is_managed_clone(vault)
     return {
         "ok": True,
+        "code": study_scaffold.CODE_OK,
         "done": done,
         "managed": managed,
         "command": command,
@@ -324,7 +331,20 @@ def main(argv: list[str] | None = None) -> int:
         try:
             result = scaffold(args.vault, args.name, args.command, args.level)
         except ValueError as exc:
-            print(json.dumps({"ok": False, "reason": str(exc)}, ensure_ascii=False, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "code": study_scaffold.CODE_CONFIG_PARSE_ERROR,
+                        "reason": str(exc),
+                        "recovery": study_scaffold.SCAFFOLD_CODES[
+                            study_scaffold.CODE_CONFIG_PARSE_ERROR
+                        ],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
             return 2
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
