@@ -13,6 +13,8 @@ vault)만으로 정상 동작한다. 이 심은 경계 게이트(#145 U2)의 유
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -129,8 +131,60 @@ def _vault_notes(project: str) -> list[str]:
     return lines
 
 
+_SMOKE_TIMEOUT = 20.0
+
+
+def _smoke_okf() -> tuple[bool, str]:
+    """``bin/okf --help`` 스모크 — (성공 여부, 실패 사유). 성공이면 사유는 빈 문자열.
+
+    호출 자체가 되는지만 본다(엔진 기능은 이 진단의 관심이 아니다).
+    """
+    okf = Path(__file__).resolve().parents[2] / "bin" / "okf"
+    if not okf.is_file():
+        return False, f"셔틀 없음({okf})"
+    try:
+        proc = subprocess.run(
+            [str(okf), "--help"], capture_output=True, timeout=_SMOKE_TIMEOUT, check=False
+        )
+    except OSError as exc:
+        return False, f"실행 불가({exc.__class__.__name__})"
+    except subprocess.TimeoutExpired:
+        return False, f"시간 초과({_SMOKE_TIMEOUT:g}초)"
+    if proc.returncode != 0:
+        tail = proc.stderr.decode("utf-8", "replace").strip().splitlines()
+        return False, f"rc={proc.returncode}" + (f" — {tail[-1]}" if tail else "")
+    return True, ""
+
+
+def _prereq_notes() -> list[str]:
+    """실행 전제 진단 — 훅·커맨드가 딛고 서는 것이 실제로 있는가(#299).
+
+    엔진 호출 실패는 호출부에서 ``None``으로 흡수된다(훅이 세션을 깨지 않기 위해서다).
+    그 결과 uv 부재·venv 손상이 **"설정이 없다"와 똑같이 무출력**으로 보인다 — 여기서
+    직접 확인하지 않으면 사용자에게 남는 진단 경로가 없다.
+    """
+    lines: list[str] = []
+    uv = shutil.which("uv")
+    if uv:
+        lines.append(f"  uv: {uv}")
+    else:
+        lines.append("  uv: ⚠ PATH에 없음 — 엔진 호출(bin/okf)이 조용히 실패한다. uv를 설치하라")
+    ok, why = _smoke_okf()
+    if ok:
+        lines.append("  bin/okf: 실행 확인(--help)")
+    else:
+        lines.append(f"  bin/okf: ⚠ 스모크 실패({why}) — 주입·그래프 조회가 무동작이 된다")
+    python = shutil.which("python3") or shutil.which("python")
+    if python:
+        lines.append(f"  bin/okf-py 대상 인터프리터: {python}")
+    else:
+        lines.append("  bin/okf-py 대상 인터프리터: ⚠ python3를 찾지 못함 — 훅이 spawn되지 않는다")
+    return lines
+
+
 def run(project: str) -> str:
     sections: list[tuple[str, list[str]]] = [("위치", [f"  {project}"])]
+    sections.append(("실행 전제", _prereq_notes()))
     if study_doctor is not None:
         sections.append(("캡처", study_doctor.capture_trace(project)))
     sections.append(("주입", _inject_trace(project)))

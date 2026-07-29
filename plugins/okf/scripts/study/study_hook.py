@@ -24,6 +24,7 @@ from pathlib import Path
 import study_blocks
 import study_inbox
 import study_scope
+from okf_hooks import diagnose as _diagnose
 
 
 def _dig(data, *keys):
@@ -90,6 +91,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         message = run(payload, project)
     except Exception:  # 훅은 어떤 경우에도 세션을 깨지 않는다(fail-fast)
+        # rc는 그대로 0이다 — 바꾸는 것은 **진단의 유무**뿐이다(#299). 무음이면
+        # study.db 손상이 "메모리 파일 아님"·"capture=off"와 같은 신호가 된다.
+        _diagnose("study_hook")
         return 0
     if message:
         print(
