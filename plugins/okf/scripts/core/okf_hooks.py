@@ -239,8 +239,15 @@ def hook_session_start():
 
 
 def hook_post_tool_use():
-    project = _project_dir()
-    cfg = _load_config(project)
+    # 대상 번들은 `resolve_inject`로 푼다(#327) — 프로젝트 설정만 보면 vault 폴백
+    # (#91 V3) 모드에서 vault 번들 파일을 편집해도 역링크 제안이 영원히 없다(세 훅 중
+    # 이 훅만 다른 해소를 쓰던 공백). 경고는 방출하지 않는다 — 무효 포인터 경고의
+    # 방출 지점은 SessionStart 하나다(§3, PostToolUse 계열 무음 유지).
+    resolved = okf_vault.resolve_inject(_project_dir())
+    target = resolved["target"]
+    if target is None:
+        return 0
+    cfg = _load_config(target)
     if cfg is None:
         return 0
     payload = _read_payload()
@@ -249,7 +256,7 @@ def hook_post_tool_use():
     file_path = _payload_str(tool_input.get("file_path")) if isinstance(tool_input, dict) else None
     if not file_path:
         return 0
-    bundle = _bundle_dir(project, cfg)
+    bundle = _bundle_dir(target, cfg)
     # 정규화 없는 문자열 접두사 판정(${file#"$bundle"/} 등가) — 트레일링 슬래시·
     # 상대경로·심링크 불일치는 "무동작"으로 고정(#69 계약)
     prefix = f"{bundle}/"
