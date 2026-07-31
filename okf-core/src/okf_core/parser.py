@@ -1,4 +1,4 @@
-"""단일 파서 — frontmatter·본문·인라인 링크 추출 (T-P2-1).
+"""parser — 파스: .md 하나를 frontmatter·본문·인라인 링크의 ParsedDoc으로 만든다 (T-P2-1).
 
 계약:
 - 입력: 파일 경로(str | pathlib.Path) 또는 bytes
