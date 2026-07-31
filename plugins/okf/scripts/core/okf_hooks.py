@@ -231,6 +231,11 @@ def hook_session_start():
     group_by = context_cfg.get("groupBy")
     if isinstance(group_by, str) and group_by.strip():
         okf_args += ["--group-by", _jq_out(group_by)]
+    # 주입 형태 전환(#336)은 설정 게이트 — JSON 리터럴 true만 켠다(`is True`, #69와
+    # 동형: 타입 불량은 기본값 관용). 윤곽은 개념 수 무관 크기라 예산·그룹 플래그가
+    # 필요 없고, 전환은 소비자가 관찰로 검증한 뒤 택한다(기본은 현행 전량 목록).
+    if context_cfg.get("outline") is True:
+        okf_args = ["context", bundle, "--outline"]
     ctx = _run_okf(okf_args, suppress_stderr=False)
     if ctx is None:
         return 0

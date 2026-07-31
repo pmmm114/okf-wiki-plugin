@@ -837,6 +837,38 @@ def test_format_adjacent_rejects_malformed():
     assert okf_hooks._format_adjacent([{"nope": 1}]) == ""
 
 
+def test_session_start_outline_config_gate(henv):
+    """`context.outline`이 JSON 리터럴 true면 훅이 `--outline`만으로 부른다(#336).
+
+    주입 형태 전환은 설정 게이트로 시작한다 — 기본은 현행 전량 목록(미설정·타입
+    불량은 기존 형태 그대로), 전환은 소비자가 관찰로 검증한 뒤 택한다. 윤곽은
+    개념 수 무관 크기라 예산 플래그가 필요 없다.
+    """
+    (henv.project / ".okf-wiki.json").write_text('{"context": {"outline": true}}')
+    (henv.project / ".okf").mkdir()
+    (henv.project / ".okf" / "a.md").write_text("# doc\n")
+    (henv.stub / "stdout").write_text("<okf-context>\n개념 1\n</okf-context>\n")
+    res = run_hook(henv.scripts, "session-start", project=henv.project, stub=henv.stub)
+    assert res.returncode == 0, res.stderr
+    calls = read_and_reset_calls(henv.stub)
+    assert "--outline" in calls, calls
+    assert "--max-chars" not in calls and "--group-by" not in calls, calls
+    assert sem(res) is not None
+
+
+def test_session_start_outline_type_laxity_keeps_default(henv):
+    """`outline: "yes"`(타입 불량)는 기본값 관용 — 기존 전량 주입 형태 유지(정책표)."""
+    (henv.project / ".okf-wiki.json").write_text('{"context": {"outline": "yes"}}')
+    (henv.project / ".okf").mkdir()
+    (henv.project / ".okf" / "a.md").write_text("# doc\n")
+    (henv.stub / "stdout").write_text("<okf-context>\n</okf-context>\n")
+    res = run_hook(henv.scripts, "session-start", project=henv.project, stub=henv.stub)
+    assert res.returncode == 0, res.stderr
+    calls = read_and_reset_calls(henv.stub)
+    assert "--outline" not in calls, calls
+    assert "--max-chars 8000" in calls, calls
+
+
 # ── 훅 3종의 오류 정책 통일 (#299) ────────────────────────────────────────────
 #
 # 전면 `except`가 무음이면 내부 오류(예: study.db 손상)가 "메모리 파일 아님"·

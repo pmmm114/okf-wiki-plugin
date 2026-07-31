@@ -417,3 +417,55 @@ def test_context_filter_and_group_by_date_axis(tmp_path):
     heads = [ln for ln in grouped.split("\n") if ln.startswith("## ")]
     assert heads == ["## 2026-01-01T00:00:00+00:00", "## 2026-07-19T00:00:00+00:00"]
     assert warnings == []
+
+
+# --- 축 윤곽 주입 (#336) --------------------------------------------------------
+
+
+def test_context_outline_shape(tmp_path):
+    """`--outline`은 전량 목록 대신 저장고의 형상(계수·축 종수·디렉터리)을 낸다(#336).
+
+    전량 주입은 규모가 커지면 예산 절단으로 지식이 조용히 사라진다 — 윤곽은 무엇이
+    있는지(조회 판단 재료)만 담고 세부는 `okf query`에 맡긴다.
+    """
+    bundle = _axis_bundle(tmp_path)
+    from okf_core.context import build_outline
+
+    out = build_outline(bundle)
+    assert out.startswith("<okf-context>\n") and out.endswith("\n</okf-context>")
+    body = out.split("\n")[1:-1]
+    assert any(ln.startswith("개념 4 · ") for ln in body), body  # 계수
+    assert any("layer(3종)" in ln for ln in body), body  # 축과 값 종수
+    assert any(ln.startswith("디렉터리: ") for ln in body), body
+    assert any("okf query" in ln for ln in body), body  # 세부 조회 경로 안내
+
+
+def test_context_outline_size_is_concept_count_independent(tmp_path):
+    """윤곽 크기는 개념 수와 무관하다 — 절단이 원리적으로 발생하지 않는 형태."""
+    big = tmp_path / "big"
+    (big / "d1").mkdir(parents=True)
+    (big / "d2").mkdir()
+    for i in range(150):
+        for d in ("d1", "d2"):
+            (big / d / f"c{i}.md").write_text(
+                f"---\ntype: T\nlayer: wisdom\ndescription: 개념 {i}.\n---\n# {i}\n",
+                encoding="utf-8",
+            )
+    from okf_core.context import build_outline
+
+    out = build_outline(big)
+    assert "개념 300 · " in out
+    assert len(out) < 1000, len(out)  # 300개 전량 목록이면 수만 자 — 윤곽은 수백 자
+    assert len(out) < len(build_context(big, max_chars=10**9)) / 10
+
+
+def test_context_outline_flag_rejects_projection_flags(tmp_path, capsys):
+    """`--outline`은 단독 모드 — `--group-by`·`--filter`와의 조합은 사용 오류 2."""
+    from okf_core.context import main as context_main
+
+    bundle = _axis_bundle(tmp_path)
+    assert context_main([str(bundle), "--outline", "--group-by", "layer"]) == 2
+    assert "오류" in capsys.readouterr().err
+    capsys.readouterr()
+    assert context_main([str(bundle), "--outline"]) == 0
+    assert capsys.readouterr().out.startswith("<okf-context>")
