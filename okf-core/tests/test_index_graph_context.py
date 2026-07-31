@@ -366,3 +366,54 @@ def test_context_group_by_single_value_axis_stays_and_no_warning(tmp_path):
     out = build_context(_axis_bundle(tmp_path), group_by="layer", warnings=warnings)
     assert warnings == []
     assert "## information" in out.split("\n")
+
+
+# --- 스칼라 축 정규화 판정 표 (#330) --------------------------------------------
+
+
+def test_axis_values_scalar_normalization_table(tmp_path):
+    """타입별 판정 표(#330): date·datetime → isoformat(kind date) / int·float →
+    str(kind num, bool 제외) / bool·null·매핑 → 값 0개(other) 유지.
+
+    값 정본은 ``isoformat()`` 그대로다(#330 (a)) — 실물 vault는 전부 쿼우팅 없는
+    datetime이고, ``Z``→``+00:00``은 의미 동일 정규화이며 코드포인트순 정렬이
+    시간순과 일치한다.
+    """
+    from okf_core.context import KIND_DATE, KIND_NUM, KIND_OTHER, axis_values
+
+    (tmp_path / "a.md").write_text(
+        "---\ntype: T\nts: 2026-07-19T00:00:00Z\nd: 2026-07-25\nn: 3\nf: 0.1\n"
+        "b: true\nz: null\nm:\n  k: v\n---\n\n# A\n",
+        encoding="utf-8",
+    )
+    doc = parse(tmp_path / "a.md")
+    assert axis_values(doc, "ts") == (("2026-07-19T00:00:00+00:00",), KIND_DATE)
+    assert axis_values(doc, "d") == (("2026-07-25",), KIND_DATE)
+    assert axis_values(doc, "n") == (("3",), KIND_NUM)
+    assert axis_values(doc, "f") == (("0.1",), KIND_NUM)
+    assert axis_values(doc, "b") == ((), KIND_OTHER)  # 2값 축은 분류 정보가 없다
+    assert axis_values(doc, "z") == ((), KIND_OTHER)  # null 값은 부재와 구분 불가
+    assert axis_values(doc, "m") == ((), KIND_OTHER)  # 매핑은 축 어휘가 아니다
+
+
+def test_context_filter_and_group_by_date_axis(tmp_path):
+    """날짜 축이 `--filter`·`--group-by`에 듣는다(#330) — 값은 isoformat 표기."""
+    bundle = tmp_path / "dated"
+    bundle.mkdir()
+    (bundle / "old.md").write_text(
+        "---\ntype: Note\ndescription: 이전.\nts: 2026-01-01T00:00:00Z\n---\n\n# o\n",
+        encoding="utf-8",
+    )
+    (bundle / "new.md").write_text(
+        "---\ntype: Note\ndescription: 최근.\nts: 2026-07-19T00:00:00Z\n---\n\n# n\n",
+        encoding="utf-8",
+    )
+    out = build_context(bundle, filter_key="ts", filter_value="2026-07-19T00:00:00+00:00")
+    lines = out.split("\n")[1:-1]
+    assert [ln.split(" ")[0] for ln in lines] == ["new.md"]
+    # 날짜 축은 문서당 값 1개(단일값)라 그룹핑이 성립 — 섹션 정렬이 곧 시간순
+    warnings: list[str] = []
+    grouped = build_context(bundle, group_by="ts", warnings=warnings)
+    heads = [ln for ln in grouped.split("\n") if ln.startswith("## ")]
+    assert heads == ["## 2026-01-01T00:00:00+00:00", "## 2026-07-19T00:00:00+00:00"]
+    assert warnings == []

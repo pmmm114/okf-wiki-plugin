@@ -41,9 +41,9 @@
       "field": "timestamp",
       "present": 3,
       "concepts": 3,
-      "values": 0,
+      "values": 1,
       "kinds": {
-        "other": 3
+        "date": 3
       }
     },
     {
