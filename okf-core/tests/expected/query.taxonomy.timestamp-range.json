@@ -1,0 +1,26 @@
+[
+  {
+    "path": "cluster/a.md",
+    "value": "2026-02-01T00:00:00Z"
+  },
+  {
+    "path": "cluster/b.md",
+    "value": "2026-02-01T00:00:00Z"
+  },
+  {
+    "path": "cluster/c.md",
+    "value": "2026-02-01"
+  },
+  {
+    "path": "cluster/d.md",
+    "value": "2026-02-01T00:00:00+00:00"
+  },
+  {
+    "path": "dup/first.md",
+    "value": "2026-03-01T00:00:00Z"
+  },
+  {
+    "path": "dup/second.md",
+    "value": "2026-03-02T00:00:00Z"
+  }
+]

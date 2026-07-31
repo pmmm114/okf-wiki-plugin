@@ -92,3 +92,35 @@ def test_context_group_by_multivalue_degrades_exit0(tmp_path, capsys):
     assert cap.out.startswith("<okf-context>")
     assert not any(ln.startswith("## ") for ln in cap.out.split("\n")), cap.out
     assert "경고" in cap.err and "tags" in cap.err
+
+
+def test_query_subcommand(tmp_path, capsys):
+    (tmp_path / "a.md").write_text("---\ntype: T\nlayer: wisdom\n---\n# a\n", encoding="utf-8")
+    assert main(["query", str(tmp_path), "SELECT path FROM valid ORDER BY path", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == [{"path": "a.md"}]
+
+
+def test_cli_registrations_agree():
+    """docstring·_COMMANDS·_USAGE 3중 등록의 서브커맨드 목록과 "N종" 숫자가 정합한다
+    — 하나를 빼먹어도 통과하던 상태를 봉인한다(#333)."""
+    import re
+
+    import okf_core.cli as cli
+
+    commands = set(cli._COMMANDS)
+    usage = {ln.split()[0] for ln in cli._USAGE.splitlines() if ln.startswith("  ")}
+    doc = set(re.findall(r"^\s+okf ([a-z]+)\s", cli.__doc__ or "", flags=re.M))
+    assert commands == usage == doc, (commands, usage, doc)
+    count = re.search(r"서브커맨드 (\d+)종", cli.__doc__ or "")
+    assert count and int(count.group(1)) == len(commands)
+
+
+def test_query_has_no_truncation_flags(capsys):
+    """엔진은 결과를 절단하지 않는다 — --max-chars류 플래그 부재를 고정(재료 규율).
+    절단이 필요하면 소비자가 SQL LIMIT을 쓴다."""
+    with pytest.raises(SystemExit) as exc:
+        main(["query", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "--max" not in out and "--limit" not in out and "--top" not in out

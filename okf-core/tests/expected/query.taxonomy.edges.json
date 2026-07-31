@@ -1,0 +1,27 @@
+[
+  {
+    "src": "cluster/a.md",
+    "dst": "cluster/b.md",
+    "via": null
+  },
+  {
+    "src": "cluster/b.md",
+    "dst": "cluster/a.md",
+    "via": null
+  },
+  {
+    "src": "cluster/b.md",
+    "dst": "cluster/c.md",
+    "via": null
+  },
+  {
+    "src": "cluster/c.md",
+    "dst": "solo/only.md",
+    "via": null
+  },
+  {
+    "src": "dup/second.md",
+    "dst": "dup/first.md",
+    "via": null
+  }
+]

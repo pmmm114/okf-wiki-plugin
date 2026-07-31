@@ -1,0 +1,26 @@
+[
+  {
+    "path": "cluster/a.md",
+    "value": "Reference"
+  },
+  {
+    "path": "cluster/a.md",
+    "value": "imported"
+  },
+  {
+    "path": "cluster/b.md",
+    "value": "Reference"
+  },
+  {
+    "path": "cluster/b.md",
+    "value": "imported"
+  },
+  {
+    "path": "cluster/c.md",
+    "value": "imported"
+  },
+  {
+    "path": "cluster/d.md",
+    "value": "imported"
+  }
+]
