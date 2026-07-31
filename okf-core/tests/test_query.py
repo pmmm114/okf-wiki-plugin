@@ -190,6 +190,13 @@ def test_sql_error_is_exit_two(tmp_path, capsys):
     assert "오류" in capsys.readouterr().err
 
 
+def test_multiple_statements_are_exit_two(tmp_path, capsys):
+    """다중 스테이트먼트도 사용 오류 2 — sqlite3.Warning은 Error 밖이라 별도 포획(DA 실측)."""
+    _bundle(tmp_path, {"a.md": "---\ntype: T\n---\n# a\n"})
+    assert main([str(tmp_path), "SELECT 1; SELECT 2"]) == 2
+    assert "오류" in capsys.readouterr().err
+
+
 def test_not_a_dir_is_exit_two(tmp_path, capsys):
     assert main([str(tmp_path / "없는곳"), "SELECT 1"]) == 2
     assert "오류" in capsys.readouterr().err

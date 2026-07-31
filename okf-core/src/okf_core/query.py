@@ -220,7 +220,8 @@ def main(argv: list[str] | None = None) -> int:
             cur = conn.execute(sql)
             rows = cur.fetchall()
             columns = [d[0] for d in cur.description] if cur.description else []
-        except sqlite3.Error as exc:
+        except (sqlite3.Error, sqlite3.Warning) as exc:
+            # Warning은 Error의 서브클래스가 아니다 — 다중 스테이트먼트가 여기로 온다
             print(f"오류: SQL 실행 실패: {exc}", file=sys.stderr)
             return 2
     finally:
