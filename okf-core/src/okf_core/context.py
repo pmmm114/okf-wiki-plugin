@@ -12,7 +12,8 @@ frontmatter description, 없으면 본문 첫 표 행·첫 문장에서 추출. 
 필터는 리스트 축을 멤버 일치로 전개한다. 그룹은 값 알파벳순, 미기재는
 ``(unclassified)``로 맨 뒤 — 다중값 축(리스트 혼재 포함)은 묶지 않고 무플래그와
 동일하게 내며 진단은 stderr로 낸다(거부는 훅 경로에서 주입 전무가 되는 순회귀).
-무플래그 출력은 바이트 불변.
+무플래그 출력은 바이트 불변. ``--outline``은 전량 목록 대신 축 윤곽(#336) —
+개념 수 무관 크기라 절단이 없고, 세부는 ``okf query`` 몫이다.
 """
 
 from __future__ import annotations
@@ -183,18 +184,53 @@ def build_context(
     return out + "\n" + _CLOSE
 
 
+def build_outline(root: str | Path) -> str:
+    """축 윤곽 — 전량 목록 대신 저장고의 형상(계수·축 종수·디렉터리)을 낸다(#336).
+
+    전량 주입은 규모가 커지면 예산 절단으로 개념이 조용히 사라진다(개념 수 절단
+    금지를 문자 수 절단이 재현하는 꼴). 윤곽은 개념 수와 무관한 크기라 절단이
+    원리적으로 없다 — 무엇이 있는지(축·주제 영역)만 담고 세부는 ``okf query``에
+    맡긴다. 데이터는 census payload를 그대로 쓴다(이중 계산 금지).
+    """
+    # census가 이 모듈(gist·axis_values)을 import하므로 모듈 레벨이면 순환이다
+    from okf_core.census import build_census  # 순환 참조 회피(런타임 로드)
+
+    payload = build_census(root)
+    b = payload["bundle"]
+    lines = [f"개념 {b['concepts']} · 디렉터리 {b['dirs']} · 링크 {b['links']}"]
+    axes = [f"{row['field']}({row['values']}종)" for row in payload["fields"]]
+    if axes:
+        lines.append("축: " + " · ".join(axes))
+    dirs = [row["path"] for row in payload["dirs"]]
+    if dirs:
+        lines.append("디렉터리: " + " ".join(dirs))
+    lines.append("세부 조회: okf query <번들경로> <SQL|-> — 축 값·링크·본문을 SQL로 판다.")
+    return _OPEN + "\n" + "\n".join(lines) + "\n" + _CLOSE
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="okf context", description="주입용 압축 인덱스")
     ap.add_argument("bundle", help="번들 디렉터리 경로")
     ap.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS, help="출력 상한(문자 수)")
     ap.add_argument("--group-by", metavar="KEY", help="frontmatter 축으로 섹션 그룹핑")
     ap.add_argument("--filter", metavar="KEY=VALUE", help="frontmatter 축 값으로 필터")
+    ap.add_argument("--outline", action="store_true", help="전량 목록 대신 축 윤곽(#336)")
     args = ap.parse_args(argv)
 
     bundle = Path(args.bundle)
     if not bundle.is_dir():
         print(f"오류: 번들 디렉터리가 아님: {bundle}", file=sys.stderr)
         return 2
+
+    if args.outline:
+        if args.group_by or args.filter:
+            print(
+                "오류: --outline은 단독 모드 — --group-by·--filter와 함께 쓸 수 없음",
+                file=sys.stderr,
+            )
+            return 2
+        print(build_outline(bundle))
+        return 0
 
     filter_key = filter_value = None
     if args.filter is not None:
