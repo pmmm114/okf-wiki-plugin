@@ -75,8 +75,10 @@ def axis_values(doc: ParsedDoc, key: str) -> tuple[tuple[str, ...], str | None]:
 
     - str → 값 1개. 문자열 리스트 → 멤버 전개(중복 제거·정렬) — 통째로 "미기재"로
       접히면 채워진 어휘가 관측에서 사라진다
-    - date·datetime → ``isoformat()`` 값 1개. ISO 8601 정본이고 코드포인트순 정렬이
-      시간순과 일치한다. ``str()``은 ``T`` 구분자를 잃는다. 값 정본은 isoformat
+    - date·datetime → ``isoformat()`` 값 1개. ISO 8601 정본이고 **동일 오프셋
+      안에서는** 코드포인트순 정렬이 시간순과 일치한다(오프셋이 섞인 축은 보장
+      없음 — DA 실측 반례: ``+00:00``와 ``+09:00`` 혼재). ``str()``은 ``T``
+      구분자를 잃는다. 값 정본은 isoformat
       그대로(#330 (a)) — ``Z``→``+00:00``은 의미 동일 정규화이고, 원문 표기 보존은
       ParsedDoc이 frontmatter 원문을 따로 들어야 해서 기각됐다
     - int·float → ``str()`` 값 1개(왕복 무손실, bool 제외)

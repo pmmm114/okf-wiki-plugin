@@ -411,7 +411,7 @@ def test_context_filter_and_group_by_date_axis(tmp_path):
     out = build_context(bundle, filter_key="ts", filter_value="2026-07-19T00:00:00+00:00")
     lines = out.split("\n")[1:-1]
     assert [ln.split(" ")[0] for ln in lines] == ["new.md"]
-    # 날짜 축은 문서당 값 1개(단일값)라 그룹핑이 성립 — 섹션 정렬이 곧 시간순
+    # 날짜 축은 문서당 값 1개(단일값)라 그룹핑이 성립 — 동일 오프셋이면 섹션 정렬이 곧 시간순
     warnings: list[str] = []
     grouped = build_context(bundle, group_by="ts", warnings=warnings)
     heads = [ln for ln in grouped.split("\n") if ln.startswith("## ")]
