@@ -1,4 +1,4 @@
-"""index.md 재생성 (T-P2-4, §6 형식).
+"""index — 생성: index.md 파일을 §6 형식으로 다시 쓴다. DB 인덱스가 아니다 (T-P2-4).
 
 디렉터리마다 섹션 헤딩 + ``* [Title](url) - description`` 목록으로 index.md를
 생성한다. 루트 index.md만 ``okf_version`` frontmatter를 유지한다(§11) — 기존

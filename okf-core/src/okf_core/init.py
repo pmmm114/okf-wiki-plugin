@@ -1,4 +1,4 @@
-"""§9 컨포먼트 최소 번들 스캐폴드 (T-B1).
+"""init — 생성: §9 컨포먼트 최소 번들을 스캐폴드한다 (T-B1).
 
 예약 파일 2개를 생성한다 — 루트 index.md는 ``okf_version`` frontmatter(§11)와
 빈 목차, log.md는 Initialization 엔트리(§7). 산출물은 생성 직후

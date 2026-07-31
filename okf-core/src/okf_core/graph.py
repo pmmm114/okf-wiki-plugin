@@ -1,4 +1,4 @@
-"""링크 그래프 (T-P2-4).
+"""graph — 관측: 본문 링크·타입 엣지 그래프를 낸다 (T-P2-4).
 
 - ``build_graph``: nodes(파일·type·resource) + edges(번들 내부 .md 링크, 대상
   존재 시만) — ``--json`` 출력 형식 그대로의 dict. ``edges_from=KEY``를 주면

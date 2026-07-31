@@ -5,14 +5,44 @@ OKF 번들 엔진(`okf-core/`) + Claude Code 플러그인(`plugins/okf/`) + 배�
 
 ## 구조
 
-- `okf-core/src/okf_core/` — 엔진 9모듈. `parser.parse`의 ParsedDoc을
-  `validate`(§9)·`policy`·`index`(§6)·`graph`·`context`가 재사용, `cli`가
-  서브커맨드를 각 모듈 `main`으로 위임. `init`=번들 스캐폴드, `logmd`=log.md.
+- `okf-core/src/okf_core/` — 엔진 12모듈. `parser.parse`의 ParsedDoc을
+  `validate`(§9)·`policy`·`index`(§6)·`graph`·`context`·`census`·`query`가
+  재사용, `cli`가 서브커맨드를 각 모듈 `main`으로 위임. 역할 어휘는 아래
+  "엔진 모듈 역할" 표와 docstring 첫 줄이 정본.
 - `okf-core/vendor/`(업스트림 `spec`·`oracle` 참조검증기) + `okf-core/scripts/`
   (픽스처·오라클차동·vendor동기·라이선스 검사).
 - `plugins/okf/` — `scripts/core/`(엔진 인접: doctor·hooks·layers·remote·vault),
   `scripts/study/`(소비처 확장), `commands/`·`skills/okf/`·`hooks/`·`bin/`.
 - `scripts/`(루트) — 릴리스·버전 툴링 + 게이트 pytest(version_sync·doc_links·security_scan).
+
+## 엔진 모듈 역할
+
+docstring 첫 줄이 `<이름> — <역할>: <한 줄>` 형식으로 이 표와 일치한다.
+
+| 모듈 | 역할 |
+| --- | --- |
+| parser | 파스 — `.md` 하나를 ParsedDoc으로(파일당 1회) |
+| bundle | 우주 — 규칙 세대·개념/예약/미달 3분할·디렉터리 트리 |
+| validate · policy | 판정 — §9 컨포먼스·정책 검사 |
+| index | 생성 — **`index.md` 파일** 재생성(DB 인덱스 아님) |
+| logmd · init | 생성 — log.md 조작·번들 스캐폴드 |
+| context | 주입 — 세션에 넣을 압축 지식 인덱스 |
+| census · graph | 관측 — 번들 형상·링크 엣지. 판정하지 않는다 |
+| query | 재료 — 인메모리 sqlite SQL 질의. 판정하지 않는다 |
+| cli | 위임 — 서브커맨드를 각 모듈 `main`으로 |
+
+엔진 의존성은 pyyaml 하나(`okf-core/pyproject.toml`이 단일원천). `sqlite3`는 파이썬 표준 라이브러리라 dependencies에 들지 않는다.
+
+## 도메인 용어
+
+- **번들**(`.okf/`) — 지식 문서 트리. 단일 원천
+- **개념** — §9를 통과한 `.md` 하나(frontmatter가 파스되고 `type`이 비지 않은 문자열). 예약 파일(`index.md`·`log.md`)은 개념이 아니다
+- **규격 미달** — frontmatter 부재·깨짐·`type` 빈 문서. 개념 우주 밖이며 `bundle.partition`이 failing으로 가른다
+- **축** — frontmatter 키. 엔진은 축 이름·값 어휘를 모른다(taxonomy-neutral)
+- **층**(layer) — 소비처가 정의하는 인식 단계. 엔진 밖 어휘
+- **vault** — 주입이 지식을 끌어오고 승격이 적재되는 저장고(git repo)
+- **inbox** — 아직 지식이 아닌 캡처 후보(study.db, 소모성)
+- **승격** — inbox 후보를 개념으로 만들어 번들에 쓰는 것
 
 ## 명령
 
@@ -31,6 +61,7 @@ OKF 번들 엔진(`okf-core/`) + Claude Code 플러그인(`plugins/okf/`) + 배�
 - `ci.yml` job 이름 **`core` 불변** — 브랜치 룰셋 required check 컨텍스트. 이름이 갈리면 잡이 red가 되는 게 아니라 required check가 매칭되지 않아 **아무것도 막지 않게 된다**. 검사는 새 잡 말고 카테고리 composite action(`.github/actions/<이름>/action.yml`)에 스텝으로 추가하고 `core`에서 `uses:`로 부른다 — **reusable workflow(`uses: ./.github/workflows/x.yml`)는 잡 레벨 호출이라 금지**(잡이 늘고 컨텍스트가 `core / <피호출자>`로 갈림). composite은 스텝 레벨이라 잡이 하나로 남는다(게이트: `test_repo_contract` — 잡이 정확히 하나이고 이름이 `core`, 액션 참조 정합, 액션 파일에 `jobs:` 금지).
 - 이 repo는 **public** — 올라가면 안 되는 것은 **추적되기 전에** 막는다. `.gitignore`는 추적되지 않은 파일에만 듣고 `git add -f` 한 번이면 뚫리므로, 무시 대상이 추적 중인지·키/인증서/환경파일·개발 머신 절대경로(`/Users/…`)·워크플로 최소권한 `permissions:` 선언을 함께 본다(게이트: `security_scan` — CI `보안` 스텝과 lefthook pre-push가 **같은 코드**). 시크릿 **값** 탐지는 gitleaks(CI 전용, 커밋 SHA 핀)에 맡기고 이 게이트는 무네트워크·무의존으로 남긴다 — 값 탐지 룰셋은 전용 도구의 몫이고, 로컬에서 통과한 것이 CI에서도 통과해야 한다. push 시점 방어선(GitHub secret scanning·push protection)은 `repo_settings.py`가 룰셋과 같이 **확인만** 한다.
 - `okf-core/vendor/`는 업스트림 **바이트 그대로** — 수정은 `vendor/patches/`에 패치로(게이트: vendor_sync_check).
+- **판정과 집행의 분리** — 판정(무엇이 지식인가·어느 층인가·어디 둘 것인가)은 사람+모델의 몫이고 스크립트는 집행·원칙 검사만 한다. 판정은 커맨드(`commands/*.md`)가 프롬프트로, 집행은 `okf_promote`가 제안 JSON을 §9 금지로 게이트, 재료는 census·graph·explore signals·query의 관측·자문뿐 — 임계값·순위·제안 없음, 종료코드로 판정하지 않음(게이트: `test_census_wiring`·`test_query_wiring` — **부분** 강제: 배선·미소비만 기계 검사, 임계값 부재는 각 모듈 테스트가 잠금).
 - 판정 상수(예약 파일명·필수/권장 필드·strict 승격 집합) 하드코딩 금지 — 단일원천 `rules/v0_1.json`(게이트: 그렙).
 - 파스는 `parser.parse`로 **파일당 1회**, 소비자는 ParsedDoc 재사용(게이트: 호출 카운터).
 - 불변식 **index 소비집합 == validate §9 통과집합** — index 로직을 바꾸면 validate 판정도 함께(게이트: 불변식).

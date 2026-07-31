@@ -1,4 +1,4 @@
-"""okf CLI (T-P2-5) — 서브커맨드 8종을 각 모듈의 main으로 위임한다.
+"""cli — 위임: 서브커맨드 8종을 각 모듈의 main으로 넘긴다 (T-P2-5).
 
   okf validate <path> [--strict] [--format json]
   okf index    <path> [--write]
