@@ -238,6 +238,63 @@ def hook_session_start():
     return 0
 
 
+def _format_adjacent(rows) -> str:
+    """축·정초 인접 후보 문장 — path별 근거(축=값·via=축) 병기. 형식 불량은 빈 문자열.
+
+    판정·임계값 문구를 만들지 않는다(재료 제공 규율) — 무엇을 이을지는 사람+모델의
+    몫이고 이 문장은 근거 딸린 후보 목록일 뿐이다. 스텁·오류문 등 비정형 응답이
+    제안으로 둔갑하지 않게 형식이 어긋나면 통째로 버린다.
+    """
+    if not isinstance(rows, list) or not rows:
+        return ""
+    by_path: dict = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            return ""
+        path, basis = row.get("path"), row.get("basis")
+        if not isinstance(path, str) or not isinstance(basis, str):
+            return ""
+        by_path.setdefault(path, []).append(basis)
+    items = " ".join(f"{path}({', '.join(bases)})" for path, bases in sorted(by_path.items()))
+    return f"축·정초 인접 후보(근거 병기): {items} — 링크로 이어지지 않은 관계 검토용."
+
+
+# 공유 리스트 축 값(태그류) + 정초 엣지(via=축) 인접 — 축 이름을 하드코딩하지 않는다.
+# 리스트 kind만 값 공유를 보는 이유: type류 단일값 분류 축은 번들 절반이 공유해
+# 재료가 아니라 소음이 된다(#329의 다중값 술어와 같은 kind 기준). 상한은 LIMIT
+# (절단은 소비자 몫 — 엔진은 절단하지 않는다).
+_ADJACENT_SQL = (
+    "SELECT a2.path AS path, a1.axis || '=' || a1.value AS basis "
+    "FROM axis_value a1 JOIN axis_value a2 ON a2.axis = a1.axis "
+    "AND a2.value = a1.value AND a2.path <> a1.path "
+    "WHERE a1.path = '{rel}' AND a1.kind = 'list' "
+    "UNION "
+    "SELECT CASE WHEN src = '{rel}' THEN dst ELSE src END AS path, "
+    "'via=' || via AS basis FROM edge "
+    "WHERE via IS NOT NULL AND (src = '{rel}' OR dst = '{rel}') "
+    "ORDER BY path, basis LIMIT 12"
+)
+
+
+def _axis_adjacent(bundle: str, rel: str) -> str:
+    """`okf query`로 축·정초 인접 후보를 얻는다(#337) — 실패·비JSON은 빈 문자열.
+
+    rel은 작은따옴표 이스케이프로 리터럴에 넣는다(엔진 query는 단문 SQL 계약이라
+    파라미터 바인딩이 없다).
+    """
+    safe = rel.replace("'", "''")
+    out = _run_okf(
+        ["query", bundle, _ADJACENT_SQL.format(rel=safe), "--json"], suppress_stderr=True
+    )
+    if not out:
+        return ""
+    try:
+        rows = json.loads(out)
+    except ValueError:
+        return ""
+    return _format_adjacent(rows)
+
+
 def hook_post_tool_use():
     # 대상 번들은 `resolve_inject`로 푼다(#327) — 프로젝트 설정만 보면 vault 폴백
     # (#91 V3) 모드에서 vault 번들 파일을 편집해도 역링크 제안이 영원히 없다(세 훅 중
@@ -267,18 +324,23 @@ def hook_post_tool_use():
     # 짧은 파일명이 긴 파일명을 삼킨다 — `a.md`가 `banana.md`를 물어, 무관한 개념이
     # "이 파일을 링크한다"며 컨텍스트로 주입된다.
     links = _run_okf(["graph", bundle, "--linked-to-exact", rel], suppress_stderr=True)
-    if not links:
+    # 축·정초 인접(#337) — 링크는 이미 이어진 관계만 담으므로, 공유 리스트 축 값과
+    # 정초 엣지로 이어지지 않은 관계 후보를 근거와 함께 병기한다. 링크 0건이어도
+    # 인접이 있으면 방출한다(링크 없는 개념끼리의 연결 후보가 핵심 이득).
+    adjacent = _axis_adjacent(bundle, rel)
+    if not links and not adjacent:
         return 0
-    joined = links.replace("\n", " ")
-    _emit(
-        "PostToolUse",
-        {
-            "additionalContext": (
-                f"수정한 번들 파일({rel})로 링크하는 개념: {joined} "
-                f"— 관련 개념과 log.md 갱신 필요 여부를 검토하라."
-            )
-        },
-    )
+    if links:
+        joined = links.replace("\n", " ")
+        message = (
+            f"수정한 번들 파일({rel})로 링크하는 개념: {joined} "
+            f"— 관련 개념과 log.md 갱신 필요 여부를 검토하라."
+        )
+    else:
+        message = f"수정한 번들 파일({rel}) — 관련 개념과 log.md 갱신 필요 여부를 검토하라."
+    if adjacent:
+        message = f"{message} {adjacent}"
+    _emit("PostToolUse", {"additionalContext": message})
     return 0
 
 
