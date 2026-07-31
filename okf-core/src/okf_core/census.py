@@ -33,14 +33,11 @@ import unicodedata
 from pathlib import Path
 
 from okf_core.bundle import ParsedBundle, dir_tree, partition, rules_for
-from okf_core.context import gist
+from okf_core.context import KIND_LIST, KIND_OTHER, KIND_STR, axis_values, gist
 from okf_core.graph import resolve_link
 from okf_core.parser import FORM_EXTERNAL, ParsedDoc, walk_bundle
 
 ROOT_DIR = "."  # 번들 루트 디렉터리의 표시 이름(내부 표현은 빈 문자열)
-KIND_STR = "str"
-KIND_LIST = "list"
-KIND_OTHER = "other"
 SOURCE_FRONTMATTER = "frontmatter"
 SOURCE_BODY = "body"
 
@@ -63,27 +60,6 @@ def _dir_name(rel: str) -> str:
 
 def _depth(name: str) -> int:
     return 0 if name == ROOT_DIR else name.count("/") + 1
-
-
-def axis_values(doc: ParsedDoc, key: str) -> tuple[tuple[str, ...], str | None]:
-    """(그 개념이 이 축에 가진 값들, 값 종류|None) — 키 부재는 ``((), None)``.
-
-    값 종류만 보고 어휘는 보지 않는다: 문자열은 값 1개, 문자열 리스트는 멤버 전부
-    (중복 제거·정렬), 그 밖의 타입(숫자·날짜·매핑)은 값 0개다. 리스트를 전개하는
-    이유는 다중값 축(태그류)이 통째로 "미기재"로 접히면 실제로 채워진 어휘가 관측에서
-    사라지기 때문이다.
-    """
-    fm = doc.frontmatter or {}
-    if key not in fm:
-        return (), None
-    raw = fm[key]
-    if isinstance(raw, str):
-        value = raw.strip()
-        return ((value,) if value else ()), KIND_STR
-    if isinstance(raw, list):
-        members = {m.strip() for m in raw if isinstance(m, str) and m.strip()}
-        return tuple(sorted(members)), KIND_LIST
-    return (), KIND_OTHER
 
 
 def _summary(doc: ParsedDoc, rules: dict) -> tuple[str, str]:

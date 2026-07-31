@@ -286,3 +286,83 @@ def test_linked_to_substring_behavior_is_preserved(tmp_path):
     g = build_graph(_substring_trap_bundle(tmp_path))
     loose = linked_to(g, "a.md")
     assert {"ref-a.md", "ref-banana.md"} <= set(loose), loose
+
+
+# --- 축 해석 공유 표면·다중값 축 (#329) -----------------------------------------
+
+
+def _tags_bundle(tmp_path):
+    """다중값 축(tags) 번들 — 리스트·문자열 혼재와 미기재를 함께 둔다."""
+    bundle = tmp_path / "tags"
+    bundle.mkdir()
+    (bundle / "listy.md").write_text(
+        "---\ntype: Note\ndescription: 리스트 태그 개념.\ntags:\n  - python\n  - tdd\n---\n\n# l\n",
+        encoding="utf-8",
+    )
+    (bundle / "stringy.md").write_text(
+        "---\ntype: Note\ndescription: 문자열 태그 개념.\ntags: python\n---\n\n# s\n",
+        encoding="utf-8",
+    )
+    (bundle / "bare.md").write_text(
+        "---\ntype: Note\ndescription: 태그 없는 개념.\n---\n\n# b\n", encoding="utf-8"
+    )
+    return bundle
+
+
+def test_context_filter_expands_list_axis(tmp_path):
+    """`--filter`는 리스트 축을 census와 같은 규칙으로 전개한다 — 멤버 일치면 통과(#329).
+
+    문자열만 인정하던 기존 해석은 리스트 개념을 무음으로 떨궈, 같은 번들 같은 키를
+    census는 채워진 축으로 세고 context는 빈 결과로 답하는 두 벌 상태였다.
+    """
+    out = build_context(_tags_bundle(tmp_path), filter_key="tags", filter_value="python")
+    lines = out.split("\n")[1:-1]
+    assert any(ln.startswith("listy.md ") for ln in lines), lines  # 리스트 멤버 일치
+    assert any(ln.startswith("stringy.md ") for ln in lines), lines  # 문자열 일치(기존 유지)
+    assert not any(ln.startswith("bare.md ") for ln in lines)
+
+
+def test_context_filter_list_axis_non_member_excluded(tmp_path):
+    out = build_context(_tags_bundle(tmp_path), filter_key="tags", filter_value="rust")
+    assert out.split("\n")[1:-1] == []
+
+
+def test_context_group_by_multivalue_axis_degrades_with_warning(tmp_path):
+    """다중값 축 `--group-by`는 그룹핑만 생략하고 무플래그와 바이트 동일하게 낸다(#329).
+
+    거부(비-0 종료)는 철회됐다 — 훅이 엔진 실패를 exit 0으로 흡수하므로 주입 전무가
+    되어, 무의미한 그룹핑을 더 조용한 실패로 바꾸는 순회귀다. 진단은 warnings 몫이다.
+    """
+    bundle = _tags_bundle(tmp_path)
+    warnings: list[str] = []
+    out = build_context(bundle, group_by="tags", warnings=warnings)
+    assert out == build_context(bundle)
+    assert len(warnings) == 1 and "tags" in warnings[0], warnings
+    assert "--filter" in warnings[0]  # 좁히기 안내가 함께 간다
+
+
+def test_context_group_by_mixed_axis_is_multivalue(tmp_path):
+    """문자열·리스트 혼재 축도 다중값으로 판정한다(#329) — 문자열 개념만 통과시키고
+    리스트 개념을 조용히 떨구는 것이 이 버그의 본질이라, 혼재를 단일값 취급하면 같은
+    병이 그룹핑에 남는다."""
+    bundle = tmp_path / "mixed"
+    bundle.mkdir()
+    (bundle / "one.md").write_text(
+        "---\ntype: Note\ndescription: 문자열 값.\naxis: alpha\n---\n\n# one\n", encoding="utf-8"
+    )
+    (bundle / "two.md").write_text(
+        "---\ntype: Note\ndescription: 리스트 값.\naxis:\n  - alpha\n  - beta\n---\n\n# two\n",
+        encoding="utf-8",
+    )
+    warnings: list[str] = []
+    out = build_context(bundle, group_by="axis", warnings=warnings)
+    assert out == build_context(bundle)
+    assert warnings
+
+
+def test_context_group_by_single_value_axis_stays_and_no_warning(tmp_path):
+    """단일값 축 그룹핑은 무변경·무경고 — 기존 소비자(훅 `--group-by layer`) 경로 보존."""
+    warnings: list[str] = []
+    out = build_context(_axis_bundle(tmp_path), group_by="layer", warnings=warnings)
+    assert warnings == []
+    assert "## information" in out.split("\n")

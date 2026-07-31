@@ -7,8 +7,12 @@ frontmatter description, 없으면 본문 첫 표 행·첫 문장에서 추출. 
 재도입 금지 — 폐기 확정 안티패턴.
 
 축 투영(``--group-by KEY``)·필터(``--filter KEY=VALUE``)는 **임의 frontmatter 키**를
-받는다 — 엔진은 특정 축 이름·값 어휘를 모른다(taxonomy-neutral). 그룹은 값 알파벳순,
-미기재는 ``(unclassified)``로 맨 뒤. 무플래그 출력은 바이트 불변.
+받는다 — 엔진은 특정 축 이름·값 어휘를 모른다(taxonomy-neutral). 축 해석은
+``axis_values`` **공유 표면 하나**다(census와 동일 규칙 — 해석 사본 금지, #329).
+필터는 리스트 축을 멤버 일치로 전개한다. 그룹은 값 알파벳순, 미기재는
+``(unclassified)``로 맨 뒤 — 다중값 축(리스트 혼재 포함)은 묶지 않고 무플래그와
+동일하게 내며 진단은 stderr로 낸다(거부는 훅 경로에서 주입 전무가 되는 순회귀).
+무플래그 출력은 바이트 불변.
 """
 
 from __future__ import annotations
@@ -55,12 +59,31 @@ def gist(doc: ParsedDoc) -> str:
 
 _UNCLASSIFIED = "(unclassified)"
 
+KIND_STR = "str"
+KIND_LIST = "list"
+KIND_OTHER = "other"
 
-def _axis_value(doc: ParsedDoc, key: str) -> str | None:
-    """frontmatter[key]의 정규화 문자열 값(비문자열·빈 값·부재는 None)."""
+
+def axis_values(doc: ParsedDoc, key: str) -> tuple[tuple[str, ...], str | None]:
+    """(그 개념이 이 축에 가진 값들, 값 종류|None) — 키 부재는 ``((), None)``.
+
+    축 해석의 **공유 표면** — census(관측)·context(필터·그룹)가 이 규칙 하나를
+    쓴다(#329, 불변식 게이트). 값 종류만 보고 어휘는 보지 않는다: 문자열은 값 1개,
+    문자열 리스트는 멤버 전부(중복 제거·정렬), 그 밖의 타입(숫자·날짜·매핑)은 값
+    0개다. 리스트를 전개하는 이유는 다중값 축(태그류)이 통째로 "미기재"로 접히면
+    실제로 채워진 어휘가 관측에서 사라지기 때문이다.
+    """
     fm = doc.frontmatter or {}
-    val = fm.get(key)
-    return val.strip() if isinstance(val, str) and val.strip() else None
+    if key not in fm:
+        return (), None
+    raw = fm[key]
+    if isinstance(raw, str):
+        value = raw.strip()
+        return ((value,) if value else ()), KIND_STR
+    if isinstance(raw, list):
+        members = {m.strip() for m in raw if isinstance(m, str) and m.strip()}
+        return tuple(sorted(members)), KIND_LIST
+    return (), KIND_OTHER
 
 
 def build_context(
@@ -70,18 +93,35 @@ def build_context(
     filter_key: str | None = None,
     filter_value: str | None = None,
     group_by: str | None = None,
+    warnings: list[str] | None = None,
 ) -> str:
     """max_chars를 넘지 않는 래핑된 압축 인덱스 문자열을 만든다.
 
-    filter_key/value가 주어지면 그 frontmatter 축 값이 일치하는 개념만 담고,
-    group_by가 주어지면 축 값별 ``## <값>`` 섹션으로 묶는다(값 알파벳순, 미기재는
-    맨 뒤 ``## (unclassified)``). 축 키·값은 엔진이 해석하지 않는 임의 frontmatter다.
+    filter_key/value(쌍)가 주어지면 그 frontmatter 축 값이 일치하는 개념만 담는다 —
+    리스트 축은 멤버 일치로 전개한다(공유 표면 ``axis_values``). group_by가 주어지면
+    축 값별 ``## <값>`` 섹션으로 묶는다(값 알파벳순, 미기재는 맨 뒤
+    ``## (unclassified)``). 번들에서 하나라도 리스트인 축(다중값)은 묶지 않고
+    무플래그와 동일하게 내며 진단을 ``warnings``에 남긴다 — 다중값 판정은 필터로
+    좁힌 부분집합이 아니라 번들 전체의 성질이다. 축 키·값은 엔진이 해석하지 않는
+    임의 frontmatter다.
     """
     entries: list[tuple[str | None, str]] = []  # (group_value|None, line)
+    group_kinds: set[str] = set()
+    group_present = 0
+    group_distinct: set[str] = set()
     for rel, doc in walk_bundle(root):
         if posixpath.basename(rel) in RESERVED:
             continue
-        if filter_key is not None and _axis_value(doc, filter_key) != filter_value:
+        group = None
+        if group_by:
+            values, kind = axis_values(doc, group_by)
+            if kind is not None:
+                group_kinds.add(kind)
+                if values:
+                    group_present += 1
+                group_distinct.update(values)
+            group = values[0] if values else None
+        if filter_key is not None and filter_value not in axis_values(doc, filter_key)[0]:
             continue
         fm = doc.frontmatter or {}
         type_val = fm.get("type")
@@ -89,9 +129,19 @@ def build_context(
         summary = gist(doc)
         head = f"{rel} [{type_str}]"
         line = f"{head} — {summary}" if summary else head
-        entries.append((_axis_value(doc, group_by) if group_by else None, line))
+        entries.append((group, line))
 
-    if group_by:
+    grouping = bool(group_by)
+    if grouping and KIND_LIST in group_kinds:
+        grouping = False  # 그룹핑만 포기 — 주입(무플래그 동일 출력)은 유지한다
+        if warnings is not None:
+            warnings.append(
+                f"경고: 축 `{group_by}`는 다중값(리스트)이라 --group-by로 묶을 수 없어 "
+                f"그룹핑을 생략했다 (기재 {group_present}에 값 {len(group_distinct)} — "
+                f"개념 하나가 여러 값을 가짐). 값으로 좁히려면: --filter {group_by}=<값>"
+            )
+
+    if grouping:
         groups: dict[str | None, list[str]] = {}
         for group, line in entries:
             groups.setdefault(group, []).append(line)
@@ -133,15 +183,18 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         filter_key, filter_value = args.filter.split("=", 1)
 
-    print(
-        build_context(
-            bundle,
-            max_chars=args.max_chars,
-            filter_key=filter_key,
-            filter_value=filter_value,
-            group_by=args.group_by,
-        )
+    warns: list[str] = []
+    text = build_context(
+        bundle,
+        max_chars=args.max_chars,
+        filter_key=filter_key,
+        filter_value=filter_value,
+        group_by=args.group_by,
+        warnings=warns,
     )
+    for warn in warns:
+        print(warn, file=sys.stderr)  # stdout은 주입 산출물 — 진단이 섞이면 오염(#300과 동일 원리)
+    print(text)
     return 0
 
 

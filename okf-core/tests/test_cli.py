@@ -74,3 +74,21 @@ def test_help_exists(capsys):
 
 def test_unknown_subcommand(capsys):
     assert main(["nope"]) == 2
+
+
+def test_context_group_by_multivalue_degrades_exit0(tmp_path, capsys):
+    """다중값 축 `--group-by`: exit 0 + stdout은 무섹션 본문, 경고는 stderr(#329).
+
+    훅이 stdout을 그대로 컨텍스트에 주입하고 엔진 실패를 exit 0으로 흡수하므로,
+    경고가 stdout에 섞여도 비-0 종료여도 주입이 오염되거나 전무가 된다.
+    """
+    bundle = tmp_path / "b"
+    bundle.mkdir()
+    (bundle / "a.md").write_text(
+        "---\ntype: Note\ndescription: d.\ntags:\n  - x\n  - y\n---\n\n# a\n", encoding="utf-8"
+    )
+    assert main(["context", str(bundle), "--group-by", "tags"]) == 0
+    cap = capsys.readouterr()
+    assert cap.out.startswith("<okf-context>")
+    assert not any(ln.startswith("## ") for ln in cap.out.split("\n")), cap.out
+    assert "경고" in cap.err and "tags" in cap.err
