@@ -869,6 +869,79 @@ def test_file_changed_uses_vault_fallback_bundle(henv, tmp_path, monkeypatch):
     assert sem(res) is not None, "vault 폴백에서 무음이면 기능이 사라진 것이다"
 
 
+def test_post_tool_use_uses_vault_fallback_bundle(henv, tmp_path):
+    """vault 폴백(#91 V3) 사용자에게도 역링크 제안이 산다(#327).
+
+    세 훅 중 post-tool-use만 프로젝트 설정으로 대상을 풀어, 설정이 없는 것이 정상인
+    폴백 모드에서 vault 번들 파일을 편집해도 영원히 무동작이었다 — 사용자가 보는
+    것은 "링크하는 개념이 없다"와 구분되지 않는 무음이다.
+    """
+    vault = tmp_path / "vault"
+    (vault / ".okf").mkdir(parents=True)
+    (vault / ".okf" / "a.md").write_text("# doc\n", encoding="utf-8")
+    (vault / ".okf-wiki.json").write_text("{}", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(vault)], check=True)
+    assert not (henv.project / ".okf-wiki.json").exists()  # 폴백 성립 조건 그대로
+
+    (henv.stub / "stdout").write_text("b.md\n")  # 역링크 1건 응답
+    payload = json.dumps({"tool_input": {"file_path": str(vault / ".okf" / "a.md")}}).encode()
+    res = run_hook(
+        henv.scripts,
+        "post-tool-use",
+        project=henv.project,
+        stdin=payload,
+        stub=henv.stub,
+        env_override={"OKF_VAULT_PROJECT": str(vault)},
+    )
+    assert res.returncode == 0, res.stderr
+    assert sem(res) is not None, "vault 폴백에서 무음이면 기능이 사라진 것이다"
+    text = res.stdout.decode("utf-8")
+    assert PTU_MSG.format(rel="a.md", links="b.md") in text
+    assert f"graph {vault / '.okf'} --linked-to-exact a.md" in read_and_reset_calls(henv.stub)
+
+
+def test_post_tool_use_emits_no_warning_on_invalid_pointer(henv, tmp_path):
+    """무효 포인터에서도 PostToolUse는 무음 — 경고 방출 지점은 SessionStart 하나(§3).
+
+    스코프 해소를 통일하면서 resolve_inject의 warning이 딸려 나오면 안 된다(#327
+    회귀 방지 게이트 — 바꾸는 것은 대상 해소이지 경고 정책이 아니다).
+    """
+    assert not (henv.project / ".okf-wiki.json").exists()
+    payload = json.dumps(
+        {"tool_input": {"file_path": str(tmp_path / "x" / ".okf" / "a.md")}}
+    ).encode()
+    res = run_hook(
+        henv.scripts,
+        "post-tool-use",
+        project=henv.project,
+        stdin=payload,
+        stub=henv.stub,
+        env_override={"OKF_VAULT_PROJECT": str(tmp_path / "no-such-vault")},
+    )
+    assert res.returncode == 0, res.stderr
+    assert sem(res) is None  # 경고도 제안도 없다
+
+
+def test_all_hooks_resolve_scope_via_resolve_inject():
+    """세 훅이 같은 해소(resolve_inject)를 거친다 — 한 곳만 고쳐지는 드리프트 방지(#327)."""
+    import ast
+
+    tree = ast.parse((PLUGIN / "scripts" / "core" / "okf_hooks.py").read_text(encoding="utf-8"))
+    remaining = {"hook_session_start", "hook_post_tool_use", "hook_file_changed"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name in remaining:
+            calls = {
+                f"{sub.func.value.id}.{sub.func.attr}"
+                for sub in ast.walk(node)
+                if isinstance(sub, ast.Call)
+                and isinstance(sub.func, ast.Attribute)
+                and isinstance(sub.func.value, ast.Name)
+            }
+            assert "okf_vault.resolve_inject" in calls, f"{node.name}가 resolve_inject를 안 탄다"
+            remaining.discard(node.name)
+    assert not remaining, f"훅 미발견: {remaining}"
+
+
 def test_post_tool_use_ignores_engine_output_when_exit_nonzero(henv):
     """엔진이 **stdout을 내면서 비-0으로 끝나면** 그 출력을 쓰지 않는다.
 
