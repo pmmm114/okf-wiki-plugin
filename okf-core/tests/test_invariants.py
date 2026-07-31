@@ -4,6 +4,7 @@
     판정한 비예약 파일 집합
 (2) okf-core는 Claude를 모른다 — src/okf_core/ 전체에 CLAUDE_ 환경변수·claude
     참조 없음(의존 방향 보증)
+(3) 축 해석은 공유 표면 하나 — census가 context의 ``axis_values``를 그대로 쓴다(#329)
 """
 
 import posixpath
@@ -65,3 +66,12 @@ def test_invariant_okf_core_knows_no_claude():
         text = path.read_text(encoding="utf-8")
         assert "CLAUDE_" not in text, path
         assert "claude" not in text.lower(), path
+
+
+def test_invariant_axis_interpretation_single_surface():
+    """(3) 축 해석 단일 표면 — 같은 번들 같은 키에 두 명령이 다른 답을 내던 원인이
+    해석 사본 두 벌(census.axis_values / context._axis_value)이었다(#329). 동일 객체
+    강제는 "같은 규칙"을 구현 유사성이 아니라 정체성으로 잠근다."""
+    from okf_core import census, context
+
+    assert census.axis_values is context.axis_values
