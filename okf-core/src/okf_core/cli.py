@@ -1,10 +1,11 @@
-"""okf CLI (T-P2-5) — 서브커맨드 7종을 각 모듈의 main으로 위임한다.
+"""okf CLI (T-P2-5) — 서브커맨드 8종을 각 모듈의 main으로 위임한다.
 
   okf validate <path> [--strict] [--format json]
   okf index    <path> [--write]
   okf graph    <path> --json [--linked-to P] [--edges-from KEY] [--chain C]
   okf context  <path> [--max-chars N] [--group-by KEY] [--filter KEY=VALUE]
   okf census   <path> [--axis KEY]... [--json] [--template PATH]
+  okf query    <path> <SQL|-> [--json]
   okf log      append <path> -m MSG
   okf init     <dir>
 
@@ -16,7 +17,7 @@ from __future__ import annotations
 
 import sys
 
-from okf_core import census, context, graph, index, init, logmd, validate
+from okf_core import census, context, graph, index, init, logmd, query, validate
 
 _COMMANDS = {
     "validate": validate.main,
@@ -24,6 +25,7 @@ _COMMANDS = {
     "graph": graph.main,
     "context": context.main,
     "census": census.main,
+    "query": query.main,
     "log": logmd.main,
     "init": init.main,
 }
@@ -36,6 +38,7 @@ _USAGE = """\
   graph    <path> --json [--linked-to P] [--edges-from KEY] [--chain C]  링크·역링크·사슬
   context  <path> [--max-chars N] [--group-by KEY] [--filter KEY=VALUE]  주입용 압축 인덱스
   census   <path> [--axis KEY]... [--json]    배치·분류 판정용 인구조사(관측 전용)
+  query    <path> <SQL|->  [--json]           지식 SQL 질의(재료 제공 전용)
   log      append <path> -m MSG               log.md 항목 추가(§7)
   init     <dir>                              §9 컨포먼트 최소 번들 스캐폴드
 

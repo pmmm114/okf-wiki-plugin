@@ -45,6 +45,15 @@ def test_census_parses_each_file_once(monkeypatch):
     assert calls["n"] == len(list(APPENDIX_A.rglob("*.md"))) == 6
 
 
+def test_query_parses_each_file_once(monkeypatch):
+    """질의 계층도 같은 규율 — 인메모리 DB를 한 번의 walk_bundle 위에서 짓는다(#333)."""
+    from okf_core.query import build_db
+
+    calls = _counting_parse(monkeypatch)
+    build_db(APPENDIX_A).close()
+    assert calls["n"] == len(list(APPENDIX_A.rglob("*.md"))) == 6
+
+
 def test_policy_emits_recommended_field_warn(tmp_path):
     (tmp_path / "a.md").write_text("---\ntype: concept\n---\n# A\n", encoding="utf-8")
     rules, _ = load_rules()

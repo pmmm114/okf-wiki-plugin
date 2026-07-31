@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "okf-core" / "src"))
 
 from okf_core.census import build_census  # noqa: E402
+from okf_core.query import build_db  # noqa: E402
 from okf_core.validate import validate_bundle  # noqa: E402
 
 FIXTURES = ROOT / "okf-core" / "tests" / "fixtures"
@@ -34,6 +35,18 @@ def _census_case(bundle: str) -> dict:
     return build_census(FIXTURES / bundle)
 
 
+def _query_case(bundle: str, sql: str) -> list[dict]:
+    """`okf query --json`과 동일한 행 객체 배열 — **질의**의 계약. SQL은 전부
+    ORDER BY 명시(게이트: test_query.py의 그렙 — 인덱스 유무로 순서가 반전된다)."""
+    conn = build_db(FIXTURES / bundle)
+    try:
+        cur = conn.execute(sql)
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
 # (스냅샷 이름, 산출 함수, 인자) — 기존 4건의 이름·내용은 불변이어야 한다.
 CASES = [
     ("appendix-a", _validate_case, {"bundle": "appendix-a"}),
@@ -42,6 +55,49 @@ CASES = [
     ("strict-warns.strict", _validate_case, {"bundle": "strict-warns", "strict": True}),
     ("census.taxonomy", _census_case, {"bundle": "taxonomy"}),
     ("census.appendix-a", _census_case, {"bundle": "appendix-a"}),
+    (
+        "query.taxonomy.type-counts",
+        _query_case,
+        {
+            "bundle": "taxonomy",
+            "sql": "SELECT type, count(*) AS n FROM valid GROUP BY type ORDER BY type",
+        },
+    ),
+    (
+        "query.taxonomy.tags-rows",
+        _query_case,
+        {
+            "bundle": "taxonomy",
+            "sql": "SELECT path, value FROM axis_value WHERE axis='tags' ORDER BY path, value",
+        },
+    ),
+    (
+        "query.taxonomy.timestamp-range",
+        _query_case,
+        {
+            "bundle": "taxonomy",
+            "sql": "SELECT path, value FROM axis_value WHERE axis='timestamp'"
+            " AND value >= '2026-02-01' ORDER BY path, value",
+        },
+    ),
+    (
+        "query.taxonomy.wide-timestamp",
+        _query_case,
+        {"bundle": "taxonomy", "sql": "SELECT path, timestamp FROM wide ORDER BY path"},
+    ),
+    (
+        "query.taxonomy.edges",
+        _query_case,
+        {
+            "bundle": "taxonomy",
+            "sql": "SELECT src, dst, via FROM edge ORDER BY src, dst, COALESCE(via, '')",
+        },
+    ),
+    (
+        "query.violations.conforms",
+        _query_case,
+        {"bundle": "violations", "sql": "SELECT path, conforms FROM concept ORDER BY path"},
+    ),
 ]
 
 

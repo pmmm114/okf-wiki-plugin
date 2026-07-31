@@ -1,0 +1,34 @@
+[
+  {
+    "path": "cluster/a.md",
+    "timestamp": "2026-02-01T00:00:00Z"
+  },
+  {
+    "path": "cluster/b.md",
+    "timestamp": "2026-02-01T00:00:00Z"
+  },
+  {
+    "path": "cluster/c.md",
+    "timestamp": "2026-02-01"
+  },
+  {
+    "path": "cluster/d.md",
+    "timestamp": "2026-02-01T00:00:00+00:00"
+  },
+  {
+    "path": "deep/nested/leaf/one.md",
+    "timestamp": "2026-01-02T00:00:00Z"
+  },
+  {
+    "path": "dup/first.md",
+    "timestamp": "2026-03-01T00:00:00Z"
+  },
+  {
+    "path": "dup/second.md",
+    "timestamp": "2026-03-02T00:00:00Z"
+  },
+  {
+    "path": "solo/only.md",
+    "timestamp": "2026-01-01T00:00:00Z"
+  }
+]

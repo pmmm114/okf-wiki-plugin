@@ -43,7 +43,7 @@
 
 ### 어떤 변화가 어느 자리를 올리는가 (0.x 관례)
 
-소비자와의 계약 표면은 다음과 같습니다. §9 컨포먼스 규칙(`rules/v0_1.json`), `okf` CLI의 서브커맨드와 플래그, 종료코드, `actions/validate`의 입력, `.okf-wiki.json` 스키마, 그리고 `index`와 `context`의 출력 형식입니다.
+소비자와의 계약 표면은 다음과 같습니다. §9 컨포먼스 규칙(`rules/v0_1.json`), `okf` CLI의 서브커맨드와 플래그, 종료코드, `actions/validate`의 입력, `.okf-wiki.json` 스키마, `index`와 `context`의 출력 형식, 그리고 `query --json`의 출력 구조입니다(행 객체 배열 — 내용은 질의가 정하므로 구조만 계약).
 
 번호는 랜딩된 스쿼시 커밋의 타입에서 도출하며 미리 결정하지 않습니다. 컷을 낼 때 `scripts/next_version.py`가 직전 태그 이후의 로그를 읽어 아래 매핑으로 다음 번호를 제안합니다.
 
