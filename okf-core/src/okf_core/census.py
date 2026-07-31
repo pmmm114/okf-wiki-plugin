@@ -33,7 +33,15 @@ import unicodedata
 from pathlib import Path
 
 from okf_core.bundle import ParsedBundle, dir_tree, partition, rules_for
-from okf_core.context import KIND_LIST, KIND_OTHER, KIND_STR, axis_values, gist
+from okf_core.context import (
+    KIND_DATE,
+    KIND_LIST,
+    KIND_NUM,
+    KIND_OTHER,
+    KIND_STR,
+    axis_values,
+    gist,
+)
 from okf_core.graph import resolve_link
 from okf_core.parser import FORM_EXTERNAL, ParsedDoc, walk_bundle
 
@@ -43,7 +51,13 @@ SOURCE_BODY = "body"
 
 # 렌더 전용 표시 어휘. payload의 기계 어휘(``str``·``list``)를 그대로 화면에 내면
 # 읽는 쪽이 엔진 내부 표현을 알아야 하므로, 표시 계층에서만 옮긴다.
-KIND_LABELS = {KIND_STR: "문자열", KIND_LIST: "목록", KIND_OTHER: "기타"}
+KIND_LABELS = {
+    KIND_STR: "문자열",
+    KIND_LIST: "목록",
+    KIND_DATE: "날짜",
+    KIND_NUM: "숫자",
+    KIND_OTHER: "기타",
+}
 INDENT = "  "
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"

@@ -128,8 +128,12 @@ def test_list_axis_expands_to_members(tmp_path):
 
 
 def test_non_string_axis_is_counted_apart_from_missing(tmp_path):
-    """키는 있는데 문자열 축이 아닌 경우를 미기재와 구분한다."""
-    (tmp_path / "a.md").write_text("---\ntype: T\nts: 2026-07-25\n---\n# A\n", encoding="utf-8")
+    """키는 있는데 값을 못 내는 타입(bool 등)을 미기재와 구분한다.
+
+    #330 이전엔 날짜(date)가 이 사례였으나 이제 값을 내므로, 판정 표가 값 0개로
+    유지하는 타입(bool)로 의도를 보존한다.
+    """
+    (tmp_path / "a.md").write_text("---\ntype: T\nts: true\n---\n# A\n", encoding="utf-8")
     (tmp_path / "b.md").write_text("---\ntype: T\n---\n# B\n", encoding="utf-8")
     axis = _axis(build_census(tmp_path, axes=["ts"]), "ts")
     assert (axis["present"], axis["valueless"], axis["missing"]) == (0, 1, 1)
@@ -315,3 +319,26 @@ def test_census_matches_index_consumption():
     generated = generate_indexes(APPENDIX_A)
     assert generated  # 색인이 실제로 생성됐다
     assert len(listed) == payload["bundle"]["concepts"]
+
+
+def test_date_axis_yields_value_distribution(tmp_path):
+    """날짜 축(#330): 쿼우팅 없는 datetime이 isoformat 값으로 분포·kinds에 잡힌다.
+
+    표기 분열(쿼우팅 str vs datetime)은 관측이 그대로 비춘다 — 번들이 표기를 통일하지
+    않았다는 사실이지 엔진이 통일할 대상이 아니다(#330 (a) 분열 수용, ``Z`` 되돌림은
+    taxonomy-neutral 위반이라 기각).
+    """
+    (tmp_path / "a.md").write_text(
+        "---\ntype: T\nts: 2026-07-19T00:00:00Z\n---\n# A\n", encoding="utf-8"
+    )
+    (tmp_path / "b.md").write_text(
+        '---\ntype: T\nts: "2026-07-19T00:00:00Z"\n---\n# B\n', encoding="utf-8"
+    )
+    axis = _axis(build_census(tmp_path, axes=["ts"]), "ts")
+    assert (axis["present"], axis["valueless"], axis["missing"]) == (2, 0, 0)
+    assert [v["value"] for v in axis["values"]] == [
+        "2026-07-19T00:00:00+00:00",
+        "2026-07-19T00:00:00Z",
+    ]
+    fields = {row["field"]: row for row in build_census(tmp_path, axes=["ts"])["fields"]}
+    assert fields["ts"]["kinds"] == {"date": 1, "str": 1}

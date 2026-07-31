@@ -1,6 +1,6 @@
 {
   "bundle": {
-    "concepts": 7,
+    "concepts": 8,
     "reserved": 7,
     "failing": 0,
     "dirs": 7,
@@ -13,7 +13,7 @@
     {
       "field": "description",
       "present": 6,
-      "concepts": 7,
+      "concepts": 8,
       "values": 6,
       "kinds": {
         "str": 6
@@ -21,37 +21,37 @@
     },
     {
       "field": "tags",
-      "present": 3,
-      "concepts": 7,
+      "present": 4,
+      "concepts": 8,
       "values": 2,
       "kinds": {
-        "list": 3
+        "list": 4
       }
     },
     {
       "field": "timestamp",
-      "present": 7,
-      "concepts": 7,
-      "values": 5,
+      "present": 8,
+      "concepts": 8,
+      "values": 7,
       "kinds": {
-        "other": 1,
+        "date": 2,
         "str": 6
       }
     },
     {
       "field": "type",
-      "present": 7,
-      "concepts": 7,
+      "present": 8,
+      "concepts": 8,
       "values": 3,
       "kinds": {
-        "str": 7
+        "str": 8
       }
     }
   ],
   "axes": [
     {
       "axis": "type",
-      "present": 7,
+      "present": 8,
       "missing": 0,
       "valueless": 0,
       "values": [
@@ -73,9 +73,9 @@
         },
         {
           "value": "Reference",
-          "count": 3,
+          "count": 4,
           "dirs": {
-            "cluster": 3
+            "cluster": 4
           }
         }
       ]
@@ -86,7 +86,7 @@
       "path": ".",
       "depth": 0,
       "concepts": 0,
-      "subtree": 7,
+      "subtree": 8,
       "links": {
         "internal": 0,
         "outbound": 0,
@@ -101,8 +101,8 @@
     {
       "path": "cluster",
       "depth": 1,
-      "concepts": 3,
-      "subtree": 3,
+      "concepts": 4,
+      "subtree": 4,
       "links": {
         "internal": 3,
         "outbound": 1,
@@ -113,7 +113,7 @@
       },
       "axes": {
         "type": {
-          "Reference": 3
+          "Reference": 4
         }
       },
       "items": [
@@ -149,6 +149,17 @@
           "summary": "권장 필드가 없어 요약이 본문에서 뽑힌다.",
           "summary_from": "body",
           "refs": 1
+        },
+        {
+          "path": "cluster/d.md",
+          "axes": {
+            "type": [
+              "Reference"
+            ]
+          },
+          "summary": "쿼우팅 없는 datetime 표기 — 실물 vault의 지배적 형태(#330).",
+          "summary_from": "body",
+          "refs": 0
         }
       ]
     },

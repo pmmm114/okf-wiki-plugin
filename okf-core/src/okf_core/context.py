@@ -18,6 +18,7 @@ frontmatter description, 없으면 본문 첫 표 행·첫 문장에서 추출. 
 from __future__ import annotations
 
 import argparse
+import datetime
 import posixpath
 import sys
 from pathlib import Path
@@ -61,6 +62,8 @@ _UNCLASSIFIED = "(unclassified)"
 
 KIND_STR = "str"
 KIND_LIST = "list"
+KIND_DATE = "date"
+KIND_NUM = "num"
 KIND_OTHER = "other"
 
 
@@ -68,10 +71,23 @@ def axis_values(doc: ParsedDoc, key: str) -> tuple[tuple[str, ...], str | None]:
     """(그 개념이 이 축에 가진 값들, 값 종류|None) — 키 부재는 ``((), None)``.
 
     축 해석의 **공유 표면** — census(관측)·context(필터·그룹)가 이 규칙 하나를
-    쓴다(#329, 불변식 게이트). 값 종류만 보고 어휘는 보지 않는다: 문자열은 값 1개,
-    문자열 리스트는 멤버 전부(중복 제거·정렬), 그 밖의 타입(숫자·날짜·매핑)은 값
-    0개다. 리스트를 전개하는 이유는 다중값 축(태그류)이 통째로 "미기재"로 접히면
-    실제로 채워진 어휘가 관측에서 사라지기 때문이다.
+    쓴다(#329, 불변식 게이트). 값 종류만 보고 어휘는 보지 않는다. 판정 표(#330):
+
+    - str → 값 1개. 문자열 리스트 → 멤버 전개(중복 제거·정렬) — 통째로 "미기재"로
+      접히면 채워진 어휘가 관측에서 사라진다
+    - date·datetime → ``isoformat()`` 값 1개. ISO 8601 정본이고 **동일 오프셋
+      안에서는** 코드포인트순 정렬이 시간순과 일치한다(오프셋이 섞인 축은 보장
+      없음 — DA 실측 반례: ``+00:00``와 ``+09:00`` 혼재). ``str()``은 ``T``
+      구분자를 잃는다. 값 정본은 isoformat
+      그대로(#330 (a)) — ``Z``→``+00:00``은 의미 동일 정규화이고, 원문 표기 보존은
+      ParsedDoc이 frontmatter 원문을 따로 들어야 해서 기각됐다
+    - int·float → ``str()`` 값 1개(왕복 무손실, bool 제외)
+    - bool·null·매핑 등 → 값 0개(KIND_OTHER). 2값 축은 분류 정보가 없고, null은
+      부재와 구분 불가한 값 문자열을 만들며, 매핑은 축 어휘가 아니다
+
+    이 표를 rules 데이터에 두지 않는다(#330 검토 결과): rules는 §9 판정 상수(번들
+    언어)의 단일 원천이고 타입→정규화는 파이썬 실행 표현의 문제라 층이 다르다 —
+    JSON에 파이썬 타입명을 적는 순간 규칙 데이터가 엔진 구현에 결합된다.
     """
     fm = doc.frontmatter or {}
     if key not in fm:
@@ -83,6 +99,10 @@ def axis_values(doc: ParsedDoc, key: str) -> tuple[tuple[str, ...], str | None]:
     if isinstance(raw, list):
         members = {m.strip() for m in raw if isinstance(m, str) and m.strip()}
         return tuple(sorted(members)), KIND_LIST
+    if isinstance(raw, datetime.date):  # datetime.datetime 포함(서브클래스)
+        return (raw.isoformat(),), KIND_DATE
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return (str(raw),), KIND_NUM
     return (), KIND_OTHER
 
 
