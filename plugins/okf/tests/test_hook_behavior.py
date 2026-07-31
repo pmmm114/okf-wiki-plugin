@@ -779,6 +779,64 @@ def test_e2e_post_tool_use_real_engine(tmp_path):
     assert "a.md" in sem(res)["hookSpecificOutput"]["additionalContext"]
 
 
+@needs_uv
+def test_e2e_post_tool_use_axis_adjacent_real_engine(tmp_path):
+    """축·정초 인접 후보가 링크 기반 제안과 함께 나온다(#337) — 근거(축=값·via=축) 병기.
+
+    링크는 사람이 이미 이은 것만 담지만 공유 리스트 축 값·정초 엣지는 이어지지 않은
+    관계 후보를 드러낸다. 판정·임계값 없이 재료(근거)만 병기하고, 상한은 질의의
+    LIMIT뿐이다. 링크가 0건이어도 인접이 있으면 방출한다.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    bundle = project / ".okf"
+    bundle.mkdir()
+    (bundle / "index.md").write_text(
+        '---\nokf_version: "0.1"\n---\n# C\n\n'
+        "* [A](a.md) - a.\n* [B](b.md) - b.\n* [C](c.md) - c.\n"
+    )
+    (bundle / "a.md").write_text(
+        "---\ntype: concept\ndescription: a.\ntags: [shared]\n---\n본문.\n"
+    )
+    (bundle / "b.md").write_text(
+        "---\ntype: concept\ndescription: b.\ntags: [shared]\n---\n본문.\n"
+    )
+    (bundle / "c.md").write_text(
+        "---\ntype: concept\ndescription: c.\nderived_from:\n  - /a.md\n---\n본문.\n"
+    )
+    (project / ".okf-wiki.json").write_text("{}")
+    payload = json.dumps({"tool_input": {"file_path": str(bundle / "a.md")}}).encode()
+    res = run_hook(PLUGIN / "scripts", "post-tool-use", project=project, stdin=payload)
+    assert res.returncode == 0, res.stderr
+    assert sem(res) is not None, "링크가 없어도 축 인접이 있으면 방출한다"
+    ctx = sem(res)["hookSpecificOutput"]["additionalContext"]
+    assert "b.md(tags=shared)" in ctx, ctx  # 공유 리스트 축 값 — 근거 병기
+    assert "c.md(via=derived_from)" in ctx, ctx  # 정초 엣지 인접 — 근거 병기
+
+
+def test_format_adjacent_groups_basis_per_path():
+    """인접 후보 형식 — path별 근거 묶음. 판정·임계값 문구 없음(재료 병기)."""
+    import okf_hooks
+
+    rows = [
+        {"path": "b.md", "basis": "tags=x"},
+        {"path": "b.md", "basis": "tags=y"},
+        {"path": "c.md", "basis": "via=derived_from"},
+    ]
+    text = okf_hooks._format_adjacent(rows)
+    assert "b.md(tags=x, tags=y)" in text, text
+    assert "c.md(via=derived_from)" in text, text
+
+
+def test_format_adjacent_rejects_malformed():
+    """비JSON·형식 불량 응답은 무음(빈 문자열) — 스텁·오류문이 제안으로 둔갑하지 않게."""
+    import okf_hooks
+
+    assert okf_hooks._format_adjacent([]) == ""
+    assert okf_hooks._format_adjacent("b.md") == ""
+    assert okf_hooks._format_adjacent([{"nope": 1}]) == ""
+
+
 # ── 훅 3종의 오류 정책 통일 (#299) ────────────────────────────────────────────
 #
 # 전면 `except`가 무음이면 내부 오류(예: study.db 손상)가 "메모리 파일 아님"·
