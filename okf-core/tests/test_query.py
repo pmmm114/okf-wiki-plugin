@@ -255,3 +255,26 @@ def test_repo_shipped_queries_declare_order_by():
         text = doc.read_text(encoding="utf-8")
         for block in re.findall(r"```sql\n(.*?)```", text, flags=re.S):
             assert "ORDER BY" in block, f"{doc.name}의 SQL 블록에 ORDER BY 없음:\n{block}"
+
+
+def test_reference_recipes_run_as_is():
+    """레시피 문서(reference/QUERY.md)의 SQL 블록이 실제 번들에서 그대로 실행된다(#334).
+
+    문서만 내면 죽은 예시가 된다 — 복사해 실행 가능하다는 계약을 런타임과 같은 읽기
+    전용 봉인(query_only + authorizer) 아래에서 잠근다.
+    """
+    import re
+
+    from okf_core.query import _lock_read_only
+
+    root = Path(__file__).resolve().parents[2]
+    doc = root / "plugins" / "okf" / "skills" / "okf" / "reference" / "QUERY.md"
+    blocks = re.findall(r"```sql\n(.*?)```", doc.read_text(encoding="utf-8"), flags=re.S)
+    assert blocks, "QUERY.md에 sql 블록이 없다 — 게이트 감도 상실"
+    conn = build_db(TAXONOMY)
+    try:
+        _lock_read_only(conn)
+        for block in blocks:
+            conn.execute(block).fetchall()  # 오류 없이 실행되면 통과(결과 0건 허용)
+    finally:
+        conn.close()
