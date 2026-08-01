@@ -30,7 +30,7 @@ body:
       label: 원인
       description: 어디가 왜 그렇게 동작하는지를 `파일:라인` 인용으로 특정합니다.
       placeholder: |
-        `norm_rel`(`plugins/okf/scripts/core/okf_promote.py:52-55`)은 선두 `/`만 벗기고 `..`를 정규화하지도 거부하지도 않는다. 게이트(`:109-113`)의 경로 검사는 확장자와 기존 파일 존재 둘뿐 — 경계 검사가 아예 없다.
+        `norm_rel`(`plugins/okf/scripts/promote/okf_promote.py:52-55`)은 선두 `/`만 벗기고 `..`를 정규화하지도 거부하지도 않는다. 게이트(`:109-113`)의 경로 검사는 확장자와 기존 파일 존재 둘뿐 — 경계 검사가 아예 없다.
     validations:
       required: true
 

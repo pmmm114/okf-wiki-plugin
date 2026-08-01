@@ -58,13 +58,13 @@ derived_from:
 
 ## 4. 정초·출처 불변식
 
-접지 린트 `scripts/core/okf_layers.py`(layer-aware, 플러그인측)가 아래를 **warn**으로 신호한다. OKF §9 컨포먼스 error로 승격하지 않는다(스펙 관용 — 미지·미기재 필드 거부 금지). 어휘·순서·규칙은 위 [기계 판독 단일 원천](#기계-판독-단일-원천)에서 데이터로 로드한다(하드코딩 없음). 층·파생·출처 데이터는 엔진 출력(`okf context --group-by`· `okf graph --edges-from`)에서 소비한다.
+접지 린트 `scripts/explore/okf_layers.py`(layer-aware, 플러그인측)가 아래를 **warn**으로 신호한다. OKF §9 컨포먼스 error로 승격하지 않는다(스펙 관용 — 미지·미기재 필드 거부 금지). 어휘·순서·규칙은 위 [기계 판독 단일 원천](#기계-판독-단일-원천)에서 데이터로 로드한다(하드코딩 없음). 층·파생·출처 데이터는 엔진 출력(`okf context --group-by`· `okf graph --edges-from`)에서 소비한다.
 
 1. **정초 순서** — `derived_from` 대상은 **출처 개념보다 엄격히 낮은 층**이어야 한다 (지혜→{지식,정보}, 지식→{정보}). 상위·역방향 파생(예: 정보가 지혜에서 파생)은 사다리 위반이다.
 2. **접지(출처)** — 정보 층은 `resource`를 가져야 하고, 상위 층(지식·지혜)은 비어있지 않은 유효 `derived_from`을 가져야 한다(떠 있는 판단 방지). *린트는 `resource`만 확인한다 — `# Citations`만으로 접지한 정보 개념은 아직 감지하지 못한다(엔진이 스펙 §8을 표면화하면 보강).*
 3. **깨진 파생** — `derived_from` 대상이 번들에 없으면 유효 근거 엣지가 안 생겨 그 상위 개념이 2번 "미접지"로 잡힌다(스펙 §5.3 미작성 지식 신호).
 
-실행: `bin/okf-py scripts/core/okf_layers.py <번들> [--strict]`. 기본은 자문(exit 0), `--strict`면 발견 시 exit 1.
+실행: `bin/okf-py scripts/explore/okf_layers.py <번들> [--strict]`. 기본은 자문(exit 0), `--strict`면 발견 시 exit 1.
 
 ## 5. 저작 가이드
 
@@ -216,7 +216,7 @@ derived_from:
 
 ### 승격 절차
 
-1. **재료 조사** — `bin/okf-py scripts/core/okf_layers.py <번들> --candidates-for <목표층> --json`으로 접지할 하위 층 기존 개념을 받고 같은 주제 묶음을 고른다(정초 엄격 하향: 지식→정보, 지혜→지식·정보).
+1. **재료 조사** — `bin/okf-py scripts/explore/okf_layers.py <번들> --candidates-for <목표층> --json`으로 접지할 하위 층 기존 개념을 받고 같은 주제 묶음을 고른다(정초 엄격 하향: 지식→정보, 지혜→지식·정보).
 2. **판정** — 신설 개념의 `description` 초안을 쓰고 §8로 목표 층을 확인한다. 재료의 재기술을 넘는 새 인식(연결 또는 판단)이 없으면 중단한다(원칙 2).
 3. **중복 대조** — 같은 층 근사중복을 SimHash 자문(`study near-bundle <번들> --snippet
    <초안> --layer <층>`, 스킬 §6)으로 확인한다. 겹치면 신설 대신 기존 상위 개념을

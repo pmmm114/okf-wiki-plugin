@@ -15,7 +15,7 @@ import study_reflect
 
 SCRIPT = Path(study_reflect.__file__)
 # 직접 spawn 대신 실배선(hooks.json)과 동일하게 bin/okf-py 셔틀 경유 — 셔틀이
-# scripts/core·scripts/study를 PYTHONPATH로 노출한다(#145 U5 교차 디렉토리 import)
+# scripts/의 도메인 디렉토리를 PYTHONPATH로 노출한다(교차 도메인 import)
 SHIM = SCRIPT.resolve().parent.parent.parent / "bin" / "okf-py"
 
 TURN = "ba8d8604-3e2d-48d0-9f74-e038656f51de"

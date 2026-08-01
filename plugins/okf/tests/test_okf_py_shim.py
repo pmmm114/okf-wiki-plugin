@@ -126,15 +126,15 @@ def _hook_specs():
 # (=Edit 페이로드) 시 디스크에서 읽는 폴백을 **이미 구현**하고 있었는데도. 바로 옆
 # PostToolUse 엔트리가 `Write|Edit`이었으므로 같은 이벤트 안에서 비대칭이었다(#299).
 EXPECTED_WIRING = {
-    "core/okf_hooks.py": {
+    "hooks/okf_hooks.py": {
         ("SessionStart", None),
         ("PostToolUse", "Write|Edit"),
         ("FileChanged", None),  # 감시 등록은 watchPaths 몫이라 matcher를 두지 않는다
     },
-    "study/study_session.py": {("SessionStart", None)},
-    "study/study_hook.py": {("PostToolUse", "Write|Edit")},
+    "hooks/study_session.py": {("SessionStart", None)},
+    "hooks/study_hook.py": {("PostToolUse", "Write|Edit")},
     # 턴 종료 회고는 도구 종류를 가리지 않는다 — 무엇이 막혔든 세야 하므로 matcher가 없다
-    "study/study_reflect.py": {("Stop", None)},
+    "hooks/study_reflect.py": {("Stop", None)},
 }
 
 

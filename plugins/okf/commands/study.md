@@ -5,14 +5,14 @@ argument-hint: "[<topic> | --type <type> | --layer <layer> | --scope vault|proje
 
 study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 후보 검토).
 
-실행은 전부 플러그인 스크립트·`okf` CLI에 위임하고, **판정(선별·개념화·배치)만 직접** 한다. 경로: 스크립트 `${CLAUDE_PLUGIN_ROOT}/scripts/study`, 엔진 `${CLAUDE_PLUGIN_ROOT}/bin/okf`.
+실행은 전부 플러그인 스크립트·`okf` CLI에 위임하고, **판정(선별·개념화·배치)만 직접** 한다. 경로: 스크립트 `${CLAUDE_PLUGIN_ROOT}/scripts/<도메인>`(각 단계에 명시), 엔진 `${CLAUDE_PLUGIN_ROOT}/bin/okf`.
 
 0. **대상 스코프 해소(`--scope`, #91)**: 이하 모든 단계의 `<project>`(스크립트의 project 인자·번들 경로의 기준)를 정한다.
-   - 인자 없음(기본): `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study_scope.py" status .`의 `capture.target`을 쓴다 — 현재 위치의 해소 결과(프로젝트 또는 vault). `target`이 null이고 `invalid`가 있으면 그 사유를 사용자에게 보이고(가시적 진단) 종료. null이며 무효 사유도 없으면 현재 repo(`.`)를 그대로 쓴다(수동 승격 경로).
+   - 인자 없음(기본): `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/capture/study_scope.py" status .`의 `capture.target`을 쓴다 — 현재 위치의 해소 결과(프로젝트 또는 vault). `target`이 null이고 `invalid`가 있으면 그 사유를 사용자에게 보이고(가시적 진단) 종료. null이며 무효 사유도 없으면 현재 repo(`.`)를 그대로 쓴다(수동 승격 경로).
    - `--scope vault`: 같은 status 출력의 `vault`을 `<project>`로 강제 — repo 안에서도 vault(KB) 파이프라인으로 명시 승격·드레인한다. `vault`이 null이면 `invalid` 사유를 보이고 종료.
    - `--scope project`: 현재 repo(`.`)로 강제(현행 기본과 동일).
 
-0a. **신선도 갱신(URL vault만, #153)**: 승격은 관리형 clone의 워킹트리에 쓴다 — 그 전에 base를 최신화한다. `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_remote.py" refresh`를 실행한다.
+0a. **신선도 갱신(URL vault만, #153)**: 승격은 관리형 clone의 워킹트리에 쓴다 — 그 전에 base를 최신화한다. `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/vault/okf_remote.py" refresh`를 실행한다.
 
    **`code`로 분기한다**(한국어 `reason`·`warning` 매칭 금지 — 사람용 표시일 뿐이고 문구가 바뀌면 조용히 깨진다). 코드 집합은 `okf_remote.REFRESH_REASONS`가 단일원천이고 각 코드에 실행 가능한 복구 지시가 붙어 있다.
    - `ok` → 최신 base다. 계속. `discarded`가 있으면 **원격에 이미 담긴** 잔재를 폐기해 정체를 푼 것이므로(#216 V1) 그 경로 목록을 한 줄로 보인다.
@@ -33,17 +33,17 @@ study 승격 플로우를 실행한다. 인자: `$ARGUMENTS`(없으면 전체 �
 
 3. **선별(판정)**: **파일 그룹 단위로** 검토한다 — 메모리 관례상 1파일 = 1사실이라 리뷰 결정 단위 = 개념 단위 = 파일이다(#257). 큰 그룹(색인 MEMORY.md류·수십 블록 파일)은 그룹 헤더(`source`·`count`)만 먼저 보이고 필요한 그룹만 펼쳐 검토한다 — 색인 특례가 아니라 **일반 규칙**(비색인 대형 파일 실존). 장기 지식(스키마·명령· 결정·규약)만 고른다. 상호작용 취향·일회성은 제외. `<topic>`/`--type`/`--layer` 인자가 있으면 그 주제/타입/인식층으로 좁힌다 — 셋 다 **후보 필드가 아니라 판정 결과로 거르는 필터**다. 후보에는 축 값이 없다 (`id`·`date`·`snippet`·`source`·`recurrence`뿐) — 스니펫을 읽고 그 주제/타입/층일 것으로 판정되는 후보만 남긴다. 전부가 아니라 **사용자가 고른 부분집합**을 승격한다(모호하면 물어본다).
    - **근사중복 자문(#133)**: `study.py near <project>`로 재서술된 근사중복 후보를 확인할 수 있다(SimHash 거리 **오름차순 상위 K** — **자문 전용**, 자동병합 없음). 목록에 올랐다는 것 자체는 판정이 아니다 — `distance`를 함께 보고 판단한다(#306: 임계 필터는 한국어에서 사실상 발화하지 않아 빈 결과가 "근사중복 없음"으로 읽혔다). 같은 지식의 변주로 판단되면 하나만 승격하고 나머지는 discard한다. 정확 판정은 사람·모델의 몫.
-   - **노이즈 정리(#256·#263)**: 노이즈 판정은 **눈대중이 아니라 `prune --dry-run`**이다 — 펼치지 않은 그룹의 노이즈는 보이지 않으므로 "보이면"을 트리거로 두면 놓친 노이즈가 `--clear`에서 원장에 비가역 기록된다(#306). `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study.py" prune <project> --dry-run`을 **항상 먼저** 실행하고 `matches`가 **1건 이상이면** discard가 **아니라** `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study.py" prune <project>`로 정리한다 — discard는 노이즈 id를 원장(공유 원장 write-through 포함)에 **비가역 기록**한다. 단 prune은 그룹이 아니라 **인박스 전역** 대상이다: 먼저 `--dry-run`으로 매치 목록을 확인해 오폭(`--- ` 접두 실사실·diff 헤더 인용)을 검토한 뒤 실행한다. 오폭 매치(실사실)가 있으면 그 후보를 먼저 4~6단계로 승격해 인박스에서 빼낸 뒤 prune한다(prune에는 선택 제외 수단이 없다).
+   - **노이즈 정리(#256·#263)**: 노이즈 판정은 **눈대중이 아니라 `prune --dry-run`**이다 — 펼치지 않은 그룹의 노이즈는 보이지 않으므로 "보이면"을 트리거로 두면 놓친 노이즈가 `--clear`에서 원장에 비가역 기록된다(#306). `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/promote/study.py" prune <project> --dry-run`을 **항상 먼저** 실행하고 `matches`가 **1건 이상이면** discard가 **아니라** `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/promote/study.py" prune <project>`로 정리한다 — discard는 노이즈 id를 원장(공유 원장 write-through 포함)에 **비가역 기록**한다. 단 prune은 그룹이 아니라 **인박스 전역** 대상이다: 먼저 `--dry-run`으로 매치 목록을 확인해 오폭(`--- ` 접두 실사실·diff 헤더 인용)을 검토한 뒤 실행한다. 오폭 매치(실사실)가 있으면 그 후보를 먼저 4~6단계로 승격해 인박스에서 빼낸 뒤 prune한다(prune에는 선택 제외 수단이 없다).
 
 4. **개념화(판정, 후보별)**: okf 스킬 §2·§3·§6대로 배치를 정하고 개념 파일을 작성한다 — `type` 필수, `description` 1문장, 백링크 ≥1, 답-우선 본문, **주제 하위디렉토리** 배치.
    - **번들 관측(선행)**: `"${CLAUDE_PLUGIN_ROOT}/bin/okf" census <bundle>`로 디렉토리 형상(직속·하위 개념 수, 깊이, 내부/유입/유출 링크)·축 값 분포와 값×디렉토리 교차표·개념별 요약 원문을 확보한 뒤 배치와 `type`을 정한다(스킬 §2-1·2-2·2-3). `--axis <키>`로 다른 축을 함께 볼 수 있다. **관측은 자문이다** — 승격 게이트의 입력이 아니고, 판정 근거는 관측이 좁혀 준 개념의 **원문**이다.
    - **인식층 판정(필수)**: 후보의 인식 고도를 판정해 `layer`(`information`/`knowledge`/`wisdom` — 각각 정보·지식·지혜)를 부여한다 — 카테고리 = `type` + 주제 디렉토리 + `layer`. 어휘·판정 기준(하향식 루브릭: 처방→연결→대조, 불확실하면 미기재)은 스킬 `reference/LAYERS.md`(§1·§8).
-   - **존재 대조(멱등)**: 층을 정했으면 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study.py" near-bundle <bundle> --snippet <후보> --layer <layer>`로 같은 층 근사중복을 확인한다(SimHash 자문). 같은 정보면 새로 만들지 않고 기존 개념을 재확인·갱신(`supersedes`)으로 흡수한다(exact 재부상 차단은 원장이 이미 함).
-   - **접지(교차층 맵핑)**: 상위 층(지식·지혜)은 근거 하위 개념을 `derived_from`으로 잇는다 — `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_layers.py"
+   - **존재 대조(멱등)**: 층을 정했으면 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/promote/study.py" near-bundle <bundle> --snippet <후보> --layer <layer>`로 같은 층 근사중복을 확인한다(SimHash 자문). 같은 정보면 새로 만들지 않고 기존 개념을 재확인·갱신(`supersedes`)으로 흡수한다(exact 재부상 차단은 원장이 이미 함).
+   - **접지(교차층 맵핑)**: 상위 층(지식·지혜)은 근거 하위 개념을 `derived_from`으로 잇는다 — `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/explore/okf_layers.py"
      <bundle> --candidates-for <layer> --json`로 후보를 질의한다(정초 엄격 하향: 지식→정보,
 지혜→지식·정보). 근거 사실이 후보에 함께 있으면 정보를 먼저 승격하고, 번들에 없으면 `derived_from`을 남겨 접지 린트가 "미작성 지식 신호"로 잡게 둔다(출처·근거 날조 금지). 하위층 개념이 쌓여 상위층 신설(층간 승격)이 필요해 보이면 LAYERS.md §9의 승격 절차를 따른다(자문 — 재라벨이 아니라 적립, 전용 플로우는 `/okf-promote`).
 
-5. **로그·색인·검증**: `okf log append <dir> -m "<요약> (layer <layer>, captured <후보 date>)" --kind Promotion` → `okf index <bundle> --write` → `okf validate <bundle> --strict`(error·warn 0까지) → `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_layers.py" <bundle>` `--json` **접지 린트**(정초 순서·미접지 자문 warn — 스펙 §9 판정 불변, exit 0). 출력의 `count`로 분기한다(한국어 요약 문구 매칭 금지): `count == 0`이면 다음으로, `count > 0`이면 `warns[]`의 `code`별로 4단계 접지로 되돌아간다 — `derivation_order`(파생 대상을 더 낮은 층으로) · `ungrounded`(`derived_from`을 잇거나 근거 개념을 마저 쓴다) · `no_source`(정보 층 `resource`를 채운다). 코드 집합은 `okf_layers.WARN_CODES`가 단일원천이다.
+5. **로그·색인·검증**: `okf log append <dir> -m "<요약> (layer <layer>, captured <후보 date>)" --kind Promotion` → `okf index <bundle> --write` → `okf validate <bundle> --strict`(error·warn 0까지) → `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/explore/okf_layers.py" <bundle>` `--json` **접지 린트**(정초 순서·미접지 자문 warn — 스펙 §9 판정 불변, exit 0). 출력의 `count`로 분기한다(한국어 요약 문구 매칭 금지): `count == 0`이면 다음으로, `count > 0`이면 `warns[]`의 `code`별로 4단계 접지로 되돌아간다 — `derivation_order`(파생 대상을 더 낮은 층으로) · `ungrounded`(`derived_from`을 잇거나 근거 개념을 마저 쓴다) · `no_source`(정보 층 `resource`를 채운다). 코드 집합은 `okf_layers.WARN_CODES`가 단일원천이다.
    - **provenance 이관(#114 U5 · #132)**: 후보의 캡처 일자(2단계 그룹 내 후보의 `date`)를 로그 메시지에 새겨 **비-git 스테이징의 적립 시점을 git-추적 `log.md`에 남긴다** — 스테이징이 사라져도 버저닝은 git(vault)에 남는다. `list`의 `recurrence`(재등장 수)가 크면 반복 학습된 개념이라는 신호이니 요약에 함께 반영할 수 있다. 더 세밀한 순서· 시각 이력은 `study.py log <project>`(이벤트 저널: capture/promote/discard).
    - **갱신(supersedes, #132)**: 승격 개념이 기존 개념의 **갱신**이면, 드레인(6단계) 후 `study.py` 없이 판단만 남긴다 — 새 후보는 이미 승격됐고, 기존 개념 파일은 스킬 §3대로 편집·교체한다(원장은 자식 줄-해시로 재부상을 자동 차단).
 

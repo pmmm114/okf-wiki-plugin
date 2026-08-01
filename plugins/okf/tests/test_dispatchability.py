@@ -18,7 +18,7 @@ from pathlib import Path
 import study_dispatch
 import study_scaffold_handler
 
-CORE = Path(study_dispatch.__file__).resolve().parents[1] / "core"
+VAULT = Path(study_dispatch.__file__).resolve().parents[1] / "vault"
 
 
 def _git(cwd, *args):
@@ -153,7 +153,7 @@ def test_has_handlers_callers_are_pinned():
     # #275(U3)가 라우트 문구를 `_recovery_route`로 뽑으면서 호출처가 그리로 옮겨왔다 —
     # 개수가 아니라 이름으로 잠근 덕에 이 한 줄 갱신으로 끝난다.
     allowed = {"_recovery_route"}
-    tree = ast.parse((CORE / "okf_remote.py").read_text(encoding="utf-8"))
+    tree = ast.parse((VAULT / "okf_remote.py").read_text(encoding="utf-8"))
     callers = {
         fn.name
         for fn in ast.walk(tree)
@@ -168,7 +168,7 @@ def test_has_handlers_callers_are_pinned():
 
 def test_has_handlers_docstring_disclaims_gate_role():
     """docstring이 '게이트가 아니다'를 명시한다 — 다음 소비자가 오해하지 않도록."""
-    src = (CORE / "okf_remote.py").read_text(encoding="utf-8")
+    src = (VAULT / "okf_remote.py").read_text(encoding="utf-8")
     body = re.search(r"def _has_handlers\(.*?\n(.*?)\"\"\"\n", src, re.DOTALL)
     assert body and "디스패치 가능성" in body.group(1), (
         "_has_handlers docstring에 '디스패치 가능성이 아니다'는 구분이 없다"

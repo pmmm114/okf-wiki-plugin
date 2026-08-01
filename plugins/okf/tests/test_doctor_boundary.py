@@ -1,4 +1,4 @@
-"""okf_doctor core⊥study 경계 — study 부재 생존 게이트 (#145 U4).
+"""okf_doctor 도메인 경계 — study 부재 생존 게이트 (#145 U4).
 
 doctor는 study 진단을 try-import 심 1개로 선택 위임한다("있으면 실행, 없으면
 생략"). okf_* 파일만 배치된 환경에서 import·실행이 생존하고 core 섹션(위치·주입·
@@ -17,15 +17,16 @@ from pathlib import Path
 import okf_doctor
 
 PLUGIN = Path(__file__).resolve().parent.parent
-SCRIPTS_CORE = PLUGIN / "scripts" / "core"
-SCRIPTS_STUDY = PLUGIN / "scripts" / "study"
-# okf_remote는 core 인프라(URL 모드 관리형 clone, #153) — core-only 배치에도 함께 온다.
-CORE_ONLY = ["okf_doctor.py", "okf_vault.py", "okf_remote.py"]
+SCRIPTS = PLUGIN / "scripts"
+# okf_remote는 vault 도메인 인프라(URL 모드 관리형 clone, #153) — 부분 배치에도 함께 온다.
+GENERIC_ONLY = ["okf_doctor.py", "okf_vault.py", "okf_remote.py"]
 
 
 def _src(name: str) -> Path:
-    # core/study 물리 분리(#145 U5) — 파일명 접두사로 원본 디렉토리를 찾는다
-    return (SCRIPTS_STUDY if name.startswith("study") else SCRIPTS_CORE) / name
+    # 도메인 물리 분리 — 모듈 stem이 전역 유일하므로(stem 게이트) 디렉토리 검색으로 찾는다
+    matches = sorted(SCRIPTS.glob(f"*/{name}"))
+    assert len(matches) == 1, f"{name} 원본이 유일하지 않다: {matches}"
+    return matches[0]
 
 
 def _run_doctor_with(tmp_path, files, *, with_vault_pointer=False):
@@ -52,7 +53,7 @@ def _run_doctor_with(tmp_path, files, *, with_vault_pointer=False):
 
 
 def test_doctor_survives_without_study_modules(tmp_path):
-    res = _run_doctor_with(tmp_path, CORE_ONLY)
+    res = _run_doctor_with(tmp_path, GENERIC_ONLY)
     assert res.returncode == 0, res.stderr
     out = res.stdout.decode("utf-8")
     for core_section in ("[위치]", "[주입]", "[Vault]"):
@@ -64,7 +65,7 @@ def test_doctor_survives_without_study_modules(tmp_path):
 
 def test_doctor_core_vault_notes_without_study(tmp_path):
     # 유효 vault이면 generic vault 메모(포인터·번들 부합)는 study 없이도 나온다
-    res = _run_doctor_with(tmp_path, CORE_ONLY, with_vault_pointer=True)
+    res = _run_doctor_with(tmp_path, GENERIC_ONLY, with_vault_pointer=True)
     assert res.returncode == 0, res.stderr
     out = res.stdout.decode("utf-8")
     assert "(유효)" in out
@@ -75,7 +76,7 @@ def test_doctor_core_vault_notes_without_study(tmp_path):
 def test_doctor_partial_deployment_names_missing_module(tmp_path):
     # 심(study_doctor.py)은 있으나 연쇄 모듈이 결손인 부분 배치 — 조용히 '미배치'로
     # 위장하지 않고 stderr에 결손 모듈명을 남긴다(#166 리뷰: 진단 도구의 은폐 금지).
-    res = _run_doctor_with(tmp_path, [*CORE_ONLY, "study_doctor.py"])
+    res = _run_doctor_with(tmp_path, [*GENERIC_ONLY, "study_doctor.py"])
     assert res.returncode == 0, res.stderr
     out = res.stdout.decode("utf-8")
     assert "[위치]" in out and "[캡처]" not in out  # core-only 저하는 유지
@@ -87,7 +88,7 @@ def test_doctor_url_pointer_shows_managed_clone_notes(tmp_path):
     # #153: URL 포인터면 [Vault] 섹션에 관리형 clone 상태(모드·미생성)를 무네트워크로 표기한다.
     scripts = tmp_path / "url-deploy"
     scripts.mkdir()
-    for name in CORE_ONLY:
+    for name in GENERIC_ONLY:
         shutil.copy2(_src(name), scripts / name)
     project = tmp_path / "proj2"
     project.mkdir()
@@ -114,7 +115,7 @@ def test_doctor_full_sections_with_study_present(tmp_path):
     env.pop("OKF_HOME_PROJECT", None)
     env.pop("CLAUDE_CONFIG_DIR", None)
     res = subprocess.run(
-        [str(PLUGIN / "bin" / "okf-py"), str(SCRIPTS_CORE / "okf_doctor.py"), str(project)],
+        [str(PLUGIN / "bin" / "okf-py"), str(_src("okf_doctor.py")), str(project)],
         capture_output=True,
         env=env,
         timeout=60,

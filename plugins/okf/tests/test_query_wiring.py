@@ -14,7 +14,7 @@ from pathlib import Path
 PLUGIN = Path(__file__).resolve().parent.parent
 SKILL = PLUGIN / "skills" / "okf" / "SKILL.md"
 QUERY_DOC = PLUGIN / "skills" / "okf" / "reference" / "QUERY.md"
-PROMOTE = PLUGIN / "scripts" / "core" / "okf_promote.py"
+PROMOTE = PLUGIN / "scripts" / "promote" / "okf_promote.py"
 
 
 def _section(text: str, heading: str, stop: str) -> str:

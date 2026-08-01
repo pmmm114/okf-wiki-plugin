@@ -11,8 +11,7 @@ OKF 번들 엔진(`okf-core/`) + Claude Code 플러그인(`plugins/okf/`) + 배�
   "엔진 모듈 역할" 표와 docstring 첫 줄이 정본.
 - `okf-core/vendor/`(업스트림 `spec`·`oracle` 참조검증기) + `okf-core/scripts/`
   (픽스처·오라클차동·vendor동기·라이선스 검사).
-- `plugins/okf/` — `scripts/core/`(엔진 인접: doctor·hooks·layers·remote·vault),
-  `scripts/study/`(소비처 확장), `commands/`·`skills/okf/`·`hooks/`·`bin/`.
+- `plugins/okf/` — `scripts/`는 도메인 6분할(hooks·vault·capture·promote·explore·doctor — 아래 "플러그인 스크립트 도메인" 표가 정본), `commands/`·`skills/okf/`·`hooks/`·`bin/`.
 - `scripts/`(루트) — 릴리스·버전 툴링 + 게이트 pytest(version_sync·doc_links·security_scan).
 
 ## 엔진 모듈 역할
@@ -32,6 +31,22 @@ docstring 첫 줄이 `<이름> — <역할>: <한 줄>` 형식으로 이 표와 
 | cli | 위임 — 서브커맨드를 각 모듈 `main`으로 |
 
 엔진 의존성은 pyyaml 하나(`okf-core/pyproject.toml`이 단일원천). `sqlite3`는 파이썬 표준 라이브러리라 dependencies에 들지 않는다.
+
+## 플러그인 스크립트 도메인
+
+`plugins/okf/scripts/`는 **디렉토리가 곧 도메인 선언**이다 — 어떤 스크립트가 inbox(캡처·승격) 쪽이고 어떤 것이 세션 주입 쪽인지 위치로 읽는다. 모듈명은 flat(`import okf_vault`)이고 `bin/okf-py`·`tests/conftest.py`가 도메인 디렉토리를 PYTHONPATH로 명시 배선한다(모듈 stem 전역 유일 — 게이트: `test_module_stems_are_unique`).
+
+| 도메인 | 흐름 | 담당 |
+| --- | --- | --- |
+| hooks | 진입점 | hooks.json이 부르는 훅 전부 — okf_hooks(주입·역링크 관측·재색인) + study 훅 3종(캡처 입구·드레인 나즈·회고 나즈). 진입점은 여기에만 둔다 |
+| vault | 저장고 | 포인터·설정 해소(okf_vault)·관리형 clone git I/O(okf_remote). 의존 DAG의 바닥 |
+| capture | 세션→inbox | 캡처 정책·스테이징 런타임 — scope·blocks·simhash·store·inbox·scaffold·legacy |
+| promote | inbox→번들 | 승격 오케스트레이션(study CLI)·핸들러 디스패치·trust·§9 게이트+집행(okf_promote) |
+| explore | 관측·자문 | 접지 린트·탐색 신호(okf_layers)와 외부 제공자 배선(okf_explore). 전부 warn — 판정하지 않는다 |
+| doctor | 진단 | 폴백·캡처 입구 상태 보고(okf_doctor + study_doctor) |
+
+- 교차 도메인 import는 선언된 DAG 방향만 — hooks→capture·vault, capture→vault, promote→capture·explore·vault, doctor→capture·promote·vault. 새 도메인·새 방향은 게이트 선언과 배선(bin/okf-py·conftest)을 함께 고친다(게이트: `test_domain_boundary_gate` — 유령 선언·동적 import 우회·okf_promote의 capture/hooks 무-import 강화 조항 포함).
+- **조회 로직은 플러그인에 코드로 두지 않는다** — 지식 조회는 `okf query`(엔진) 직접 호출이고, 새 조회는 `skills/okf/reference/QUERY.md`에 SQL 레시피로 더한다(레시피의 ```sql 블록은 게이트가 실제 번들에서 실행). 훅의 조회 배선은 okf_hooks 하나뿐이다.
 
 ## 도메인 용어
 
