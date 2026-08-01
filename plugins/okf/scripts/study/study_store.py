@@ -37,7 +37,6 @@ CREATE TABLE IF NOT EXISTS candidate (
     captured_at   TEXT,
     ingested_at   TEXT,
     recurrence    INTEGER NOT NULL DEFAULT 1,
-    supersedes    TEXT,
     simhash       TEXT,
     layer         TEXT
 );
@@ -50,8 +49,7 @@ CREATE TABLE IF NOT EXISTS candidate_line (
 CREATE TABLE IF NOT EXISTS resolution (
     id             TEXT PRIMARY KEY,
     status         TEXT NOT NULL,
-    ref            TEXT,
-    invalidated_at TEXT
+    ref            TEXT
 );
 CREATE TABLE IF NOT EXISTS event (
     seq    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,17 +61,15 @@ CREATE TABLE IF NOT EXISTS event (
 """
 
 # 기존 db(구 유닛 스키마) 업그레이드용 — CREATE TABLE IF NOT EXISTS는 컬럼을 더하지
-# 않으므로 누락 컬럼을 ALTER ADD로 채운다(#132 bitemporal·recurrence·supersedes).
+# 않으므로 누락 컬럼을 ALTER ADD로 채운다(#132 bitemporal·recurrence).
 _ADDED_COLUMNS = {
     "candidate": {
         "captured_at": "TEXT",
         "ingested_at": "TEXT",
         "recurrence": "INTEGER NOT NULL DEFAULT 1",
-        "supersedes": "TEXT",
         "simhash": "TEXT",
         "layer": "TEXT",
     },
-    "resolution": {"invalidated_at": "TEXT"},
 }
 
 _ORDER = "ORDER BY captured_date DESC, seq ASC"  # 최신 날짜 우선, 동일 날짜는 적재순
@@ -189,33 +185,6 @@ def insert_candidate(
         return not existed
 
 
-def candidate_meta(runtime: str | Path, ident: str) -> dict:
-    """후보의 시간축·승격 메타 — {captured_at, ingested_at, recurrence, supersedes}."""
-    if not _exists(runtime):
-        return {}
-    with _connect(runtime) as conn:
-        row = conn.execute(
-            "SELECT captured_at, ingested_at, recurrence, supersedes, layer "
-            "FROM candidate WHERE id=?",
-            (ident,),
-        ).fetchone()
-    if row is None:
-        return {}
-    return {
-        "captured_at": row[0],
-        "ingested_at": row[1],
-        "recurrence": row[2],
-        "supersedes": row[3],
-        "layer": row[4],
-    }
-
-
-def set_supersedes(runtime: str | Path, ident: str, target: str | None) -> None:
-    """후보가 갱신하는 기존 개념 id를 기록한다(#132 supersedes 링크)."""
-    with _connect(runtime) as conn:
-        conn.execute("UPDATE candidate SET supersedes=? WHERE id=?", (target, ident))
-
-
 def set_layer(runtime: str | Path, ident: str, layer: str | None) -> None:
     """후보의 인식층(정보/지식/지혜)을 기록한다(Epic #189 U5 — 승격 판정 결과 영속)."""
     with _connect(runtime) as conn:
@@ -254,7 +223,7 @@ def list_candidates(runtime: str | Path) -> list[dict]:
     """[{id, date, snippet, source, recurrence}] 최신 우선.
 
     ``recurrence``(재등장 수)는 승격 판단 신호로 인라인 노출한다(#132). 시각 메타
-    (captured_at/ingested_at/supersedes)는 결정성 위해 ``candidate_meta``로 분리.
+    (captured_at/ingested_at)는 출력 결정성을 위해 노출하지 않는다(기록 전용 provenance).
     """
     if not _exists(runtime):
         return []
@@ -323,24 +292,6 @@ def list_resolutions(runtime: str | Path) -> list[tuple[str, str, str | None]]:
             (r[0], r[1], r[2])
             for r in conn.execute("SELECT id, status, ref FROM resolution ORDER BY id").fetchall()
         ]
-
-
-def invalidate_resolution(runtime: str | Path, ident: str, ts: str) -> None:
-    """원장 항목을 **무효화하되 삭제하지 않는다**(invalidate-don't-delete, #132).
-
-    개념이 갱신·초과되면 옛 판정을 지우지 않고 무효화 시각만 새겨 이력을 보존한다.
-    dedup 판정(``has_resolution``)에는 그대로 남아 재부상은 계속 막는다.
-    """
-    with _connect(runtime) as conn:
-        conn.execute("UPDATE resolution SET invalidated_at=? WHERE id=?", (ts, ident))
-
-
-def resolution_invalidated_at(runtime: str | Path, ident: str) -> str | None:
-    if not _exists(runtime):
-        return None
-    with _connect(runtime) as conn:
-        row = conn.execute("SELECT invalidated_at FROM resolution WHERE id=?", (ident,)).fetchone()
-    return row[0] if row else None
 
 
 # --- event (journal) ------------------------------------------------------

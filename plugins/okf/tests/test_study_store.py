@@ -84,11 +84,27 @@ def test_bad_status_raises_even_when_sqlite_absent(monkeypatch, tmp_path):
 # --- 시간축·승격 메타 (U3 #132) --------------------------------------------
 
 
+def _candidate_columns(runtime, ident):
+    """시간축·layer 컬럼 직접 조회 — 기록 전용 provenance라 공개 API가 노출하지 않는다."""
+    import sqlite3
+
+    conn = sqlite3.connect(str(runtime / study_store.DB_NAME))
+    try:
+        row = conn.execute(
+            "SELECT captured_at, ingested_at, recurrence, layer FROM candidate WHERE id=?",
+            (ident,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    return {"captured_at": row[0], "ingested_at": row[1], "recurrence": row[2], "layer": row[3]}
+
+
 def test_recurrence_counts_recapture(tmp_path):
     study_store.insert_candidate(tmp_path, "aa", "s", "src", "2026-07-22", captured_at="t0")
     study_store.insert_candidate(tmp_path, "aa", "s", "src", "2026-07-23", captured_at="t9")
     study_store.insert_candidate(tmp_path, "aa", "s", "src", "2026-07-24", captured_at="t9")
-    meta = study_store.candidate_meta(tmp_path, "aa")
+    meta = _candidate_columns(tmp_path, "aa")
     assert meta["recurrence"] == 3  # 재캡처마다 카운터 증가(새 후보 X)
     assert meta["captured_at"] == "t0"  # 첫 캡처 시각 불변(valid-time 원점)
     assert len(study_store.list_candidates(tmp_path)) == 1
@@ -105,7 +121,7 @@ def test_recapture_refreshes_source_and_ingested_at(tmp_path):
         tmp_path, "aa", "s", "/mem/new-name.md", "2026-07-23", captured_at="t9", ingested_at="i9"
     )
     cand = study_store.list_candidates(tmp_path)[0]
-    meta = study_store.candidate_meta(tmp_path, "aa")
+    meta = _candidate_columns(tmp_path, "aa")
     assert cand["source"] == "/mem/new-name.md"
     assert meta["ingested_at"] == "i9"
     assert meta["captured_at"] == "t0"
@@ -116,24 +132,9 @@ def test_recapture_refreshes_source_and_ingested_at(tmp_path):
 def test_bitemporal_timestamps_attached(tmp_path):
     study_inbox.append(tmp_path, "concept", "M.md", captured_at="2026-07-22T09:00:00")
     ident = study_inbox.content_hash("concept")[:12]
-    meta = study_inbox.candidate_meta(tmp_path, ident)
+    meta = _candidate_columns(tmp_path, ident)
     assert meta["captured_at"] == "2026-07-22T09:00:00"  # 넘긴 valid-time
     assert meta["ingested_at"] is not None  # transaction-time은 현재 시각
-
-
-def test_supersedes_link_roundtrip(tmp_path):
-    study_inbox.append(tmp_path, "new concept", "M.md")
-    ident = study_inbox.content_hash("new concept")[:12]
-    assert study_inbox.candidate_meta(tmp_path, ident)["supersedes"] is None
-    study_inbox.set_supersedes(tmp_path, ident, "old-concept-id")
-    assert study_inbox.candidate_meta(tmp_path, ident)["supersedes"] == "old-concept-id"
-
-
-def test_invalidate_does_not_delete(tmp_path):
-    study_inbox.record(tmp_path, "id1", "promoted", ".okf/x.md")
-    study_inbox.invalidate(tmp_path, "id1")
-    assert study_inbox.is_resolved(tmp_path, "id1") is True  # dedup 판정엔 그대로(재부상 계속 차단)
-    assert study_store.resolution_invalidated_at(tmp_path, "id1") is not None  # 무효화 시각 보존
 
 
 def test_migration_adds_columns_to_old_db(tmp_path):
@@ -161,16 +162,16 @@ def test_migration_adds_columns_to_old_db(tmp_path):
         study_store.insert_candidate(tmp_path, "new", "n", "src", "2026-07-02", captured_at="t")
         is True
     )
-    assert study_store.candidate_meta(tmp_path, "new")["captured_at"] == "t"
-    assert study_store.candidate_meta(tmp_path, "old")["layer"] is None  # #189 U5 layer ALTER 이관
+    assert _candidate_columns(tmp_path, "new")["captured_at"] == "t"
+    assert _candidate_columns(tmp_path, "old")["layer"] is None  # #189 U5 layer ALTER 이관
 
 
 def test_layer_column_set_and_read(tmp_path):
-    # 승격 판정 인식층을 후보에 영속(#189 U5) — candidate_meta로 조회, list 계약은 불변
+    # 승격 판정 인식층을 후보에 기록(#189 U5) — 저널 promote 이벤트와 같은 축, list 계약은 불변
     ident = study_inbox.append(tmp_path, "concept body", "M.md")
-    assert study_inbox.candidate_meta(tmp_path, ident)["layer"] is None
+    assert _candidate_columns(tmp_path, ident)["layer"] is None
     study_inbox.set_layer(tmp_path, ident, "knowledge")
-    assert study_inbox.candidate_meta(tmp_path, ident)["layer"] == "knowledge"
+    assert _candidate_columns(tmp_path, ident)["layer"] == "knowledge"
     # list_candidates 출력 shape는 layer 추가 전과 동일(계약 불변)
     assert set(study_inbox.list_candidates(tmp_path)[0]) == {
         "id",
