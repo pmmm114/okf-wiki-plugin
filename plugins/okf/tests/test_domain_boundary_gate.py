@@ -56,10 +56,13 @@ def _domain_dirs() -> list[Path]:
 
 
 def _module_domains() -> dict[str, str]:
-    """flat 모듈명 → 도메인. stem 유일성은 루트 게이트가 잠그지만 여기서도 지킨다."""
+    """flat 모듈명 → 도메인. stem 유일성은 루트 게이트가 잠그지만 여기서도 지킨다.
+
+    rglob — 도메인 안이 하위 패키지로 정리돼도 게이트가 실명하지 않는다(구 게이트 승계).
+    """
     mapping: dict[str, str] = {}
     for directory in _domain_dirs():
-        for path in sorted(directory.glob("*.py")):
+        for path in sorted(directory.rglob("*.py")):
             assert path.stem not in mapping, f"stem 충돌: {path.stem} — flat import가 가려진다"
             mapping[path.stem] = directory.name
     assert mapping, "scripts/ 파이썬 파일 미발견 — 게이트 대상 공집합(경로 확인)"
@@ -93,7 +96,7 @@ def _cross_domain_edges() -> dict[tuple[str, str], list[str]]:
     domains = _module_domains()
     edges: dict[tuple[str, str], list[str]] = {}
     for directory in _domain_dirs():
-        for path in sorted(directory.glob("*.py")):
+        for path in sorted(directory.rglob("*.py")):
             for name in sorted(_imported_names(path)):
                 dst = domains.get(name)
                 if dst is None or dst == directory.name:
@@ -108,6 +111,9 @@ def test_domain_set_is_locked():
         f"도메인 디렉토리 변동: {actual} — 새 도메인은 이 게이트의 DOMAINS와 "
         "bin/okf-py·tests/conftest.py 배선, CLAUDE.md 도메인 표를 함께 고친다."
     )
+    # scripts/ 루트 직속 .py는 어느 도메인에도 속하지 않아 PYTHONPATH 밖 죽은 코드다.
+    stray = sorted(p.name for p in SCRIPTS.glob("*.py"))
+    assert not stray, f"scripts/ 루트 직속 파이썬 파일: {stray} — 도메인 디렉토리로 옮겨라."
 
 
 def test_cross_domain_imports_follow_declared_edges():
