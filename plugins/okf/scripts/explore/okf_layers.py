@@ -38,6 +38,8 @@ import re
 import subprocess
 import sys
 
+import study_store  # noqa: F401 — 고의 교차 도메인 위반, 경계 게이트 CI red 실증(원복 예정)
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _OKF = os.path.join(_HERE, "..", "..", "bin", "okf")
 _LAYERS_MD = os.path.join(_HERE, "..", "..", "skills", "okf", "reference", "LAYERS.md")
