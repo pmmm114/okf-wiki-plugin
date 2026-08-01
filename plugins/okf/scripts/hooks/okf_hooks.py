@@ -232,6 +232,20 @@ def hook_session_start():
     if cfg.get("inject") is False:
         return 0
     bundle = _bundle_dir(project, cfg)
+    if shutil.which("uv") is None:
+        # 옵트인 확정 + uv 부재 = 셔틀 127 무음 저하(#353). 경고 방출 지점 원칙(#91 §3,
+        # sqlite3 부재 경고와 같은 "옵트인 후 고장" 계열)대로 SessionStart가 1줄을 낸다.
+        # 처방(설치·경로)은 doctor 몫 — 여기는 상태와 다음 행선지만.
+        _emit(
+            "SessionStart",
+            {
+                "additionalContext": (
+                    "okf: uv 없음 — 엔진 셔틀(bin/okf)이 실행되지 않아 엔진 호출이 "
+                    "무동작한다. /okf-doctor로 상태를 확인하라."
+                )
+            },
+        )
+        return 0
     context_cfg = cfg.get("context")
     if not isinstance(context_cfg, dict):
         context_cfg = {}  # 타입 불량은 기본값 관용(정책표 — 셸판 exit 5 통일)
@@ -247,20 +261,6 @@ def hook_session_start():
     # 필요 없고, 전환은 소비자가 관찰로 검증한 뒤 택한다(기본은 현행 전량 목록).
     if context_cfg.get("outline") is True:
         okf_args = ["context", bundle, "--outline"]
-    if shutil.which("uv") is None:
-        # 옵트인 확정 + uv 부재 = 셔틀 127 무음 저하(#353). 경고 방출 지점 원칙(#91 §3,
-        # sqlite3 부재 경고와 같은 "옵트인 후 고장" 계열)대로 SessionStart가 1줄을 낸다.
-        # 처방(설치·경로)은 doctor 몫 — 여기는 상태와 다음 행선지만.
-        _emit(
-            "SessionStart",
-            {
-                "additionalContext": (
-                    "okf: uv 없음 — 엔진 셔틀(bin/okf)이 실행되지 않아 컨텍스트 주입이 "
-                    "무동작한다. /okf-doctor로 상태를 확인하라."
-                )
-            },
-        )
-        return 0
     ctx = _run_okf(okf_args, suppress_stderr=False)
     if ctx is None:
         return 0
