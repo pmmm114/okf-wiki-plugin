@@ -159,6 +159,7 @@ flowchart TD
         P --> I["index<br/>생성 — index.md 재생성"]
         P --> G["graph<br/>관측 — 링크와 역링크 엣지"]
         P --> N["census<br/>관측 — 번들 형상"]
+        P --> Q["query<br/>재료 — 인메모리 sqlite SQL 질의"]
         P --> C["context<br/>주입 — 압축 지식 인덱스"]
     end
     subgraph plugin["플러그인 계층 (엔진 밖)"]
