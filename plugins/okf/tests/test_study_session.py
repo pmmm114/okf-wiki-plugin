@@ -12,6 +12,7 @@ import pytest
 import study_inbox
 import study_scope
 import study_session
+import study_store
 
 
 @pytest.fixture(autouse=True)
@@ -71,6 +72,24 @@ def test_invalid_pointer_emits_warning(monkeypatch, tmp_path):
 
 
 def test_no_pointer_stays_silent(tmp_path):
+    project = tmp_path / "scratch"
+    project.mkdir()
+    assert study_session.run(project) is None
+
+
+def test_sqlite3_absence_warns_when_capture_active(monkeypatch, tmp_path):
+    # 캡처 옵트인 + 스테이징 비활성 = "옵트인 후 고장" — 경고 방출 지점은 SessionStart
+    (tmp_path / ".okf-wiki.json").write_text(
+        json.dumps({"study": {"capture": "review"}}), encoding="utf-8"
+    )
+    monkeypatch.setattr(study_store, "available", lambda: False)
+    message = study_session.run(tmp_path)
+    assert message and "sqlite3" in message and "doctor" in message
+
+
+def test_sqlite3_absence_silent_without_capture_optin(monkeypatch, tmp_path):
+    # 옵트인이 없으면 고장도 아니다 — 무음 유지(캡처 off와 동형)
+    monkeypatch.setattr(study_store, "available", lambda: False)
     project = tmp_path / "scratch"
     project.mkdir()
     assert study_session.run(project) is None
