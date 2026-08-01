@@ -12,6 +12,7 @@ OKF_HOOKS_DEBUG가 비어있지 않으면 트레이스백을 stderr로 출력한
 
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -145,8 +146,10 @@ def _run_okf(args, suppress_stderr):
             [okf, *args], stdout=subprocess.PIPE, stderr=stderr, start_new_session=True
         )
     except OSError as exc:
-        # 셔틀을 spawn조차 못한 것이다(uv 부재·권한·경로 손상). 무음으로 두면 이 실패가
-        # "링크가 없다"·"설정이 없다"와 **완전히 같은 무출력**이 되어 진단 경로가 없다(#299).
+        # 셔틀을 spawn조차 못한 것이다(권한·경로 손상 등). uv 부재는 여기 안 잡힌다 —
+        # 셔틀(bin/okf)은 bash 스크립트라 spawn은 성공하고 내부 exec 실패 127 경로로
+        # 간다(#353, 아래 returncode 분기). 무음으로 두면 이 실패가 "링크가 없다"·
+        # "설정이 없다"와 **완전히 같은 무출력**이 되어 진단 경로가 없다(#299).
         # 반환값은 그대로 실패 동치(None) — 바꾸는 것은 진단의 유무뿐이다.
         print(
             f"okf_hooks: okf {args[0]} 실행 불가({exc.__class__.__name__}) — 생략", file=sys.stderr
@@ -161,6 +164,14 @@ def _run_okf(args, suppress_stderr):
             proc.kill()
         proc.wait()
         print(f"okf_hooks: okf {args[0]} 시간 초과({_okf_timeout():g}초) — 생략", file=sys.stderr)
+        return None
+    if proc.returncode == 127:
+        # 셔틀 내부 exec 실패 — bash의 "명령 없음"(uv 부재가 정확히 이 경로다, #353).
+        # 다른 비-제로와 달리 인프라 실패라, 무음이면 "번들 없음"과 같은 신호가 된다.
+        print(
+            f"okf_hooks: okf {args[0]} 셔틀 exec 실패(127 — uv 부재 가능성) — 생략",
+            file=sys.stderr,
+        )
         return None
     if proc.returncode != 0:
         return None
@@ -236,6 +247,20 @@ def hook_session_start():
     # 필요 없고, 전환은 소비자가 관찰로 검증한 뒤 택한다(기본은 현행 전량 목록).
     if context_cfg.get("outline") is True:
         okf_args = ["context", bundle, "--outline"]
+    if shutil.which("uv") is None:
+        # 옵트인 확정 + uv 부재 = 셔틀 127 무음 저하(#353). 경고 방출 지점 원칙(#91 §3,
+        # sqlite3 부재 경고와 같은 "옵트인 후 고장" 계열)대로 SessionStart가 1줄을 낸다.
+        # 처방(설치·경로)은 doctor 몫 — 여기는 상태와 다음 행선지만.
+        _emit(
+            "SessionStart",
+            {
+                "additionalContext": (
+                    "okf: uv 없음 — 엔진 셔틀(bin/okf)이 실행되지 않아 컨텍스트 주입이 "
+                    "무동작한다. /okf-doctor로 상태를 확인하라."
+                )
+            },
+        )
+        return 0
     ctx = _run_okf(okf_args, suppress_stderr=False)
     if ctx is None:
         return 0

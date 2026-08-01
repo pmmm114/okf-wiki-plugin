@@ -1071,3 +1071,65 @@ def test_post_tool_use_asks_engine_for_exact_backlinks():
     src = (PLUGIN / "scripts" / "hooks" / "okf_hooks.py").read_text(encoding="utf-8")
     assert '"--linked-to-exact"' in src, "훅이 정확 일치 질의를 쓰지 않는다"
     assert '"--linked-to"' not in src, "부분일치 질의가 남아 있다 — 짧은 파일명이 긴 것을 삼킨다"
+
+
+# ── uv 부재 가시화 (#353) ────────────────────────────────────────────────────
+# 테스트는 항상 uv 경유(`uv run`)로 돌므로 실 PATH엔 uv가 있다 — 부재는 PATH를
+# 빈 디렉토리로 갈아끼워 결정론화한다(파이썬·훅 스크립트는 절대경로 spawn이라 무관).
+
+
+def _opted_in_project(henv):
+    (henv.project / ".okf-wiki.json").write_text("{}", encoding="utf-8")
+    (henv.project / ".okf").mkdir()
+    (henv.project / ".okf" / "a.md").write_text("x", encoding="utf-8")
+
+
+def test_session_start_uv_missing_warns_when_opted_in(henv, tmp_path):
+    """옵트인(번들·설정 존재) + uv 부재 = SessionStart 1줄 경고, 엔진 미호출."""
+    _opted_in_project(henv)
+    empty = tmp_path / "no-uv-bin"
+    empty.mkdir()
+    res = run_hook(
+        henv.scripts,
+        "session-start",
+        project=henv.project,
+        stub=henv.stub,
+        env_override={"PATH": str(empty)},
+    )
+    assert res.returncode == 0
+    payload = sem(res)
+    assert payload and "uv" in payload["hookSpecificOutput"]["additionalContext"]
+    assert "doctor" in payload["hookSpecificOutput"]["additionalContext"]
+    assert read_and_reset_calls(henv.stub) == ""  # 죽을 셔틀을 부르지 않는다
+
+
+def test_session_start_uv_missing_silent_without_optin(henv, tmp_path):
+    """옵트인이 없으면 uv가 없어도 무음 — 고장이 아니라 해당 없음이다."""
+    empty = tmp_path / "no-uv-bin"
+    empty.mkdir()
+    res = run_hook(
+        henv.scripts,
+        "session-start",
+        project=henv.project,
+        stub=henv.stub,
+        env_override={"PATH": str(empty)},
+    )
+    assert res.returncode == 0 and sem(res) is None
+
+
+def test_shuttle_exec_failure_127_emits_stderr_diagnosis(henv):
+    """셔틀 127(내부 exec 실패 — uv 부재가 이 경로)은 stderr 1줄 진단을 남긴다."""
+    _opted_in_project(henv)
+    (henv.stub / "exit").write_text("127")
+    res = run_hook(henv.scripts, "session-start", project=henv.project, stub=henv.stub)
+    assert res.returncode == 0 and sem(res) is None
+    assert "127" in res.stderr.decode("utf-8")
+
+
+def test_shuttle_other_nonzero_stays_silent(henv):
+    """127 아닌 비-제로(엔진 판정 실패 등)는 종전대로 무음 실패 동치."""
+    _opted_in_project(henv)
+    (henv.stub / "exit").write_text("3")
+    res = run_hook(henv.scripts, "session-start", project=henv.project, stub=henv.stub)
+    assert res.returncode == 0 and sem(res) is None
+    assert res.stderr == b""
