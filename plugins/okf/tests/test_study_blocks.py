@@ -223,8 +223,9 @@ def test_hook_and_scan_agree_on_block_ids(monkeypatch, tmp_path):
 
 
 def test_code_artifact_blocks_are_dropped():
-    # 펜스 마커·닫는 태그 단독 줄은 지식이 아니라 마크업 잔재다(실코퍼스 위양성 0)
-    text = "사실 하나\n\n```tsx\n\n</Flex>\n\n~~~bash\n\n사실 둘"
+    # 닫는 태그 단독 줄·불릿에 싸인 펜스 마커는 여전히 구조 잔재로 걸러진다(#352).
+    # bare 마커는 이제 펜스 상태 전환이 소비한다(#354) — 아래 펜스 테스트가 잠근다.
+    text = "사실 하나\n\n- ```tsx\n\n</Flex>\n\n사실 둘"
     blocks = study_blocks.concept_blocks(text)
     assert [b[0] for b in blocks] == ["사실 하나", "사실 둘"]
 
@@ -240,3 +241,46 @@ def test_noise_snippet_covers_code_artifacts():
     assert study_blocks.is_noise_snippet("```bash")
     assert study_blocks.is_noise_snippet("</ModalScreen.Root>")
     assert not study_blocks.is_noise_snippet("```tsx 펜스는 노이즈로 거른다")
+
+
+# ── 코드 펜스 인지 (#354) ────────────────────────────────────────────────────
+
+
+def test_fence_content_joins_preceding_thought():
+    # 펜스 안 빈 줄·# 주석·불릿꼴 줄이 블록을 쪼개지 않는다 — 코드는 앞 생각의 재료
+    text = (
+        "복구 절차 요약\n```bash\ngit fetch origin\n\n# 주석\n- not-a-bullet\ngit checkout x\n```"
+    )
+    (block,) = study_blocks.concept_blocks(text)
+    assert block == [
+        "복구 절차 요약",
+        "git fetch origin",
+        "# 주석",
+        "- not-a-bullet",
+        "git checkout x",
+    ]
+
+
+def test_fence_markers_are_markup_not_content():
+    text = "요약\n```bash\ncode\n```"
+    (block,) = study_blocks.concept_blocks(text)
+    assert block == ["요약", "code"]
+
+
+def test_pure_fence_without_prose_is_own_block():
+    # 빈 줄로 산문과 분리된 펜스는 자체 블록이다(빈 줄은 저자의 구분 의사)
+    text = "산문 생각\n\n```sh\ncmd one\ncmd two\n```"
+    assert study_blocks.concept_blocks(text) == [["산문 생각"], ["cmd one", "cmd two"]]
+
+
+def test_unclosed_fence_runs_to_eof():
+    text = "요약\n```\ncode a\n\ncode b"
+    (block,) = study_blocks.concept_blocks(text)
+    assert block == ["요약", "code a", "code b"]
+
+
+def test_mismatched_fence_marker_is_content():
+    # 다른 문자 계열 마커는 닫지 않는다 — 백틱 펜스 안의 ~~~는 내용이다
+    text = "```\n~~~\ncode\n```"
+    (block,) = study_blocks.concept_blocks(text)
+    assert block == ["~~~", "code"]
