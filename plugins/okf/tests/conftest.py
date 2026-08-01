@@ -18,11 +18,14 @@ from pathlib import Path
 
 import pytest
 
-# scripts/는 core/(plugin-core)·study/(feature)로 물리 분리돼 있다(#145 U5) —
-# 런타임 spawn은 bin/okf-py가 PYTHONPATH로 같은 두 경로를 노출한다.
+# scripts/는 도메인(hooks·vault·capture·promote·explore·doctor)으로 물리 분리돼
+# 있다 — 런타임 spawn은 bin/okf-py가 PYTHONPATH로 같은 경로들을 노출한다.
+# 새 도메인은 여기와 bin/okf-py 두 곳에 명시 배선한다.
 _SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
-sys.path.insert(0, str(_SCRIPTS / "study"))
-sys.path.insert(0, str(_SCRIPTS / "core"))
+# 역순 삽입 — 최종 sys.path 순서가 bin/okf-py의 PYTHONPATH 순서와 같아진다
+# (stem 전역 유일 게이트로 셰도잉은 없지만, 순서 자체도 실배치와 일치시킨다).
+for _domain in reversed(("hooks", "vault", "capture", "promote", "explore", "doctor")):
+    sys.path.insert(0, str(_SCRIPTS / _domain))
 
 # 스코프 해소에 관여하는 환경변수 — vault 포인터 오버라이드 · 설정 디렉토리 ·
 # 프로젝트 폴백 · doctor 자동메모리 판정. 필요한 테스트는 명시적으로 다시 설정한다.

@@ -7,11 +7,11 @@ argument-hint: "[--vault <path|url>]"
 
 **`--vault <path|url>`가 주어지면 아래 대신 vault 포인터 마법사(#91·#153)를 수행한다.** vault 값은 **로컬 clone 절대경로** 또는 **repo URL**(ssh/https/git/file) 둘 다 된다. 구 플래그 **`--home <path|url>`도 동일하게 처리한다**(deprecated alias — #152; 새 문서는 `--vault`를 쓴다).
 
-H1. **검증·기록**: `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study_scope.py" set <path-or-url>` 실행. 출력의 `mode`(`"path"`|`"url"`)·`written`으로 분기한다(프롬프트 추측 금지 — 코드 판정).
+H1. **검증·기록**: `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/capture/study_scope.py" set <path-or-url>` 실행. 출력의 `mode`(`"path"`|`"url"`)·`written`으로 분기한다(프롬프트 추측 금지 — 코드 판정).
     - `mode: "path"`, `written: true` → 로컬 경로 vault. `capture_ready` 값으로 H1a 분기 후 H2로.
     - `mode: "url"`, `written: true` → **URL vault(#153)**. 포인터엔 URL 원문(크레덴셜 제거본)이 기록됐고, 관리형 clone은 **아직 만들지 않았다**(옵트인).
       - `clone_exists: true` → 관리형 clone(`clone_path`)이 이미 있다. `capture_ready`로 H1a 분기 후 H2로.
-      - `clone_exists: false` → clone이 없다. 사용자에게 `clone_path`와 "생성엔 네트워크·디스크가 든다"를 알리고 **동의를 받아** `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_remote.py" clone`을 실행한다(플러그인이 임의 clone하지 않는다 — #91 옵트인 계약).
+      - `clone_exists: false` → clone이 없다. 사용자에게 `clone_path`와 "생성엔 네트워크·디스크가 든다"를 알리고 **동의를 받아** `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/vault/okf_remote.py" clone`을 실행한다(플러그인이 임의 clone하지 않는다 — #91 옵트인 계약).
         - `cloned: true, valid: true` → `set <url>`을 재실행해 `capture_ready`를 얻고 H1a로.
         - `cloned: true, valid: false`(원격에 `.okf-wiki.json` 부재) → 그 사실을 알리고, 원격 repo에 큐레이션 번들(`.okf/`)·설정을 갖춘 뒤 재시도하도록 안내하고 종료.
         - `cloned: false`(오프라인·인증 실패) → 사유를 보이고, **포인터는 URL로 남으니**(이식 가능 설정) 네트워크 회복 후 재실행하거나 다음 세션 fetch로 이어짐을 안내하고 종료.
@@ -22,23 +22,23 @@ H1. **검증·기록**: `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROO
 H1a. **캡처 준비 판정(스크립트 출력 `capture_ready` 기준 — 프롬프트 추측 금지)**:
     - `"active"` → vault가 이미 위치 무관 적재를 켠 상태다. 안내 없이 H2로.
     - `"off" | "absent"` → 이 vault는 지금 **주입(읽기) 전용**이라, 다른 위치에서 저장한 메모리가 이 vault로 적재되지 않는다.
-      - **로컬 경로 vault**: 사용자에게 그 사실과 "위치 무관 적재를 켜려면 vault에 캡처를 활성해야 한다"를 알리고 **동의를 받아** `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study_scope.py" enable-capture <path>` 를 실행한다(스크립트가 vault `.okf-wiki.json`의 `study.capture: review`만 켜고 런타임은 **유저 스코프 `~/.claude/okf/study`**에 보장한다 — vault엔 `.okf-study`를 만들지 않는다, #114 U2. 판정·편집 모두 코드 경로). 성공 시 vault repo에서 바뀐 `.okf-wiki.json`을 **커밋**하도록 안내한다(런타임은 유저 스코프라 커밋 대상 아님). 동의하지 않으면 주입 전용으로 두고 H2로(강제하지 않는다 — 캡처는 vault 설정에 쓰기이므로 사용자 선택이다).
+      - **로컬 경로 vault**: 사용자에게 그 사실과 "위치 무관 적재를 켜려면 vault에 캡처를 활성해야 한다"를 알리고 **동의를 받아** `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/capture/study_scope.py" enable-capture <path>` 를 실행한다(스크립트가 vault `.okf-wiki.json`의 `study.capture: review`만 켜고 런타임은 **유저 스코프 `~/.claude/okf/study`**에 보장한다 — vault엔 `.okf-study`를 만들지 않는다, #114 U2. 판정·편집 모두 코드 경로). 성공 시 vault repo에서 바뀐 `.okf-wiki.json`을 **커밋**하도록 안내한다(런타임은 유저 스코프라 커밋 대상 아님). 동의하지 않으면 주입 전용으로 두고 H2로(강제하지 않는다 — 캡처는 vault 설정에 쓰기이므로 사용자 선택이다).
       - **URL vault(관리형 clone)**: `enable-capture`는 관리형 clone의 커밋된 설정을 편집해 origin과 diverge시키므로 **거부된다**(`reason: "managed-clone"`, #153 U2-6) — 캡처는 여기서 켜지 말고 **아래 H1b의 writable 스캐폴드**로 핸들러와 함께 원격에 반영한다(스캐폴드가 `study.capture`도 배선한다). clone은 순수 소비 미러로 둔다.
-H1b. **writable 셋업 스캐폴드 제안(딸깍 저술, 선택)**: 승격을 원격에 **PR로 반영**하려면 vault에 핸들러 배선이 필요하다(주입만 쓸 거면 불필요). writable 준비 상태를 기계 판정한다 — `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study_scaffold_handler.py" status <clone_path(URL)|vault 경로(로컬)>`.
+H1b. **writable 셋업 스캐폴드 제안(딸깍 저술, 선택)**: 승격을 원격에 **PR로 반영**하려면 vault에 핸들러 배선이 필요하다(주입만 쓸 거면 불필요). writable 준비 상태를 기계 판정한다 — `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/promote/study_scaffold_handler.py" status <clone_path(URL)|vault 경로(로컬)>`.
     - `ready: true` **그리고** `dispatchable: true` → 배선·capture·실제 게이트가 모두 통과. 안내 없이 H2로.
     - `ready: true` **인데** `dispatchable: false` → 설정은 끝났지만 **실제로는 나가지 못하는** 상태다(스캐폴드 직후가 여기다 — 핸들러가 아직 미커밋). 스캐폴드를 다시 제안하지 **말고**(멱등이라 무의미하다) `blockers[]`의 `code`별로 안내한다: `untracked` → 핸들러 파일을 vault repo에 커밋(관리형 clone이면 브랜치→PR)하라, `escape` → `command`가 repo 트리 밖을 가리킨다(설정을 고쳐라). 각 항목의 `reason`을 그대로 보인다.
-    - `ready: false` → 사용자에게 "`origin`에 PR을 여는 참조 핸들러(무참조)와 study 배선을 한 번에 깔까요?"를 알리고 **동의를 받아** `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study_scaffold_handler.py" scaffold <clone_path|vault 경로>` 를 실행한다(플러그인이 임의로 파일을 만들지 않는다 — 옵트인). 결과의 `code`로 분기한다(`study_scaffold.SCAFFOLD_CODES`가 단일원천).
+    - `ready: false` → 사용자에게 "`origin`에 PR을 여는 참조 핸들러(무참조)와 study 배선을 한 번에 깔까요?"를 알리고 **동의를 받아** `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/promote/study_scaffold_handler.py" scaffold <clone_path|vault 경로>` 를 실행한다(플러그인이 임의로 파일을 만들지 않는다 — 옵트인). 결과의 `code`로 분기한다(`study_scaffold.SCAFFOLD_CODES`가 단일원천).
       - `invalid_vault` → 유효 vault가 아니다. `reason`을 그대로 보이고 **종료한다**(H2로 가지 않는다).
       - `config_parse_error` → vault의 `.okf-wiki.json`을 읽지 못했다. `reason`을 그대로 보이고 **종료한다** — 핸들러 파일은 만들어지지 않았다(원자성).
       - `ok` → `done`(수행 항목)· `guidance`(반영·trust 절차)를 **그대로** 전한다.
       - `managed: true`(URL vault) → `guidance`가 **브랜치→PR로 원격 main에 반영**하는 절차다(관리형 clone 직접 커밋은 origin과 diverge하므로). 그대로 안내.
       - `managed: false`(로컬 경로 vault) → `guidance`가 vault repo **커밋** 절차다. 그대로 안내.
       - 동의하지 않으면 주입 전용으로 두고 H2로(강제하지 않는다). 전체 흐름·핸들러 계약은 docs/remote-vault.md.
-H2. **trust 안내**: vault repo에 핸들러가 배선돼 있으면 로컬 승인이 필요함을 알리고 vault에서 `/study --trust` 실행을 안내한다(미승인이면 디스패치만 보류됨). H3. **확인 출력**: `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/core/okf_doctor.py" .`를 실행해 "지금 이 위치에서 캡처/주입이 어디로 가는지"(결정 트레이스·건강·회복 안내)를 그대로 보여준다.
+H2. **trust 안내**: vault repo에 핸들러가 배선돼 있으면 로컬 승인이 필요함을 알리고 vault에서 `/study --trust` 실행을 안내한다(미승인이면 디스패치만 보류됨). H3. **확인 출력**: `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/doctor/okf_doctor.py" .`를 실행해 "지금 이 위치에서 캡처/주입이 어디로 가는지"(결정 트레이스·건강·회복 안내)를 그대로 보여준다.
 
 **인자가 없으면 아래를 순서대로 수행하라.**
 
-1. **study 런타임 스캐폴드(가드 게이트 — 반드시 첫 단계)**: 프로젝트 루트에서 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/study/study_scaffold.py"`를 실행한다.
+1. **study 런타임 스캐폴드(가드 게이트 — 반드시 첫 단계)**: 프로젝트 루트에서 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/capture/study_scaffold.py"`를 실행한다.
    출력은 `{ok, code, reason?, done?, notice?}` JSON이다. **`code`로 분기한다**(한국어 문장 매칭 금지 — 사람용 표시일 뿐이다). 코드 집합은 `study_scaffold.SCAFFOLD_CODES`가 단일원천이고 각 코드에 복구 지시(`recovery`)가 붙는다.
    - `guard_refused`(exit 3, #104): cwd가 git repo가 아니다. `reason`과 대안(`/okf-init --vault`)을 **그대로** 전하고 **종료한다** — 아래 2단계(번들)도 수행하지 않는다(로컬 산출물 0). 사용자가 사유를 보고도 로컬 스캐폴드를 명시적으로 원할 때만 `--force`로 재실행하고 2단계로 진행.
    - `config_parse_error`(exit 2): `.okf-wiki.json`을 읽지 못했다. `reason`을 그대로 보이고 **종료한다** — **2단계로 진행하지 않는다**(#307). 진행하면 `bundlePath`를 읽을 수 없어 기본값 `.okf`로 떨어져, 사용자가 지정한 위치가 아닌 곳에 번들이 생긴다. 파싱 실패 시 스캐폴드는 **아무것도 만들지 않으므로** 파일을 고치고 재실행하면 된다.

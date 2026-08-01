@@ -136,11 +136,11 @@
 
 진단·회복은 `/okf-doctor`(해소 트레이스·건강·캡처 입구 진단)와 `study scan [--enqueue]`(미큐잉 후보 결정론 탐지·멱등 재적재)가 담당한다.
 
-> 구현 배선: 포인터·vault 판정(로컬/URL)·주입 해소는 generic 공유 모듈 `scripts/core/okf_vault.py`에,
-> 캡처 스코프·런타임 루트·캡처 입구 판정은 study 층 `scripts/study/study_scope.py`에 있다
-> (#145 U3 분할 — import는 study_scope→okf_vault 단방향; U5에서 `scripts/core`·`scripts/study`로
+> 구현 배선: 포인터·vault 판정(로컬/URL)·주입 해소는 generic 공유 모듈 `scripts/vault/okf_vault.py`에,
+> 캡처 스코프·런타임 루트·캡처 입구 판정은 study 층 `scripts/capture/study_scope.py`에 있다
+> (#145 U3 분할 — import는 study_scope→okf_vault 단방향; 도메인 디렉토리(`hooks`·`vault`·`capture`·`promote`·`explore`·`doctor`)로
 > 물리 분리, `bin/okf-py`가 PYTHONPATH로 노출). URL 모드의 git I/O(clone·fetch·refresh)는
-> generic `scripts/core/okf_remote.py`가 소유한다 — `okf_vault`은 무네트워크 순수 분류기로
+> generic `scripts/vault/okf_remote.py`가 소유한다 — `okf_vault`은 무네트워크 순수 분류기로
 > 남고, 네트워크는 명시 지점(clone 옵트인·SessionStart fetch·`/study` refresh)에만 (#153 C6).
 > 캡처 훅(`study_hook`·`study_session`)은 `study_scope`를, 주입 훅(`okf_hooks` session-start)은
 > `okf_vault`+`okf_remote`(fetch-only)를 재사용한다. doctor는 generic(`okf_vault`·`okf_remote`)만

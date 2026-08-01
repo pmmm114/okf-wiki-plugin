@@ -61,7 +61,12 @@ def test_lint_json_contract(tmp_path):
     bundle.mkdir()
     (bundle / "index.md").write_text('---\nokf_version: "0.1"\n---\n# Concepts\n', encoding="utf-8")
     proc = subprocess.run(
-        [sys.executable, str(PLUGIN / "scripts" / "core" / "okf_layers.py"), str(bundle), "--json"],
+        [
+            sys.executable,
+            str(PLUGIN / "scripts" / "explore" / "okf_layers.py"),
+            str(bundle),
+            "--json",
+        ],
         capture_output=True,
         text=True,
         env={**os.environ, "HOME": str(tmp_path)},

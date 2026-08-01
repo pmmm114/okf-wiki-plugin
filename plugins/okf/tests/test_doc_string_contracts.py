@@ -74,17 +74,17 @@ _HANGUL = re.compile(r"[가-힣]")
 # 행을 추가하는 것이 곧 결합의 비용이다. 각 행은 전환 예정이거나 영구 허용이다.
 CONTRACTS = (
     # --- 전환 예정: vault 사유(okf_vault.INVALID_*)는 기계 code를 얻으면 뺀다 ------
-    ("commands/okf-init.md", "URL 포인터 — 미지원 transport", "core/okf_vault.py", None, True),
-    ("commands/okf-init.md", ".okf-wiki.json 없음", "core/okf_vault.py", None, True),
-    ("commands/okf-init.md", "대상 없음", "core/okf_vault.py", None, True),
-    ("commands/okf-init.md", "git repo 아님", "core/okf_vault.py", None, True),
+    ("commands/okf-init.md", "URL 포인터 — 미지원 transport", "vault/okf_vault.py", None, True),
+    ("commands/okf-init.md", ".okf-wiki.json 없음", "vault/okf_vault.py", None, True),
+    ("commands/okf-init.md", "대상 없음", "vault/okf_vault.py", None, True),
+    ("commands/okf-init.md", "git repo 아님", "vault/okf_vault.py", None, True),
     # (remote refresh 사유는 #297이 `code` enum으로 전환해 여기서 빠졌다 —
     #  `test_okf_remote.py::test_study_md_branches_on_every_refresh_code`가 대신 잠근다)
     # --- 영구 허용: doctor는 **출력 텍스트 자체가 산출물**이라 문구 계약이 정당하다.
     #     커맨드 문서가 "자체 해석을 덧붙이지 말 것"으로 못박은 설계와 정합한다(#280 범위 제외).
-    ("commands/okf-doctor.md", "[회복]", "study/study_doctor.py", '("회복"', False),
+    ("commands/okf-doctor.md", "[회복]", "doctor/study_doctor.py", '("회복"', False),
     # --- 영구 허용: 가시적 저하 안내의 소프트 참조. 분기가 아니라 "보이면 도와줘라"다.
-    ("commands/okf-promote.md", "미승인", "core/okf_explore.py", "미승인", False),
+    ("commands/okf-promote.md", "미승인", "explore/okf_explore.py", "미승인", False),
 )
 
 

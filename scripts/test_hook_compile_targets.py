@@ -18,9 +18,9 @@ import hook_compile_targets as hct  # noqa: E402
 # 배선된 훅 스크립트 — 도출 결과는 최소한 이것들을 **반드시** 포함한다.
 # core 3파일만 손으로 적혀 있던 시절 검사 밖이었던 것이 정확히 study 훅 2종이다.
 MUST_INCLUDE = (
-    "plugins/okf/scripts/core/okf_hooks.py",
-    "plugins/okf/scripts/study/study_hook.py",
-    "plugins/okf/scripts/study/study_session.py",
+    "plugins/okf/scripts/hooks/okf_hooks.py",
+    "plugins/okf/scripts/hooks/study_hook.py",
+    "plugins/okf/scripts/hooks/study_session.py",
 )
 
 
@@ -44,7 +44,7 @@ def test_closure_pulls_transitive_imports():
     """진입점이 직접 부르지 않는 모듈도 import로 닿으면 포함된다."""
     targets = _rel(hct.closure(hct.wired_entry_points()))
     # study_session → study_inbox → study_store 로 이어지는 전이 경로
-    assert "plugins/okf/scripts/study/study_store.py" in targets, sorted(targets)
+    assert "plugins/okf/scripts/capture/study_store.py" in targets, sorted(targets)
 
 
 def test_every_target_exists():
@@ -78,7 +78,7 @@ def test_cli_prints_repo_relative_paths():
 def test_module_stems_are_unique():
     """훅 모듈 stem이 유일하다 — 셔틀은 flat 네임스페이스로 import한다.
 
-    `bin/okf-py`가 `scripts/core`와 `scripts/study`를 **둘 다** PYTHONPATH에 넣으므로
+    `bin/okf-py`가 `scripts/` 아래 도메인 디렉토리를 **전부** PYTHONPATH에 넣으므로
     같은 stem이 양쪽에 있으면 앞선 것이 뒤를 가린다. 도출도 stem으로 색인하니 컴파일
     대상이 조용히 한쪽만 남는다.
     """

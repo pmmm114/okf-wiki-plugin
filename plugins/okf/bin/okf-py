@@ -5,11 +5,14 @@
 # bare `python3`는 ENOENT로 죽는 환경이 있다. 인터프리터 탐색은 Python으로 쓸 수
 # 없는 부트스트랩이라 bin/ 셔틀만 shell이 허용된다(CLAUDE.md).
 set -eu
-# 물리 분리된 스크립트 디렉토리(core/·study/)를 모듈 경로로 노출(#145 U5) —
-# 훅·커맨드의 Python spawn은 전부 이 셔틀을 거치므로 교차 디렉토리 import
-# (study→core 단방향, doctor의 study_doctor 심)의 부트스트랩은 여기 한 곳이다.
+# 도메인 디렉토리(hooks 진입점·vault 저장고·capture 캡처·promote 승격·
+# explore 탐색·doctor 진단)를 모듈 경로로 노출 — 모듈명은 flat 유지라 stem이
+# 전역 유일해야 한다(게이트: test_module_stems_are_unique). 훅·커맨드의 Python
+# spawn은 전부 이 셔틀을 거치므로 교차 도메인 import의 부트스트랩은 여기 한 곳이다.
+# 새 도메인은 여기와 tests/conftest.py 두 곳에 명시 배선한다.
 here="$(cd "$(dirname "$0")" && pwd)"
-PYTHONPATH="$here/../scripts/core:$here/../scripts/study${PYTHONPATH:+:$PYTHONPATH}"
+sdir="$here/../scripts"
+PYTHONPATH="$sdir/hooks:$sdir/vault:$sdir/capture:$sdir/promote:$sdir/explore:$sdir/doctor${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
 if [ -n "${OKF_PYTHON:-}" ]; then
   exec "$OKF_PYTHON" "$@"

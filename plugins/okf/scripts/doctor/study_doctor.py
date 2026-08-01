@@ -155,7 +155,7 @@ def _store_notes(project: str) -> list[str]:
 
 def _prune_cmd(project_arg: str) -> str:
     plugin = Path(__file__).resolve().parent.parent.parent
-    return f'"{plugin}/bin/okf-py" "{plugin}/scripts/study/study.py" prune "{project_arg}"'
+    return f'"{plugin}/bin/okf-py" "{plugin}/scripts/promote/study.py" prune "{project_arg}"'
 
 
 def _noise_advisory(runtime: str, cmd: str | None) -> list[str]:
@@ -229,7 +229,7 @@ def _recovery_lines(project: str) -> list[str]:
         return []
     files = len({c["source"] for c in unqueued})  # 후보(블록/줄) 수가 아닌 파일 수로 집계
     plugin = Path(__file__).resolve().parent.parent.parent
-    cmd = f'"{plugin}/bin/okf-py" "{plugin}/scripts/study/study.py" scan "{project}" --enqueue'
+    cmd = f'"{plugin}/bin/okf-py" "{plugin}/scripts/promote/study.py" scan "{project}" --enqueue'
     return [f"  미큐잉 후보가 있는 파일 {files}개 — `{cmd}`로 재적재 후 /study로 선별 승격하라."]
 
 

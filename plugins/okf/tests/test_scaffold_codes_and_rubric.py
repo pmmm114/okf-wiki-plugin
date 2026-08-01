@@ -85,7 +85,7 @@ def test_init_md_has_a_branch_item_per_code(code):
 
 def _run_scaffold(project: Path):
     return subprocess.run(
-        [sys.executable, str(PLUGIN / "scripts" / "study" / "study_scaffold.py"), str(project)],
+        [sys.executable, str(PLUGIN / "scripts" / "capture" / "study_scaffold.py"), str(project)],
         capture_output=True,
         text=True,
     )

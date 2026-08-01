@@ -53,11 +53,14 @@ exit "$(cat "$OKF_STUB_DIR/exit" 2>/dev/null || echo 0)"
 @pytest.fixture()
 def henv(tmp_path):
     scripts = tmp_path / "plugin" / "scripts"
-    # 실제 배치 구조 미러링(#145 U5) — 훅은 전부 scripts/core/의 Python이다(#299).
-    (scripts / "core").mkdir(parents=True)
-    # okf_remote는 okf_hooks가 SessionStart URL 신선도로 import하는 core 모듈(#153).
-    for name in ["okf_hooks.py", "okf_vault.py", "okf_remote.py"]:
-        shutil.copy2(PLUGIN / "scripts" / "core" / name, scripts / "core" / name)
+    # 실제 배치 구조 미러링 — 진입점은 scripts/hooks/, okf_hooks가 import하는
+    # okf_vault·okf_remote는 vault(저장고) 도메인이다(#153). 교차 도메인 해석은
+    # run_hook이 bin/okf-py처럼 PYTHONPATH로 잇는다.
+    (scripts / "hooks").mkdir(parents=True)
+    (scripts / "vault").mkdir(parents=True)
+    shutil.copy2(PLUGIN / "scripts" / "hooks" / "okf_hooks.py", scripts / "hooks" / "okf_hooks.py")
+    for name in ["okf_vault.py", "okf_remote.py"]:
+        shutil.copy2(PLUGIN / "scripts" / "vault" / name, scripts / "vault" / name)
     bin_dir = tmp_path / "plugin" / "bin"
     bin_dir.mkdir()
     (bin_dir / "okf").write_text(STUB_OKF)
@@ -70,8 +73,12 @@ def henv(tmp_path):
 
 
 def run_hook(scripts, hook, *, project, stdin=b"", stub=None, env_override=None, cwd=None):
-    cmd = [sys.executable, str(scripts / "core" / "okf_hooks.py"), hook]
+    cmd = [sys.executable, str(scripts / "hooks" / "okf_hooks.py"), hook]
     env = os.environ.copy()
+    # 교차 도메인 import 배선 — 실배치의 bin/okf-py PYTHONPATH 미러
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(scripts / "vault"), *filter(None, [env.get("PYTHONPATH")])]
+    )
     env["CLAUDE_PROJECT_DIR"] = str(project)
     if stub is not None:
         env["OKF_STUB_DIR"] = str(stub)
@@ -726,9 +733,12 @@ def test_okf_timeout_diagnosable_and_reaps(henv):
 def test_direct_execution_and_usage_errors(tmp_path):
     """실행 비트+셔뱅으로 직접 실행 가능해야 하고(플립 후 전멸 방지), 서브커맨드
     누락·불명은 exit 1이다(훅 차단 의미인 exit 2 금지)."""
-    script = PLUGIN / "scripts" / "core" / "okf_hooks.py"
+    script = PLUGIN / "scripts" / "hooks" / "okf_hooks.py"
     assert os.access(script, os.X_OK)
-    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(tmp_path)}
+    pythonpath = os.pathsep.join(
+        [str(PLUGIN / "scripts" / "vault"), *filter(None, [os.environ.get("PYTHONPATH")])]
+    )
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(tmp_path), "PYTHONPATH": pythonpath}
     ok = subprocess.run([str(script), "session-start"], env=env, capture_output=True)
     assert ok.returncode == 0 and ok.stdout == b""
     for args in ([], ["unknown"]):
@@ -898,12 +908,13 @@ def test_study_hooks_diagnose_on_unexpected_error(tmp_path, script, stdin):
     # 훅 스크립트를 tmp로 복사한다 — Python은 **스크립트 디렉토리**를 sys.path[0]에
     # 두므로, PYTHONPATH만 조작하면 진짜 study_scope가 먼저 잡혀 아무것도 안 터진다.
     (tmp_path / "study_scope.py").write_text(BOOM_SCOPE, encoding="utf-8")
-    shutil.copy2(PLUGIN / "scripts" / "study" / script, tmp_path / script)
+    shutil.copy2(PLUGIN / "scripts" / "hooks" / script, tmp_path / script)
     env = {
         **os.environ,
         "CLAUDE_PROJECT_DIR": str(tmp_path),
         "PYTHONPATH": os.pathsep.join(
-            [str(PLUGIN / "scripts" / "study"), str(PLUGIN / "scripts" / "core")]
+            str(PLUGIN / "scripts" / d)
+            for d in ("hooks", "vault", "capture", "promote", "explore", "doctor")
         ),
     }
     res = subprocess.run(
@@ -1016,7 +1027,7 @@ def test_all_hooks_resolve_scope_via_resolve_inject():
     """세 훅이 같은 해소(resolve_inject)를 거친다 — 한 곳만 고쳐지는 드리프트 방지(#327)."""
     import ast
 
-    tree = ast.parse((PLUGIN / "scripts" / "core" / "okf_hooks.py").read_text(encoding="utf-8"))
+    tree = ast.parse((PLUGIN / "scripts" / "hooks" / "okf_hooks.py").read_text(encoding="utf-8"))
     remaining = {"hook_session_start", "hook_post_tool_use", "hook_file_changed"}
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name in remaining:
@@ -1057,6 +1068,6 @@ def test_post_tool_use_ignores_engine_output_when_exit_nonzero(henv):
 
 def test_post_tool_use_asks_engine_for_exact_backlinks():
     """훅이 부분일치가 아니라 **정확 일치** 질의를 쓴다(배선 축 단언)."""
-    src = (PLUGIN / "scripts" / "core" / "okf_hooks.py").read_text(encoding="utf-8")
+    src = (PLUGIN / "scripts" / "hooks" / "okf_hooks.py").read_text(encoding="utf-8")
     assert '"--linked-to-exact"' in src, "훅이 정확 일치 질의를 쓰지 않는다"
     assert '"--linked-to"' not in src, "부분일치 질의가 남아 있다 — 짧은 파일명이 긴 것을 삼킨다"

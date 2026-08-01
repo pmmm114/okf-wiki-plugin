@@ -16,7 +16,7 @@ from pathlib import Path
 PLUGIN = Path(__file__).resolve().parent.parent
 SKILL = PLUGIN / "skills" / "okf" / "SKILL.md"
 STUDY_CMD = PLUGIN / "commands" / "study.md"
-PROMOTE = PLUGIN / "scripts" / "core" / "okf_promote.py"
+PROMOTE = PLUGIN / "scripts" / "promote" / "okf_promote.py"
 CENSUS_CALL = '"${CLAUDE_PLUGIN_ROOT}/bin/okf" census'
 
 
