@@ -10,9 +10,19 @@
 ``snapshot``이 직접 채집한다. 근사중복(near-bundle)도 게이트가 아니다(#189 결정 B,
 자문) — 커맨드가 제안 단계에서 별도로 자문한다. study 모듈 무-import(core⊥study).
 
-제안 계약(Epic #197 §3): ``{target_layer, path(신설, 번들 상대), type, description,
-body, derived_from: [경로], materials: [{path, sha256}], resource?, allow_dangling?:
+제안 계약(Epic #197 §3 · #351 U1 일반화): ``{mode?: "create"|"update"(기본 create),
+layer?(별칭 target_layer — 하위호환), path(번들 상대), type, description, body,
+derived_from?: [경로], materials: [{path, sha256}], resource?, allow_dangling?:
 [경로], rubric?}``. 경로는 ``/`` 시작을 허용하며 내부적으로 정규화한다.
+
+모드 규칙(#351 — 명시적 mode, 실존 암묵 판별 금지): create인데 path 실존이면 반려
+(§9 금지 2), update인데 부재면 반려(오타가 신설로 둔갑하지 않게). update는 기존
+frontmatter를 엔진 query(재료 제공자)로 로드해 제안 필드만 병합하고(미지 축 보존),
+갱신 이력은 스킬 §3대로 log.md 엔트리(kind Update)로 남긴다 — supersedes는 필드가
+아니라 이 갱신 플로우의 이름이다. update에서 기존 층과 다른 layer는 재라벨이라
+반려하고(미분류 개념에 라벨 부여는 허용), rubric·정보층 출처 요구는 create 전용이다
+(§3 유지 플로우엔 해당 없음). layer 미기재는 허용 — 층 게이트는 층이 있을 때만
+적용된다(판정 요구 필드를 강제하면 채워지지 않는다는 소급 실측, #351 설계).
 
 게이트 → §9 금지 매핑: 어휘·정초 엄격 하향(금지 5) · path 신설(금지 2, 재라벨 차단) ·
 재료 해시 재대조(금지 3, 삭제·흡수·수정 차단) · derived_from 실존(금지 1, 근거 날조
@@ -108,6 +118,23 @@ def snapshot_materials(bundle: str, paths: list[str]) -> dict:
 # 되게 한다.
 RUBRIC_KEYS = ("new_insight", "falsification")
 
+_MODES = ("create", "update")
+
+
+def proposal_mode(proposal: dict) -> str | None:
+    """명시적 모드(기본 create) — 어휘 밖 값은 None(반려 사유는 게이트가 만든다)."""
+    mode = proposal.get("mode") or "create"
+    return mode if mode in _MODES else None
+
+
+def proposal_layer(proposal: dict) -> tuple[str | None, bool]:
+    """``layer``(정식)·``target_layer``(하위호환 별칭)를 하나로 — (값, 충돌 여부)."""
+    layer = proposal.get("layer")
+    legacy = proposal.get("target_layer")
+    if layer is not None and legacy is not None and layer != legacy:
+        return None, True
+    return (layer if layer is not None else legacy), False
+
 
 def gate_proposal(
     spec: dict,
@@ -128,20 +155,53 @@ def gate_proposal(
     rank = {value: index for index, value in enumerate(order)}
     rules = spec.get("rules", {})
 
-    target_layer = proposal.get("target_layer")
-    if target_layer not in rank:
-        reasons.append(f"어휘 위반: target_layer {target_layer!r} (허용: {order})")
+    mode = proposal_mode(proposal)
+    if mode is None:
+        reasons.append(f"모드 위반: mode {proposal.get('mode')!r} (허용: {_MODES})")
+        mode = "create"  # 나머지 게이트는 보수적으로 create 기준으로 계속 본다
+
+    layer, conflict = proposal_layer(proposal)
+    if conflict:
+        reasons.append("layer/target_layer 불일치 — 별칭은 같은 값이어야 한다")
+    if layer is not None and layer not in rank:
+        reasons.append(f"어휘 위반: layer {layer!r} (허용: {order})")
+        layer = None  # 판정 불가 층으로는 층 게이트를 잇지 않는다(반려는 이미 기록)
+
+    target_rel = norm_rel(proposal.get("path") or "")
+    existing_layer: str | None = None
+    if not target_rel or not target_rel.endswith(".md"):
+        reasons.append(f"경로 형식 오류: {proposal.get('path')!r} (번들 상대 .md 경로)")
+    elif escapes_bundle(bundle, target_rel):
+        reasons.append(f"번들 경계 탈출: path {target_rel} — 번들 밖은 validate·index가 못 본다")
+    elif mode == "create" and os.path.exists(os.path.join(bundle, target_rel)):
+        reasons.append(
+            f"신설 아님: {target_rel} 이미 존재 — 재라벨·덮어쓰기 금지(§9 금지 2). "
+            "갱신 의도면 mode: update로 명시하라(#351)"
+        )
+    elif mode == "update":
+        if not os.path.isfile(os.path.join(bundle, target_rel)):
+            reasons.append(
+                f"갱신 대상 없음: {target_rel} — 오타이거나, 신설 의도면 mode: create(#351)"
+            )
+        else:
+            existing_layer = layer_map.get(target_rel)
+            if layer is not None and existing_layer is not None and layer != existing_layer:
+                reasons.append(
+                    f"재라벨 금지: {target_rel} {existing_layer} → {layer} "
+                    "(§9 금지 2 — 층간 이동은 적립·신설로)"
+                )
+    effective_layer = layer if layer is not None else existing_layer
 
     # rubric(자기검증) — 상위 층 제안에만 요구한다(#307). 문서가 계약으로 정의해 놓고
     # 코드 어디에서도 읽지도 저장하지도 않아, 선별 표의 '새 인식·반증' 열이 **그 자리에서
     # 지어낸 문장**이 되고 그것이 승인 근거로 쓰였다. 요구하는 것은 **필드의 존재**이지
     # 내용의 진위가 아니다 — 진위는 사람의 몫이고, 여기서 하는 것은 "빈칸으로 통과하지
     # 못하게" 하는 것뿐이다(출처·근거 날조 금지 원칙과 충돌하지 않는다).
-    if rank.get(target_layer, 0) >= 1:
+    if mode == "create" and effective_layer in rank and rank[effective_layer] >= 1:
         rubric = proposal.get("rubric")
         if not isinstance(rubric, dict):
             reasons.append(
-                f"rubric 없음: {target_layer} 제안은 자기검증이 필요하다 ({RUBRIC_KEYS})"
+                f"rubric 없음: {effective_layer} 제안은 자기검증이 필요하다 ({RUBRIC_KEYS})"
             )
         else:
             missing = [k for k in RUBRIC_KEYS if not str(rubric.get(k) or "").strip()]
@@ -153,14 +213,7 @@ def gate_proposal(
         if not isinstance(value, str) or not value.strip():
             reasons.append(f"필수 필드 없음/빈 값: {field}")
 
-    target_rel = norm_rel(proposal.get("path") or "")
-    if not target_rel or not target_rel.endswith(".md"):
-        reasons.append(f"경로 형식 오류: {proposal.get('path')!r} (번들 상대 .md 경로)")
-    elif escapes_bundle(bundle, target_rel):
-        reasons.append(f"번들 경계 탈출: path {target_rel} — 번들 밖은 validate·index가 못 본다")
-    elif os.path.exists(os.path.join(bundle, target_rel)):
-        reasons.append(f"신설 아님: {target_rel} 이미 존재 — 재라벨·덮어쓰기 금지(§9 금지 2)")
-
+    derived_given = proposal.get("derived_from") is not None
     derived = [norm_rel(p) for p in proposal.get("derived_from") or []]
     allow_dangling = {norm_rel(p) for p in proposal.get("allow_dangling") or []}
     materials = {
@@ -182,11 +235,12 @@ def gate_proposal(
 
     if (
         rules.get("upper_requires_derived_from")
-        and target_layer in rank
-        and rank[target_layer] >= 1
+        and effective_layer in rank
+        and rank[effective_layer] >= 1
         and not derived
+        and (mode == "create" or derived_given)  # update 미제공은 기존 접지 유지
     ):
-        reasons.append(f"미접지 제안: {target_layer}는 비어있지 않은 derived_from 필요(§4)")
+        reasons.append(f"미접지 제안: {effective_layer}는 비어있지 않은 derived_from 필요(§4)")
 
     for dep in derived:
         fs = os.path.join(bundle, dep)
@@ -210,8 +264,8 @@ def gate_proposal(
                     f"재료 층 어휘 밖: {dep}({dep_layer}) — 허용: {order} "
                     f"(오타이거나 렌더 파싱 오염일 수 있다)"
                 )
-            elif target_layer in rank and rank[dep_layer] >= rank[target_layer]:
-                reasons.append(f"정초 역전: {dep}({dep_layer}) ≥ {target_layer}(§9 금지 5)")
+            elif effective_layer in rank and rank[dep_layer] >= rank[effective_layer]:
+                reasons.append(f"정초 역전: {dep}({dep_layer}) ≥ {effective_layer}(§9 금지 5)")
         if dep in batch_promoted:
             continue  # 같은 배치에서 방금 집행된 재료 — 스냅샷 면제(§9 원칙 3 캐스케이드)
         if dep not in materials:
@@ -222,8 +276,9 @@ def gate_proposal(
             reasons.append(f"재료 수정됨: {dep} — snapshot 이후 내용 변경(§9 금지 3)")
 
     if (
-        rules.get("information_requires_source")
-        and target_layer == order[0]
+        mode == "create"
+        and rules.get("information_requires_source")
+        and effective_layer == order[0]
         and not (proposal.get("resource") or "").strip()
     ):
         reasons.append(f"정보층 출처 필요: {order[0]} 신설은 resource 필수(§4 접지)")
@@ -237,7 +292,9 @@ def render_concept(spec: dict, proposal: dict) -> str:
     lines = ["---"]
     lines.append(f"type: {proposal['type']}")
     lines.append(f"description: {proposal['description']}")
-    lines.append(f"{spec['field']}: {proposal['target_layer']}")
+    layer, _conflict = proposal_layer(proposal)
+    if layer is not None:  # 미기재 허용(#351) — 층 없는 개념은 층 라인을 쓰지 않는다
+        lines.append(f"{spec['field']}: {layer}")
     derived = [norm_rel(p) for p in proposal.get("derived_from") or []]
     if derived:
         lines.append(f"{spec['derivation_field']}:")
@@ -268,6 +325,75 @@ def _render_rubric(proposal: dict) -> str:
     out = ["", "## 자기검증", ""]
     out += [f"- **{labels[key]}**: {value}" for key, value in rows if value]
     return "\n".join(out) + "\n"
+
+
+def _existing_frontmatter(bundle: str, rel: str, run) -> dict:
+    """update 대상의 frontmatter를 엔진 query(재료 제공자)로 로드한다.
+
+    플러그인은 frontmatter를 직접 파싱하지 않는다(파스는 엔진 소관 — stdlib 원칙과
+    파서 단일화 둘 다). 개념이 아니면(파스 불가·비개념) ValueError — update 불가.
+    """
+    escaped = rel.replace("'", "''")
+    sql = f"SELECT frontmatter_json FROM concept WHERE path = '{escaped}'"
+    rows = json.loads(_staged(run, "query", ["query", bundle, sql, "--json"]))
+    if not rows or not rows[0].get("frontmatter_json"):
+        raise ValueError(f"개념 아님: {rel} — frontmatter가 파스되지 않는 파일은 update 불가")
+    return json.loads(rows[0]["frontmatter_json"])
+
+
+def _frontmatter_lines(spec: dict, fields: dict) -> list[str]:
+    """병합 frontmatter를 결정적 순서(정본 필드 → 나머지 정렬)로 실체화한다.
+
+    지원 형태는 스칼라(str·bool·수)와 문자열 리스트뿐 — 그 밖(중첩 등)은 ValueError로
+    반려한다. 조용한 손상 대신 가시적 반려이고, 그런 개념은 스킬 §3 수동 편집 경로다.
+    """
+    canonical = ["type", "description", spec["field"], spec["derivation_field"], "resource"]
+    ordered = [k for k in canonical if k in fields]
+    ordered += sorted(k for k in fields if k not in canonical)
+    lines: list[str] = []
+    for key in ordered:
+        value = fields[key]
+        if isinstance(value, bool):
+            lines.append(f"{key}: {'true' if value else 'false'}")
+        elif isinstance(value, (str, int, float)):
+            lines.append(f"{key}: {value}")
+        elif isinstance(value, list) and value and all(isinstance(v, str) for v in value):
+            lines.append(f"{key}:")
+            lines.extend(f"  - {v}" for v in value)
+        elif isinstance(value, list) and not value:
+            continue  # 빈 리스트는 쓰지 않는다(create 렌더의 빈 derived 생략과 동형)
+        else:
+            raise ValueError(
+                f"frontmatter 실체화 불가: {key}({type(value).__name__}) — 스킬 §3 수동 편집으로"
+            )
+    return lines
+
+
+def render_updated_concept(spec: dict, proposal: dict, existing: dict) -> str:
+    """update 실체화(#351) — 기존 frontmatter에 제안 필드만 병합하고 미지 축은 보존한다.
+
+    병합 규칙: type·description은 제안 값(필수), 층은 기존 우선(제안 기재는 게이트가
+    동일성·신규 부여를 이미 판정), derived_from·resource는 **제안이 준 경우만** 대체
+    (미제공 = 유지). body는 제안이 전체를 새로 저작한다(§3 갱신 = 편집·교체).
+    """
+    merged = dict(existing)
+    merged["type"] = proposal["type"]
+    merged["description"] = proposal["description"]
+    layer, _conflict = proposal_layer(proposal)
+    if layer is not None:
+        merged[spec["field"]] = layer
+    if proposal.get("derived_from") is not None:
+        merged[spec["derivation_field"]] = [norm_rel(p) for p in proposal["derived_from"]]
+    if (proposal.get("resource") or "").strip():
+        merged["resource"] = str(proposal["resource"]).strip()
+    dv = merged.get(spec["derivation_field"])
+    if isinstance(dv, str):
+        dv = [dv]  # 단일 문자열 표기도 리스트로 승격(엔진 파서 관용과 동형)
+    if isinstance(dv, list) and all(isinstance(v, str) for v in dv):
+        merged[spec["derivation_field"]] = ["/" + norm_rel(v) for v in dv if norm_rel(v)]
+    lines = ["---", *_frontmatter_lines(spec, merged), "---"]
+    body = proposal["body"].strip("\n")
+    return "\n".join(lines) + "\n\n" + body + "\n" + _render_rubric(proposal)
 
 
 def _staged(run, stage: str, argv: list[str]) -> str:
@@ -333,16 +459,33 @@ def _apply_proposals(
             rejected.append({"path": target_rel, "reasons": reasons})
             continue
 
+        mode = proposal_mode(proposal) or "create"
         fs = os.path.join(bundle, target_rel)
+        original: str | None = None
+        if mode == "update":
+            with open(fs, encoding="utf-8") as f:
+                original = f.read()
+            try:
+                existing_fm = _existing_frontmatter(bundle, target_rel, run)
+                rendered = render_updated_concept(spec, proposal, existing_fm)
+            except ValueError as exc:
+                rejected.append({"path": target_rel, "reasons": [str(exc)]})
+                continue
+        else:
+            rendered = render_concept(spec, proposal)
         parent = os.path.dirname(fs)
         if parent:
             os.makedirs(parent, exist_ok=True)
         with open(fs, "w", encoding="utf-8") as f:
-            f.write(render_concept(spec, proposal))
+            f.write(rendered)
         try:
             run(["validate", bundle, "--strict"])
         except RuntimeError as exc:
-            os.remove(fs)  # 롤백 — 반려된 제안이 번들을 오염시키지 않는다
+            if original is None:
+                os.remove(fs)  # 롤백 — 반려된 제안이 번들을 오염시키지 않는다
+            else:
+                with open(fs, "w", encoding="utf-8") as f:
+                    f.write(original)  # 갱신 반려가 기존 개념을 지우면 안 된다
             rejected.append({"path": target_rel, "reasons": [f"validate --strict 실패: {exc}"]})
             continue
 
@@ -356,13 +499,25 @@ def _apply_proposals(
             if line.strip()
         ]
         concept_dir = os.path.join(bundle, os.path.dirname(target_rel))
-        material_count = len(proposal.get("derived_from") or [])
-        promoted_layer = proposal["target_layer"]
-        summary = f"{proposal['description']} (layer {promoted_layer} ← 하위 {material_count}건)"
-        _staged(run, "log", ["log", "append", concept_dir, "-m", summary, "--kind", "Promotion"])
-        layer_map[target_rel] = proposal["target_layer"]  # 같은 배치의 후속 제안이 접지 가능
+        layer, _conflict = proposal_layer(proposal)
+        effective_layer = layer if layer is not None else layer_map.get(target_rel)
+        if mode == "update":
+            summary = f"{proposal['description']} (갱신)"
+            kind = "Update"  # 스킬 §3 유지 플로우 — supersedes 이력은 log.md 엔트리다
+        else:
+            material_count = len(proposal.get("derived_from") or [])
+            note = f"하위 {material_count}건"
+            if effective_layer:
+                note = f"layer {effective_layer} ← {note}"
+            summary = f"{proposal['description']} ({note})"
+            kind = "Promotion"
+        _staged(run, "log", ["log", "append", concept_dir, "-m", summary, "--kind", kind])
+        if effective_layer:
+            layer_map[target_rel] = effective_layer  # 같은 배치의 후속 제안이 접지 가능
         batch_promoted.add(target_rel)
-        promoted.append({"path": target_rel, "layer": proposal["target_layer"], "chain": chain})
+        promoted.append(
+            {"path": target_rel, "layer": effective_layer, "chain": chain, "mode": mode}
+        )
 
     lint_warns: list[str] = []
     if promoted:
