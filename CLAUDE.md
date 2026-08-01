@@ -65,7 +65,9 @@ docstring 첫 줄이 `<이름> — <역할>: <한 줄>` 형식으로 이 표와 
 - 플러그인 테스트: `uv run --no-project --with pytest python -m pytest plugins/okf/tests -q`
 - 툴링 테스트: `uv run --no-project --with pytest python -m pytest scripts -q`
 - 린트·포맷: `uvx ruff check .` / `uvx ruff format .` (CI는 0.15.8 핀)
+- 엔진 CLI 일반형: `uv run --project okf-core okf <서브커맨드> …` (validate·index·graph·context·census·query·log·init — 플러그인 런타임에서는 `plugins/okf/bin/okf` 셔틀이 같은 것을 실행)
 - 번들 검증: `uv run --project okf-core okf validate <번들경로> --strict`
+- 플러그인 구조 검증: `claude plugin validate ./plugins/okf` (version 경고는 정상 — 아래 version 필드 금지 참조)
 - 픽스처 스냅샷 갱신: `uv run --with pyyaml python okf-core/scripts/run_fixture_suite.py --update`
   — 갱신분은 diff 검수 후 커밋(스냅샷이 곧 회귀 계약).
 
@@ -77,12 +79,12 @@ docstring 첫 줄이 `<이름> — <역할>: <한 줄>` 형식으로 이 표와 
 - 이 repo는 **public** — 올라가면 안 되는 것은 **추적되기 전에** 막는다. `.gitignore`는 추적되지 않은 파일에만 듣고 `git add -f` 한 번이면 뚫리므로, 무시 대상이 추적 중인지·키/인증서/환경파일·개발 머신 절대경로(`/Users/…`)·워크플로 최소권한 `permissions:` 선언을 함께 본다(게이트: `security_scan` — CI `보안` 스텝과 lefthook pre-push가 **같은 코드**). 시크릿 **값** 탐지는 gitleaks(CI 전용, 커밋 SHA 핀)에 맡기고 이 게이트는 무네트워크·무의존으로 남긴다 — 값 탐지 룰셋은 전용 도구의 몫이고, 로컬에서 통과한 것이 CI에서도 통과해야 한다. push 시점 방어선(GitHub secret scanning·push protection)은 `repo_settings.py`가 룰셋과 같이 **확인만** 한다.
 - `okf-core/vendor/`는 업스트림 **바이트 그대로** — 수정은 `vendor/patches/`에 패치로(게이트: vendor_sync_check).
 - **판정과 집행의 분리** — 판정(무엇이 지식인가·어느 층인가·어디 둘 것인가)은 사람+모델의 몫이고 스크립트는 집행·원칙 검사만 한다. 판정은 커맨드(`commands/*.md`)가 프롬프트로, 집행은 `okf_promote`가 제안 JSON을 §9 금지로 게이트, 재료는 census·graph·explore signals·query의 관측·자문뿐 — 임계값·순위·제안 없음, 종료코드로 판정하지 않음(게이트: `test_census_wiring`·`test_query_wiring` — **부분** 강제: 배선·미소비만 기계 검사, 임계값 부재는 각 모듈 테스트가 잠금).
-- 판정 상수(예약 파일명·필수/권장 필드·strict 승격 집합) 하드코딩 금지 — 단일원천 `rules/v0_1.json`(게이트: 그렙).
-- 파스는 `parser.parse`로 **파일당 1회**, 소비자는 ParsedDoc 재사용(게이트: 호출 카운터).
-- 불변식 **index 소비집합 == validate §9 통과집합** — index 로직을 바꾸면 validate 판정도 함께(게이트: 불변식).
+- 판정 상수(예약 파일명·필수/권장 필드·strict 승격 집합) 하드코딩 금지 — 단일원천 `rules/v0_1.json`(게이트: `test_no_rule_constants_in_validate_or_policy_code`).
+- 파스는 `parser.parse`로 **파일당 1회**, 소비자는 ParsedDoc 재사용(게이트: `test_policy_rules`의 `*_parses_each_file_once` 계열 호출 카운터).
+- 불변식 **index 소비집합 == validate §9 통과집합** — index 로직을 바꾸면 validate 판정도 함께(게이트: `test_invariant_index_consumes_exactly_section9_pass_set`).
 - `plugin.json`에 **version 필드 금지**(커밋 SHA 추적, 소비처가 고정하는 태그가 곧 버전) → `claude plugin validate`는 비-strict(게이트: `test_repo_contract`).
 - 루트 `pyproject.toml`은 pre-commit·`pip install <루트>` 소비용 **셔틀**, 엔진 메타 단일원천은 `okf-core/pyproject.toml`. 두 버전 **동기**, main은 **버전-중립 `0.0.0.dev0`** — minor 선점(`0.(Y+1).0.dev0`) 금지, 번호는 컷 때 도출, 릴리스 컷 커밋만 dev 없는 `X.Y.Z`(게이트: `test_version_sync`; `docs/releasing.md`, #164).
-- 엔진(`okf-core/src/`)은 **Claude를 모른다** — `CLAUDE_`·claude 참조 금지, 엔진 호출은 플러그인 쪽에서만(게이트: 무참조 grep).
+- 엔진(`okf-core/src/`)은 **Claude를 모른다** — `CLAUDE_`·claude 참조 금지, 엔진 호출은 플러그인 쪽에서만(게이트: `test_invariant_okf_core_knows_no_claude`).
 - 이 repo는 **특정 소비처·목적지 repo를 모른다**(목적지 무참조) — 코드·문서·설정·이슈·커밋 어디에도 목적지 repo명 하드코딩 금지. `study` 같은 소비처 확장은 **계약만**(stdin 아이템·env var) 정의하고 핸들러·목적지는 소비처가 자기 repo에 주입(엔진이 Claude를 모르는 것과 같은 계층 원리). denylist에 repo명을 넣는 것 자체가 참조이므로 **이 CLAUDE.md가 1차 게이트** — 예시·핸들러명은 중립 placeholder로.
 - 플러그인 스크립트(훅·헬퍼)는 **Python으로** — shell 신규 작성 금지(`jq`+`bash` 대신 `json`·`pathlib`, 실행 `uv run python`, 엔진 호출 `bin/okf`). 레거시 `scripts/*.sh` 3종은 #299에서 이관·삭제 완료 — 이제 shell은 `bin/`의 exec 셔틀(`okf`·`okf-py`) **둘뿐**이고, 훅 `command`가 셔틀이 아니면 게이트가 막는다(`test_okf_py_shim`). `jq` 의존이 사라진 것이 이관의 실익이다 — 셸 훅은 `command -v jq || exit 0`으로 시작해 jq 없는 PATH에서 **무음 무동작**이었고, 그 신호가 "해당 없음"과 구분되지 않았다.
 - (#108) 훅·커맨드의 Python은 bare `python3` 금지, `bin/okf-py` 경유 — 훅 spawn은 로그인 쉘 PATH 미보장이라 ENOENT. `hooks.json`은 exec form(`args` 존재 → 셸 없음)이라 `command` 따옴표를 안 벗기므로 `command`는 따옴표·공백 없는 단일 실행파일로 두고 경로·서브커맨드는 `args` 배열로 — 따옴표를 넣으면 `posix_spawn` ENOENT 재발. 둘 다 그렙 게이트가 차단.
