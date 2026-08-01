@@ -217,3 +217,26 @@ def test_hook_and_scan_agree_on_block_ids(monkeypatch, tmp_path):
     study_hook.run({"tool_input": {"file_path": str(memfile), "content": content}}, tmp_path)
     hook_ids = sorted(c["id"] for c in study_inbox.list_candidates(rt))
     assert scan_ids == hook_ids and len(hook_ids) == 2  # {alpha}, {beta + detail}
+
+
+# ── 코드 조각 단독 노이즈 (#352) ─────────────────────────────────────────────
+
+
+def test_code_artifact_blocks_are_dropped():
+    # 펜스 마커·닫는 태그 단독 줄은 지식이 아니라 마크업 잔재다(실코퍼스 위양성 0)
+    text = "사실 하나\n\n```tsx\n\n</Flex>\n\n~~~bash\n\n사실 둘"
+    blocks = study_blocks.concept_blocks(text)
+    assert [b[0] for b in blocks] == ["사실 하나", "사실 둘"]
+
+
+def test_inline_code_mentions_are_preserved():
+    # 본문 안 백틱·태그 언급은 fullmatch가 아니라 살아남는다
+    text = "- ```tsx 펜스는 노이즈로 거른다\n- </Flex>로 닫는 태그를 설명한다"
+    assert len(study_blocks.concept_blocks(text)) == 2
+
+
+def test_noise_snippet_covers_code_artifacts():
+    # prune측도 같은 fullmatch — 기적재 잔재(펜스 4·태그 3, 전수 실측)를 잇는다
+    assert study_blocks.is_noise_snippet("```bash")
+    assert study_blocks.is_noise_snippet("</ModalScreen.Root>")
+    assert not study_blocks.is_noise_snippet("```tsx 펜스는 노이즈로 거른다")

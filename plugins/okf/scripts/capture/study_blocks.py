@@ -14,6 +14,10 @@
   닫는 펜스에 빈 줄 없이 붙은 본문(실측 재현)을 통째로 오폭하므로 쓰지 않는다.
 - **라벨-단독 블록**은 고정 셋(``_NOISE_LABELS``, 콜론이 볼드 안/밖인 변형 포함)만
   제외한다 — 일반 휴리스틱(콜론 종결·볼드 단독)은 실사실을 오폭해 기각(실측).
+  #352 재검증에서도 같은 결론: 콜론 종결 단독 35건 중 "빌드 불가 (확정):" 같은
+  **정보를 담은 라벨**이 섞여 있어 일반 규칙은 재기각.
+- **코드 조각 단독 블록**(펜스 마커 ``\\`\\`\\`tsx``·닫는 태그 ``</X>``)은 고정 패턴으로
+  제외한다(#352 — 실코퍼스 2,759건 전수에서 매치 7건 전부 노이즈, 위양성 0).
 - 이미 적재된 후보의 정리는 텍스트 근사인 ``is_noise_snippet``(prune 전용)이 맡는다 —
   영구 필터(위치 기준)와 판정 축이 다르다.
 
@@ -34,6 +38,10 @@ _FENCE_CLOSE_RE = re.compile(r"^(?:---|\.\.\.)\s*$")  # 닫는 펜스(YAML은 ..
 _RULE_RE = re.compile(r"^-{3,}\s*$")  # bare 수평선 — **최상위만**(들여쓴 ---는 블록 내용:
 # 다중 줄 블록을 중간에서 쪼개면 블록 id가 바뀌어 기존 인박스·원장 dedup과 어긋난다)
 _NOISE_LABELS = frozenset({"why", "how to apply"})  # 라벨-단독 고정 셋(#256, 실측 위양성 0)
+# 코드 조각 단독 줄(#352) — 펜스 마커(```tsx)·닫는 태그(</X>). 블록 전체가 이것뿐일 때만
+# 노이즈다(fullmatch) — 본문 안 백틱·태그 언급은 건드리지 않는다.
+_FENCE_MARK_RE = re.compile(r"(?:`{3,}|~{3,})[\w.+-]*")
+_CLOSING_TAG_RE = re.compile(r"</[A-Za-z][\w.-]*>")
 
 
 def _strip_bullet(line: str) -> str:
@@ -106,8 +114,19 @@ def concept_blocks(text: str) -> list[list[str]]:
             blocks.append(current)
         else:
             current.append(stripped)  # 들여쓴 하위 불릿·산문 연속 줄
-    # 라벨-단독 블록은 후보가 아니다 — 내용은 뒤따르는 블록이 이미 따로 갖는다
-    return [b for b in blocks if not (len(b) == 1 and _label_key(b[0]) in _NOISE_LABELS)]
+    # 라벨-단독·코드 조각 단독 블록은 후보가 아니다 — 라벨 내용은 뒤따르는 블록이
+    # 이미 따로 갖고, 펜스 마커·닫는 태그는 지식이 아니라 마크업 잔재다(#352).
+    return [b for b in blocks if not (len(b) == 1 and _is_structural_noise(b[0]))]
+
+
+def _is_structural_noise(line: str) -> bool:
+    """단독 줄이 구조 잔재인가 — 고정 라벨 셋 또는 코드 조각 고정 패턴(fullmatch)."""
+    stripped = line.strip()
+    return (
+        _label_key(line) in _NOISE_LABELS
+        or bool(_FENCE_MARK_RE.fullmatch(stripped))
+        or bool(_CLOSING_TAG_RE.fullmatch(stripped))
+    )
 
 
 def is_noise_snippet(snippet: str) -> bool:
@@ -123,4 +142,6 @@ def is_noise_snippet(snippet: str) -> bool:
         return True
     if joined.startswith("--- "):
         return True
-    return _label_key(joined) in _NOISE_LABELS
+    # 코드 조각 단독(#352) — 저장 스니펫 2,759건 전수 실측에서 매치 7건(펜스 4·태그 3)
+    # 전부 노이즈, 위양성 0. 추출 필터와 같은 fullmatch 패턴이라 기적재 잔재를 잇는다.
+    return _is_structural_noise(joined)

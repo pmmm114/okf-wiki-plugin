@@ -3,7 +3,9 @@
 활성 캡처 스코프(프로젝트/vault 폴백 — ``study_scope`` 해소)가 ``capture: auto``이고
 inbox에 후보가 쌓여 있으면 세션 시작 시 "N개 대기"를 알려 모델이 승격 플로우를
 능동적으로 돌리게 한다(auto = 저장 시 magic이 아니라 살아있는 세션의 능동 드레인).
-`review`/`off`나 후보 0이면 무출력. **무효 vault 포인터·sqlite3 부재의 1줄 경고는
+``review``는 지시 없는 **관측 1줄**만 낸다(#352) — 대기 신호가 저장 직후 보고
+(PostToolUse)뿐이면 저장 없는 세션은 규모를 볼 수 없어 무음 적체가 생긴다
+(실측 2,700건대). `off`나 후보 0이면 무출력. **무효 vault 포인터·sqlite3 부재의 1줄 경고는
 여기(SessionStart 계열)가 방출 지점**이다(#91 §3 — PostToolUse 캡처 훅은 무음).
 """
 
@@ -32,12 +34,16 @@ def run(project: str | Path) -> str | None:
             "study: 이 파이썬에 sqlite3(_sqlite3) 없음 — 캡처가 적재 없이 무동작한다"
             "(fail-closed). /okf-doctor로 상태를 확인하라."
         )
-    if scope["capture"] != "auto":
-        return None
     cands = study_inbox.list_candidates(scope["runtime_root"])
     if not cands:
         return None
     files = len({c["source"] for c in cands})  # 리뷰 결정 단위 = 파일(#257)
+    if scope["capture"] == "review":
+        # 관측 1줄(#352) — auto의 지시형 나즈와 달리 규모만 알린다(임계값·판정 없음).
+        return (
+            f"study: 승격 대기 후보 {len(cands)}개(파일 {files}개, capture=review). "
+            "원하면 /study로 검토·승격할 수 있다."
+        )
     return (
         f"study: 승격 대기 후보 {len(cands)}개(파일 {files}개, capture=auto). "
         "study 승격 플로우로 검토·승격하라 — 핸들러 실행은 로컬 trust 승인이 필요하다."

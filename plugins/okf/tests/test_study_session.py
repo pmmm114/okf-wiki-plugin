@@ -53,10 +53,21 @@ def test_vault_auto_nudges_from_configless_dir(monkeypatch, tmp_path):
     assert message and "승격 대기 후보 1개" in message
 
 
-def test_vault_review_no_nudge(monkeypatch, tmp_path):
+def test_vault_review_emits_observation(monkeypatch, tmp_path):
+    # #352 — review는 지시 없는 관측 1줄: 저장 없는 세션도 대기 규모를 본다
     vault = _vault(tmp_path, {"study": {"capture": "review"}})
     monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     study_inbox.append(study_scope.user_scope_runtime(), "candidate", "src")
+    project = tmp_path / "scratch"
+    project.mkdir()
+    message = study_session.run(project)
+    assert message and "후보 1개" in message and "review" in message
+    assert "trust" not in message  # auto의 지시형 문구가 아니다
+
+
+def test_vault_review_empty_inbox_silent(monkeypatch, tmp_path):
+    vault = _vault(tmp_path, {"study": {"capture": "review"}})
+    monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     project = tmp_path / "scratch"
     project.mkdir()
     assert study_session.run(project) is None

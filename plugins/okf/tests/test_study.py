@@ -219,10 +219,12 @@ def test_list_by_file_groups_preserving_candidate_fields(tmp_path, capsys):
     assert set(one[0]) == {"id", "date", "snippet", "source", "recurrence"}  # 전 필드 보존
 
 
-def test_session_silent_when_review(tmp_path):
+def test_session_observes_when_review(tmp_path):
+    # #352 — review는 무음이 아니라 지시 없는 관측 1줄(저장 없는 세션의 적체 가시화)
     _cfg(tmp_path, "review", [])
     study_inbox.append(_rt(tmp_path), "a", "s", date="2026-07-19")
-    assert study_session.run(tmp_path) is None
+    message = study_session.run(tmp_path)
+    assert message and "review" in message and "trust" not in message
 
 
 def test_session_silent_when_no_candidates(tmp_path):
