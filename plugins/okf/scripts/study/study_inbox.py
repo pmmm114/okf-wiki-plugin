@@ -122,32 +122,11 @@ def near_duplicates(
     return sorted(scored, key=lambda h: (h["distance"], h["id"]))[:top_k]
 
 
-def candidate_meta(runtime: str | Path, ident: str) -> dict:
-    """후보의 시간축·승격 메타 {captured_at, ingested_at, recurrence, supersedes}(#132)."""
-    if not study_store.available():
-        return {}
-    return study_store.candidate_meta(runtime, ident)
-
-
-def set_supersedes(runtime: str | Path, ident: str, target: str | None) -> None:
-    """후보가 갱신하는 기존 개념 id를 기록한다(#132 supersedes 링크)."""
-    if not study_store.available():
-        return
-    study_store.set_supersedes(runtime, ident, target)
-
-
 def set_layer(runtime: str | Path, ident: str, layer: str | None) -> None:
     """후보의 인식층(정보/지식/지혜)을 기록한다(Epic #189 U5 — 승격 판정 결과)."""
     if not study_store.available():
         return
     study_store.set_layer(runtime, ident, layer)
-
-
-def invalidate(runtime: str | Path, ident: str) -> None:
-    """원장 항목을 무효화(보존) — 갱신·초과된 판정을 지우지 않고 시각만 새긴다(#132)."""
-    if not study_store.available():
-        return
-    study_store.invalidate_resolution(runtime, ident, _now())
 
 
 def block_resolved(
@@ -162,18 +141,6 @@ def block_resolved(
     if not line_hashes:
         return False
     return all(is_resolved(runtime, h) for h in line_hashes)
-
-
-def candidate_lines(runtime: str | Path, ident: str) -> list[str]:
-    """후보(블록)의 자식 줄-해시를 순서대로 반환한다(A2′)."""
-    if not study_store.available():
-        return []
-    return study_store.candidate_lines(runtime, ident)
-
-
-def block_known_lines(runtime: str | Path, ident: str) -> list[str]:
-    """후보의 자식 줄 중 이미 처리(resolved)된 줄-해시 — 혼합-이력 표식(A2′)."""
-    return [h for h in candidate_lines(runtime, ident) if is_resolved(runtime, h)]
 
 
 def list_candidates(runtime: str | Path) -> list[dict]:

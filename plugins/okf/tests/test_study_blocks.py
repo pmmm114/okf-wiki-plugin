@@ -19,6 +19,7 @@ import study_blocks
 import study_hook
 import study_inbox
 import study_scope
+import study_store
 
 
 def _mem() -> str:
@@ -155,7 +156,7 @@ def test_multiline_block_is_single_candidate(tmp_path):
     study_inbox.append(tmp_path, " ".join(block), "M.md", line_hashes=lh)
     cands = study_inbox.list_candidates(tmp_path)
     assert len(cands) == 1  # 두 줄이 한 후보로(과집계 해소)
-    assert study_inbox.candidate_lines(tmp_path, cands[0]["id"]) == lh
+    assert study_store.candidate_lines(tmp_path, cands[0]["id"]) == lh
 
 
 def test_block_resolved_only_when_all_children_resolved(tmp_path):
@@ -181,15 +182,11 @@ def test_promote_records_children_and_blocks_resurface(tmp_path):
     only_lh = [study_inbox.content_hash("shared fact")[:12]]
     only_bid = study_inbox.content_hash("shared fact")[:12]
     assert study_inbox.block_resolved(tmp_path, only_bid, only_lh) is True
-    # 그 줄 + 신규 줄 → 혼합 → 리뷰로 올리되 아는 줄은 표식
+    # 그 줄 + 신규 줄 → 혼합 → 리뷰로 올린다
     mixed = ["shared fact", "brand new fact"]
     mixed_lh = [study_inbox.content_hash(m)[:12] for m in mixed]
     mixed_bid = study_inbox.content_hash(" ".join(mixed))[:12]
     assert study_inbox.block_resolved(tmp_path, mixed_bid, mixed_lh) is False
-    study_inbox.append(tmp_path, " ".join(mixed), "M.md", line_hashes=mixed_lh)
-    assert study_inbox.block_known_lines(tmp_path, mixed_bid) == [
-        study_inbox.content_hash("shared fact")[:12]
-    ]
 
 
 # --- 캡처 경로 통일 ---------------------------------------------------------
