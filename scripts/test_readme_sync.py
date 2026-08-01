@@ -4,9 +4,10 @@
 validate·index·graph·context 4개만 그린 채 남았고, 대조하는 검사가 없어 조용했다.
 같은 드리프트가 재발하지 않게 두 축을 잠근다.
 
-- **완전성**: `ParsedDoc`을 소비하는 CLI 서브커맨드 모듈(코드에서 유도 —
-  ``walk_bundle(`` 호출 ∩ ``cli._COMMANDS`` 등록)이 전부 다이어그램 노드로 있다.
-  소비자가 늘었는데 README가 안 늘면 red다.
+- **완전성(등식)**: `ParsedDoc`을 소비하는 CLI 서브커맨드 모듈(코드에서 유도 —
+  ``walk_bundle(`` 호출 ∩ ``cli._COMMANDS`` 등록 모듈)과 다이어그램 노드 집합이
+  정확히 같다. 소비자가 늘었는데 README가 안 늘어도, 소비를 그만둔 모듈이
+  다이어그램에 남아도 red다.
 - **역할 어휘**: 노드의 역할 표기(``<이름><br/><역할> — …``)가 그 모듈 docstring
   첫 줄의 역할(``<이름> — <역할>: …``, #335가 고정한 정본)과 일치한다.
 
@@ -27,8 +28,10 @@ _README = _ROOT / "README.md"
 _NODE = re.compile(r'(\w+)<br/>([^\s"<]+) — ')
 # 모듈 docstring 첫 줄 `"""<이름> — <역할>: …`(#335 형식)에서 역할을 뽑는다.
 _DOCSTRING_ROLE = re.compile(r'^"""(\w+) — ([^:]+):')
-# cli._COMMANDS의 `"<서브커맨드>": <모듈>.main` 등록.
-_COMMAND = re.compile(r'"(\w+)": \w+\.main')
+# cli._COMMANDS의 `"<서브커맨드>": <모듈>.main` 등록 — 캡처는 **모듈** 쪽이다.
+# 서브커맨드 이름을 잡으면 `"log": logmd.main`처럼 이름이 갈리는 등록에서 stem
+# 대조가 어긋나, 그 모듈이 나중에 소비자가 돼도 유도 집합에서 소리 없이 빠진다.
+_COMMAND = re.compile(r'"\w+": (\w+)\.main')
 
 
 def _behavior_section() -> str:
@@ -43,13 +46,13 @@ def _diagram_modules() -> dict[str, str]:
 
 
 def _parsed_consuming_commands() -> set[str]:
-    """`ParsedDoc` 소비 CLI 모듈 — walk_bundle 호출 ∩ _COMMANDS 등록(코드에서 유도)."""
-    commands = set(_COMMAND.findall((_SRC / "cli.py").read_text(encoding="utf-8")))
-    assert commands, "cli._COMMANDS 파싱 실패 — 게이트 감도 상실"
+    """`ParsedDoc` 소비 CLI 모듈 — walk_bundle 호출 ∩ _COMMANDS 등록 모듈(코드에서 유도)."""
+    modules = set(_COMMAND.findall((_SRC / "cli.py").read_text(encoding="utf-8")))
+    assert modules, "cli._COMMANDS 파싱 실패 — 게이트 감도 상실"
     return {
         p.stem
         for p in _SRC.glob("*.py")
-        if p.stem in commands and "walk_bundle(" in p.read_text(encoding="utf-8")
+        if p.stem in modules and "walk_bundle(" in p.read_text(encoding="utf-8")
     }
 
 
@@ -60,8 +63,12 @@ def _module_role(stem: str) -> str:
     return m.group(2)
 
 
-def test_diagram_covers_all_parsed_consumers():
-    """엔진의 ParsedDoc 소비 서브커맨드가 전부 다이어그램에 있다 — #331류 드리프트 차단."""
+def test_diagram_matches_parsed_consumers_exactly():
+    """다이어그램 == ParsedDoc 소비 서브커맨드 집합(등식) — 양방향 드리프트 차단.
+
+    빠짐(#331류: 소비자가 늘었는데 README가 안 늘음)과 남음(소비를 그만둔 모듈이
+    다이어그램에 유령으로 남아 README가 과대 주장으로 회귀) 둘 다 red다.
+    """
     consumers = _parsed_consuming_commands()
     # 감도 앵커: 실제로 썩었던 두 모듈이 유도 집합에 들어 있어야 유도 자체가 살아 있다.
     assert {"census", "query"} <= consumers, f"소비자 유도가 무뎌졌다: {sorted(consumers)}"
@@ -70,6 +77,11 @@ def test_diagram_covers_all_parsed_consumers():
     assert not missing, (
         f"ParsedDoc 소비자가 README 동작 방식 다이어그램에 없다: {sorted(missing)} — "
         "다이어그램에 `<모듈><br/><역할> — <한 줄>` 노드를 추가하라."
+    )
+    stale = drawn - consumers
+    assert not stale, (
+        f"다이어그램에 있으나 ParsedDoc 소비자가 아닌 노드: {sorted(stale)} — "
+        "모듈이 소비를 그만뒀으면 노드를 빼고, 소비자가 맞으면 walk_bundle 경유로 파스하라."
     )
 
 
@@ -95,3 +107,5 @@ def test_detectors_catch_drift():
     m = _DOCSTRING_ROLE.match('"""query — 재료: 번들을 SQLite로 짓는다.')
     assert m and m.group(2) == "재료"
     assert _COMMAND.findall('    "query": query.main,') == ["query"]
+    # 등록명과 모듈명이 갈리는 실물 꼴(`"log": logmd.main`)에서 모듈 쪽을 잡는다.
+    assert _COMMAND.findall('    "log": logmd.main,') == ["logmd"]

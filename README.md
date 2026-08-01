@@ -164,7 +164,7 @@ flowchart TD
     end
     subgraph plugin["플러그인 계층 (엔진 밖)"]
         O["세션에 &lt;okf-context&gt; 자동 주입"]
-        B["편집한 개념의 역링크·인접 후보 안내"]
+        B["편집한 번들 문서의 역링크·인접 후보 안내"]
     end
     C -->|"SessionStart 훅"| O
     G -->|"PostToolUse 훅"| B
@@ -178,7 +178,7 @@ flowchart TD
 - index가 쓰는 파일과 validate를 통과한 파일은 항상 같아요. 이 약속 덕분에 색인 로직을 바꾸면 검증 판정도 같이 움직여요.
 - 조회는 코드가 아니라 문서예요. `okf query`는 번들을 매번 인메모리 sqlite로 짓고 SQL로 물은 뒤 버려요. 파일도 캐시도 안 남기니 신선하지 않은 상태가 아예 없고, 쓰기와 `ATTACH`·`PRAGMA`는 읽기 전용 봉인이 막아요. 새 조회가 필요하면 코드 대신 [SQL 레시피](plugins/okf/skills/okf/reference/QUERY.md)에 한 줄 더하면 되고, 레시피의 SQL 블록은 게이트가 실제 번들에서 그대로 실행해요.
 - 세션에 넣을 땐 번들 전체가 아니라 `context`가 만든 압축 인덱스만 `<okf-context>` 블록에 담아요. 글자 수 상한(`context.maxChars`)과 층 구분(`context.groupBy`)은 `.okf-wiki.json`에서 조절해요. `context.outline`을 `true`로 켜면 전량 목록 대신 개념 수와 무관한 크기의 축 윤곽만 주입하고, 세부는 `okf query`에 맡겨요.
-- 번들 파일을 편집하면 PostToolUse 훅이 그 파일을 링크하는 개념(역링크)과 함께, 아직 링크로 이어지지 않은 축·정초 인접 후보를 근거를 붙여 알려 줘요. 후보는 `okf query` 조인으로 얻고, 무엇을 이을지는 판정하지 않아요.
+- 번들 파일을 편집하면 PostToolUse 훅이 그 파일을 링크하는 문서(역링크)와 함께, 아직 링크로 이어지지 않은 축·정초 인접 후보를 근거를 붙여 알려 줘요. 후보는 `okf query` 조인으로 얻고, 무엇을 이을지는 판정하지 않아요.
 - 주입 대상은 이렇게 정해요. repo에 `.okf-wiki.json`이 있으면(깨졌더라도) 그 repo의 번들이고, 없으면 유효한 vault로 폴백해요. vault 포인터마저 없으면 훅은 아무것도 안 해요. `inject: false`는 어느 스코프에서든 주입을 꺼요.
 
 ## 인식층과 근거 사슬
