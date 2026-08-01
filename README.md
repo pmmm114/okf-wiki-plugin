@@ -149,30 +149,37 @@ deploy/release.md [concept] — 릴리스 컷 명령과 승인 게이트.
 
 ## 동작 방식
 
-엔진은 파일 하나를 딱 한 번만 파싱해요. `parser.parse`가 만든 `ParsedDoc`을 validate와 index, graph, context가 돌려쓰거든요(다시 파싱하지 않도록 호출 카운터 테스트가 막고 있어요). 세션에 넣는 일은 플러그인 쪽이 맡아요. 엔진(`okf-core/`)은 Claude를 몰라요.
+엔진은 파일 하나를 딱 한 번만 파싱해요. `parser.parse`가 만든 `ParsedDoc`을 validate와 index, graph, census, context, query가 돌려쓰거든요(다시 파싱하지 않도록 호출 카운터 테스트가 막고 있어요). 세션에 넣는 일은 플러그인 쪽이 맡아요. 엔진(`okf-core/`)은 Claude를 몰라요.
 
 ```mermaid
 flowchart TD
     subgraph engine["엔진 (okf-core, Claude를 모름)"]
         F["파일 (.okf/*.md)"] -->|"parser.parse (파일당 1회)"| P["ParsedDoc (재사용)"]
-        P --> V["validate<br/>컨포먼스 검사 (3규칙만 error, 나머지 warn)"]
-        P --> I["index<br/>index.md 재생성"]
-        P --> G["graph<br/>링크와 역링크 그래프"]
-        P --> C["context<br/>주입용 압축 인덱스"]
+        P --> V["validate<br/>판정 — §9 컨포먼스 (3규칙만 error, 나머지 warn)"]
+        P --> I["index<br/>생성 — index.md 재생성"]
+        P --> G["graph<br/>관측 — 링크와 역링크 엣지"]
+        P --> N["census<br/>관측 — 번들 형상"]
+        P --> Q["query<br/>재료 — 인메모리 sqlite SQL 질의"]
+        P --> C["context<br/>주입 — 압축 지식 인덱스"]
     end
     subgraph plugin["플러그인 계층 (엔진 밖)"]
         O["세션에 &lt;okf-context&gt; 자동 주입"]
+        B["편집한 개념의 역링크·인접 후보 안내"]
     end
-    C -->|"Claude Code SessionStart 훅"| O
+    C -->|"SessionStart 훅"| O
+    G -->|"PostToolUse 훅"| B
+    Q -->|"PostToolUse 훅"| B
 ```
 
 여기서 몇 가지가 중요해요.
 
-- 파싱은 한 번만 하고 그 결과를 계속 재사용해요. validate와 index, graph, context가 같은 `ParsedDoc`을 함께 봐요.
+- 파싱은 한 번만 하고 그 결과를 계속 재사용해요. 판정(validate·policy), 생성(index), 관측(census·graph), 재료(query), 주입(context)이 같은 `ParsedDoc`을 함께 봐요. 역할 어휘는 각 모듈 docstring 첫 줄이 정본이고, 판정은 validate·policy 둘만 해요. census·graph·query는 관측과 재료만 내고 판정하지 않아요.
 - error로 막는 건 컨포먼스 규칙 중 세 개뿐이에요. 스펙이 "거부하라"고 하는 것만 error고 나머지는 warn인데, `--strict`를 켜면 권장 필드 위반도 error로 올라가요. 어떤 게 error인지 같은 판정 기준은 코드에 흩뿌리지 않고 [`rules/v0_1.json`](okf-core/src/okf_core/rules/v0_1.json) 한 곳에 모아 놨어요.
 - index가 쓰는 파일과 validate를 통과한 파일은 항상 같아요. 이 약속 덕분에 색인 로직을 바꾸면 검증 판정도 같이 움직여요.
-- 세션에 넣을 땐 번들 전체가 아니라 `context`가 만든 압축 인덱스만 `<okf-context>` 블록에 담아요. 글자 수 상한은 `.okf-wiki.json`에서 조절하고요.
-- 그리고 `.okf-wiki.json`이 없는 repo에서는 훅이 아무것도 안 해요.
+- 조회는 코드가 아니라 문서예요. `okf query`는 번들을 매번 인메모리 sqlite로 짓고 SQL로 물은 뒤 버려요. 파일도 캐시도 안 남기니 신선하지 않은 상태가 아예 없고, 쓰기와 `ATTACH`·`PRAGMA`는 읽기 전용 봉인이 막아요. 새 조회가 필요하면 코드 대신 [SQL 레시피](plugins/okf/skills/okf/reference/QUERY.md)에 한 줄 더하면 되고, 레시피의 SQL 블록은 게이트가 실제 번들에서 그대로 실행해요.
+- 세션에 넣을 땐 번들 전체가 아니라 `context`가 만든 압축 인덱스만 `<okf-context>` 블록에 담아요. 글자 수 상한(`context.maxChars`)과 층 구분(`context.groupBy`)은 `.okf-wiki.json`에서 조절해요. `context.outline`을 `true`로 켜면 전량 목록 대신 개념 수와 무관한 크기의 축 윤곽만 주입하고, 세부는 `okf query`에 맡겨요.
+- 번들 파일을 편집하면 PostToolUse 훅이 그 파일을 링크하는 개념(역링크)과 함께, 아직 링크로 이어지지 않은 축·정초 인접 후보를 근거를 붙여 알려 줘요. 후보는 `okf query` 조인으로 얻고, 무엇을 이을지는 판정하지 않아요.
+- 주입 대상은 이렇게 정해요. repo에 `.okf-wiki.json`이 있으면(깨졌더라도) 그 repo의 번들이고, 없으면 유효한 vault로 폴백해요. vault 포인터마저 없으면 훅은 아무것도 안 해요. `inject: false`는 어느 스코프에서든 주입을 꺼요.
 
 ## 인식층과 근거 사슬
 

@@ -54,6 +54,23 @@ def test_query_parses_each_file_once(monkeypatch):
     assert calls["n"] == len(list(APPENDIX_A.rglob("*.md"))) == 6
 
 
+def test_index_graph_context_parse_each_file_once(monkeypatch):
+    """생성·관측·주입도 같은 규율 — README가 열거하는 소비자 전부에 카운터를 건다.
+
+    validate 파이프·census·query만 재고 나머지는 구성상 1회라고 믿던 구멍을 메운다
+    — README 동작 방식의 "호출 카운터 테스트가 막고 있다"는 문장이 전 소비자에
+    대해 참이 되게 한다."""
+    from okf_core.context import build_context
+    from okf_core.graph import build_graph
+    from okf_core.index import generate_indexes
+
+    calls = _counting_parse(monkeypatch)
+    for build in (generate_indexes, build_graph, build_context):
+        calls["n"] = 0
+        build(APPENDIX_A)
+        assert calls["n"] == len(list(APPENDIX_A.rglob("*.md"))) == 6, build.__name__
+
+
 def test_policy_emits_recommended_field_warn(tmp_path):
     (tmp_path / "a.md").write_text("---\ntype: concept\n---\n# A\n", encoding="utf-8")
     rules, _ = load_rules()
