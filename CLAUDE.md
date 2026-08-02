@@ -38,7 +38,7 @@ docstring 첫 줄이 `<이름> — <역할>: <한 줄>` 형식으로 이 표와 
 
 | 도메인 | 흐름 | 담당 |
 | --- | --- | --- |
-| hooks | 진입점 | hooks.json이 부르는 훅 전부 — okf_hooks(주입·역링크 관측·재색인) + study 훅 3종(캡처 입구·드레인 나즈·회고 나즈). 진입점은 여기에만 둔다 |
+| hooks | 진입점 | hooks.json이 부르는 훅 전부 — okf_hooks(주입·역링크 관측·재색인) + study 훅 2종(캡처 입구·드레인 나즈). 진입점은 여기에만 둔다 |
 | vault | 저장고 | 포인터·설정 해소(okf_vault)·관리형 clone git I/O(okf_remote). 의존 DAG의 바닥 |
 | capture | 세션→inbox | 캡처 정책·스테이징 런타임 — scope·blocks·simhash·store·inbox·scaffold·legacy |
 | promote | inbox→번들 | 승격 오케스트레이션(study CLI)·핸들러 디스패치·trust·§9 게이트+집행(okf_promote) |
