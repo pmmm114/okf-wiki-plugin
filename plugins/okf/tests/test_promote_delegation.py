@@ -72,3 +72,16 @@ def test_study_drain_consumes_apply_machine_fields():
     body = _section(_study(), "6. **드레인", "7. **디스패치")
     assert "promoted[].path" in body and "promoted[].layer" in body, "드레인 배선이 없다"
     assert "rejected[]" in body, "반려분 미드레인 규칙이 없다"
+
+
+def test_rejected_branching_is_code_based():
+    """반려 분기는 `rejected[].reasons[]`의 `code`다(#360) — 문구 매칭 잔존 금지.
+
+    "반려 사유에 `rubric`이 있으면"은 사실상 한국어 사유 문구의 부분일치 분기였다 —
+    `lint_warns`가 `code`로 간 것과 같은 축으로, 두 소비 문서가 코드 어휘 단일원천
+    (`REJECT_CODES`)을 가리키고 rubric 분기를 코드로 지시해야 한다.
+    """
+    for name in ("study.md", "okf-promote.md"):
+        body = (COMMANDS / name).read_text(encoding="utf-8")
+        assert "REJECT_CODES" in body, f"{name}이 반려 코드 단일원천을 가리키지 않는다"
+        assert "`rubric_missing`" in body, f"{name}의 rubric 분기가 code 기반이 아니다"

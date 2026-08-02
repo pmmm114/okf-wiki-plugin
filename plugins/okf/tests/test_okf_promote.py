@@ -63,6 +63,10 @@ def _proposal(bundle, **over):
 LAYERS = {"info.md": "information", "wise.md": "wisdom"}
 
 
+def _codes(reasons):
+    return [r["code"] for r in reasons]
+
+
 # --- 게이트: §9 금지 각각의 고의-red -----------------------------------------
 
 
@@ -74,7 +78,7 @@ def test_gate_rejects_unknown_layer_vocab(bundle):
     reasons = okf_promote.gate_proposal(
         SPEC, LAYERS, str(bundle), _proposal(bundle, target_layer="gold")
     )
-    assert any("어휘 위반" in r for r in reasons)
+    assert "bad_layer" in _codes(reasons)
 
 
 def test_gate_rejects_derivation_inversion(bundle):
@@ -90,7 +94,7 @@ def test_gate_rejects_derivation_inversion(bundle):
         materials=[_material(bundle, "wise.md")],
     )
     reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), proposal)
-    assert any("정초 역전" in r for r in reasons)
+    assert "derivation_inversion" in _codes(reasons)
 
 
 def test_gate_rejects_relabel_of_existing_file(bundle):
@@ -98,7 +102,7 @@ def test_gate_rejects_relabel_of_existing_file(bundle):
     reasons = okf_promote.gate_proposal(
         SPEC, LAYERS, str(bundle), _proposal(bundle, path="/info.md")
     )
-    assert any("신설 아님" in r for r in reasons)
+    assert "create_exists" in _codes(reasons)
 
 
 def test_gate_rejects_path_escaping_bundle(bundle):
@@ -106,7 +110,7 @@ def test_gate_rejects_path_escaping_bundle(bundle):
     reasons = okf_promote.gate_proposal(
         SPEC, LAYERS, str(bundle), _proposal(bundle, path="../escaped.md")
     )
-    assert any("번들 경계" in r for r in reasons)
+    assert "bundle_escape" in _codes(reasons)
 
 
 def test_gate_rejects_absolute_path_escaping_bundle(bundle):
@@ -114,7 +118,7 @@ def test_gate_rejects_absolute_path_escaping_bundle(bundle):
     reasons = okf_promote.gate_proposal(
         SPEC, LAYERS, str(bundle), _proposal(bundle, path="/../../x.md")
     )
-    assert any("번들 경계" in r for r in reasons)
+    assert "bundle_escape" in _codes(reasons)
 
 
 def test_gate_rejects_symlink_escape(bundle, tmp_path_factory):
@@ -124,7 +128,7 @@ def test_gate_rejects_symlink_escape(bundle, tmp_path_factory):
     reasons = okf_promote.gate_proposal(
         SPEC, LAYERS, str(bundle), _proposal(bundle, path="link/x.md")
     )
-    assert any("번들 경계" in r for r in reasons)
+    assert "bundle_escape" in _codes(reasons)
 
 
 def test_gate_accepts_bundle_under_symlink(tmp_path):
@@ -162,26 +166,26 @@ def test_gate_rejects_escaping_material_paths(bundle):
         ),
     )
     for field in ("derived_from", "materials", "allow_dangling"):
-        assert any("번들 경계" in r and field in r for r in reasons), field
+        assert any(r["code"] == "bundle_escape" and field in r["detail"] for r in reasons), field
 
 
 def test_gate_rejects_modified_material(bundle):
     proposal = _proposal(bundle)
     (bundle / "info.md").write_text("변조", encoding="utf-8")  # snapshot 이후 수정(§9 금지 3)
     reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), proposal)
-    assert any("재료 수정됨" in r for r in reasons)
+    assert "material_changed" in _codes(reasons)
 
 
 def test_gate_rejects_missing_snapshot(bundle):
     reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), _proposal(bundle, materials=[]))
-    assert any("재료 스냅샷 누락" in r for r in reasons)
+    assert "snapshot_missing" in _codes(reasons)
 
 
 def test_gate_rejects_fabricated_grounds_unless_declared(bundle):
     # 없는 근거는 반려(§9 금지 1) — allow_dangling으로 명시하면 미작성 신호로 허용
     proposal = _proposal(bundle, derived_from=["/ghost.md"], materials=[])
     reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), proposal)
-    assert any("근거 부재" in r for r in reasons)
+    assert "missing_material" in _codes(reasons)
     declared = okf_promote.gate_proposal(
         SPEC,
         LAYERS,
@@ -194,14 +198,14 @@ def test_gate_rejects_fabricated_grounds_unless_declared(bundle):
 def test_gate_requires_resource_for_information(bundle):
     proposal = _proposal(bundle, target_layer="information", derived_from=[], materials=[])
     reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), proposal)
-    assert any("정보층 출처 필요" in r for r in reasons)
+    assert "missing_resource" in _codes(reasons)
 
 
 def test_gate_requires_grounding_for_upper(bundle):
     reasons = okf_promote.gate_proposal(
         SPEC, LAYERS, str(bundle), _proposal(bundle, derived_from=[], materials=[])
     )
-    assert any("미접지 제안" in r for r in reasons)
+    assert "ungrounded_proposal" in _codes(reasons)
 
 
 def test_gate_rejects_unclassified_material(bundle):
@@ -212,7 +216,7 @@ def test_gate_rejects_unclassified_material(bundle):
         bundle, derived_from=["/plain.md"], materials=[_material(bundle, "plain.md")]
     )
     reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), proposal)
-    assert any("재료 미분류" in r for r in reasons)
+    assert "unlayered_material" in _codes(reasons)
 
 
 def test_gate_exempts_snapshot_for_batch_promoted(bundle):
@@ -220,9 +224,8 @@ def test_gate_exempts_snapshot_for_batch_promoted(bundle):
     (bundle / "new-info.md").write_text("---\ntype: fact\n---\n\n# 답\n", encoding="utf-8")
     layers = {**LAYERS, "new-info.md": "information"}
     proposal = _proposal(bundle, derived_from=["/new-info.md"], materials=[])
-    assert any(
-        "재료 스냅샷 누락" in r
-        for r in okf_promote.gate_proposal(SPEC, layers, str(bundle), proposal)
+    assert "snapshot_missing" in _codes(
+        okf_promote.gate_proposal(SPEC, layers, str(bundle), proposal)
     )
     assert (
         okf_promote.gate_proposal(
@@ -314,7 +317,7 @@ def test_apply_rolls_back_on_validate_failure(bundle):
     report = okf_promote.apply_proposals(str(bundle), [_proposal(bundle)], run=engine)
     assert report["promoted"] == []
     assert not (bundle / "model.md").exists()  # 반려 제안은 번들을 오염시키지 않는다
-    assert any("validate --strict 실패" in r for r in report["rejected"][0]["reasons"])
+    assert _codes(report["rejected"][0]["reasons"]) == ["validate_failed"]
     ops = [call[0] for call in engine.calls]
     assert "log" not in ops and "index" not in ops  # 집행 기록 없음
 
@@ -377,7 +380,9 @@ def test_gate_rejects_unknown_dep_layer_without_crash(bundle):
         spec, {"info.md": "infomation"}, str(bundle), _proposal(bundle)
     )
     assert reasons, "미지 층 재료는 반려돼야 한다"
-    assert any("infomation" in r for r in reasons), reasons
+    assert any(
+        r["code"] == "bad_material_layer" and "infomation" in r["detail"] for r in reasons
+    ), reasons
 
 
 def test_apply_returns_contract_json_on_engine_failure(bundle):
@@ -451,7 +456,7 @@ def test_apply_preserves_rejections_on_engine_failure(bundle):
     report = okf_promote.apply_proposals(str(bundle), [bad, _proposal(bundle)], run=boom)
     assert report["error"]["stage"] == "log", report["error"]
     assert report["rejected"], "크래시 전에 결정된 반려가 사라졌다"
-    assert any("어휘 위반" in r for r in report["rejected"][0]["reasons"]), report["rejected"]
+    assert "bad_layer" in _codes(report["rejected"][0]["reasons"]), report["rejected"]
 
 
 # --- #351 U1: mode create|update · layer 별칭·미기재 일반화 -------------------
@@ -473,12 +478,12 @@ def test_gate_rejects_alias_conflict(bundle):
     reasons = okf_promote.gate_proposal(
         SPEC, LAYERS, str(bundle), _proposal(bundle, layer="wisdom")
     )
-    assert any("불일치" in r for r in reasons)
+    assert "layer_conflict" in _codes(reasons)
 
 
 def test_gate_rejects_invalid_mode(bundle):
     reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), _proposal(bundle, mode="patch"))
-    assert any("모드 위반" in r for r in reasons)
+    assert "bad_mode" in _codes(reasons)
 
 
 def test_gate_layerless_create_skips_layer_gates_keeps_material_gates(bundle):
@@ -489,7 +494,7 @@ def test_gate_layerless_create_skips_layer_gates_keeps_material_gates(bundle):
     assert okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), proposal) == []
     (bundle / "info.md").write_text("변조", encoding="utf-8")
     reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), proposal)
-    assert any("재료 수정됨" in r for r in reasons)
+    assert "material_changed" in _codes(reasons)
 
 
 def test_gate_update_requires_existing_target(bundle):
@@ -501,13 +506,13 @@ def test_gate_update_requires_existing_target(bundle):
         "body": "b",
     }
     reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), proposal)
-    assert any("갱신 대상 없음" in r for r in reasons)
+    assert "update_missing" in _codes(reasons)
 
 
 def test_gate_update_blocks_relabel_allows_same_layer(bundle):
     base = {"mode": "update", "path": "/info.md", "type": "fact", "description": "d.", "body": "b"}
     relabel = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), {**base, "layer": "knowledge"})
-    assert any("재라벨 금지" in r for r in relabel)
+    assert "relabel" in _codes(relabel)
     assert (
         okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), {**base, "layer": "information"}) == []
     )
@@ -567,7 +572,10 @@ def test_apply_update_rejects_unrenderable_frontmatter(bundle):
         "body": "b",
     }
     report = okf_promote.apply_proposals(str(bundle), [proposal], run=engine)
-    assert any("실체화 불가" in r for r in report["rejected"][0]["reasons"])
+    assert any(
+        r["code"] == "update_unrenderable" and "실체화 불가" in r["detail"]
+        for r in report["rejected"][0]["reasons"]
+    )
     assert (bundle / "info.md").read_text(encoding="utf-8") == original  # 파일 불변
 
 
@@ -584,7 +592,10 @@ def test_apply_update_rejects_nonconforming_target(bundle):
         "body": "b",
     }
     report = okf_promote.apply_proposals(str(bundle), [proposal], run=engine)
-    assert any("개념 아님" in r for r in report["rejected"][0]["reasons"])
+    assert any(
+        r["code"] == "update_unrenderable" and "개념 아님" in r["detail"]
+        for r in report["rejected"][0]["reasons"]
+    )
     assert (bundle / "info.md").read_text(encoding="utf-8") == original  # 파일 불변
     ops = [call[0] for call in engine.calls]
     assert "log" not in ops and "index" not in ops
@@ -638,3 +649,26 @@ def test_apply_lint_warns_carry_machine_code(bundle):
     for warn in report["lint_warns"]:
         assert set(warn) == {"path", "code", "message"}, warn
         assert warn["code"] in okf_promote.okf_layers.WARN_CODES
+
+
+def test_gate_reasons_carry_machine_code(bundle):
+    """반려 사유는 `{code, detail}`다 — 소비 문서가 `code`로 분기한다(#360).
+
+    자유 문자열이면 소비처가 "반려 사유에 rubric이 있으면" 같은 문구 부분일치로
+    퇴행한다(#306·#296과 같은 축). `lint_warns`·`REFRESH_REASONS`와 같은 계약 형태 —
+    코드 어휘는 `REJECT_CODES`가 단일원천이고 코드마다 복구 지시가 붙는다.
+    """
+    proposal = _proposal(
+        bundle,
+        mode="patch",
+        layer="wisdom",
+        path="/../x.md",
+        type="",
+        derived_from=["/ghost.md"],
+        materials=[],
+    )
+    reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), proposal)
+    assert len(reasons) >= 4, reasons
+    for reason in reasons:
+        assert set(reason) == {"code", "detail"}, reason
+        assert reason["code"] in okf_promote.REJECT_CODES, reason
