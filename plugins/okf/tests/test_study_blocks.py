@@ -171,6 +171,32 @@ def test_noise_snippet_honors_declared_labels():
     assert not study_blocks.is_noise_snippet("**근거:**")
 
 
+def test_audit_classifies_frontmatter_and_heading():
+    # #371 — 캡처 감사: 어떤 블록에도 안 들어간 줄을 코드 분류로 보고한다(관측 전용)
+    text = "---\nname: x\n---\n# 제목 헤딩\n* 사실 하나\n"
+    drops = study_blocks.audit_lines(text)
+    coded = {(d["line"], d["code"]) for d in drops}
+    assert {(1, "frontmatter"), (2, "frontmatter"), (3, "frontmatter"), (4, "heading")} <= coded
+    assert all(d["line"] != 5 for d in drops)  # 캡처된 줄은 감사에 나오지 않는다
+
+
+def test_audit_classifies_noise_label_and_fence_markers():
+    # #371 — 라벨-단독 드롭은 noise_label, 펜스 마커는 fence_marker. 펜스 안 내용은 캡처된다
+    text = "**Why:**\n- 근거 본문\n```\ncode line\n```\n"
+    drops = study_blocks.audit_lines(text)
+    codes = {d["text"]: d["code"] for d in drops}
+    assert codes.get("**Why:**") == "noise_label"
+    assert codes.get("```") == "fence_marker"
+    assert "code line" not in codes
+
+
+def test_audit_honors_declared_labels():
+    # #371 — 감사도 캡처와 같은 유효 라벨 셋(#370)을 쓴다
+    labels = study_blocks.effective_labels(["근거"])
+    drops = study_blocks.audit_lines("**근거:**\n- 내용\n", labels=labels)
+    assert [d["code"] for d in drops] == ["noise_label"]
+
+
 def test_multiline_block_is_single_candidate(tmp_path):
     block = ["decision X", "because Y"]
     lh = [study_inbox.content_hash(line)[:12] for line in block]
