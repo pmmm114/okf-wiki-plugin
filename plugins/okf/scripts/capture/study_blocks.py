@@ -8,6 +8,14 @@
 - **최상위 불릿**(``^[*+-]\\s+``, 들여쓰기 없음)은 새 블록을 연다.
 - **들여쓴 줄**(하위 불릿·연속)·이어지는 비-불릿 내용 줄은 현재 블록에 붙는다.
 - 블록 없는 상태의 비-불릿 내용 줄은 새 블록을 연다(산문 문단).
+- **코드 펜스**(백틱 3+ 또는 ``~~~``) 안에서는 위 해석을 전부 억제한다(#354) — 내용
+  줄은 현재 블록에 붙고(없으면 자체 블록), 마커 줄은 마크업이라 콘텐츠에서 제외한다.
+  닫는 마커는 같은 문자 계열만 인정하는 단순 상태기계이고 미폐쇄 펜스는 파일 끝까지다.
+  불릿에 싸인 마커는 펜스로 보지 않는다(산문 해석 유지).
+
+경계 이력(#354): 펜스 인지로 펜스 포함 문서의 블록 id가 바뀌었다. 원장은 원문 없는
+해시뿐이라 재해시 이행이 불가능하므로 새 경계는 **신규 캡처부터만**이고, 구 경계
+후보·원장 기록은 자연 소진으로 잔존한다(1회성 공존 churn — 실측 수치는 #354 PR).
 
 노이즈 필터(#256) — 구조 보일러플레이트는 후보가 아니다:
 - **파일 선두 frontmatter 펜스**는 **위치 기준**으로 스킵한다. 텍스트 패턴 판정은
@@ -42,6 +50,8 @@ _NOISE_LABELS = frozenset({"why", "how to apply"})  # 라벨-단독 고정 셋(#
 # 노이즈다(fullmatch) — 본문 안 백틱·태그 언급은 건드리지 않는다.
 _FENCE_MARK_RE = re.compile(r"(?:`{3,}|~{3,})[\w.+-]*")
 _CLOSING_TAG_RE = re.compile(r"</[A-Za-z][\w.-]*>")
+# 펜스 상태 전환(#354) — 들여쓴 마커는 인정, 불릿 뒤 마커는 산문(concept_blocks 참조).
+_FENCE_LINE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 
 
 def _strip_bullet(line: str) -> str:
@@ -101,7 +111,25 @@ def concept_blocks(text: str) -> list[list[str]]:
     """텍스트를 개념 블록(각각 불릿-제거된 줄 리스트)으로 나눈다."""
     blocks: list[list[str]] = []
     current: list[str] | None = None
+    fence: str | None = None  # 열린 펜스의 문자 — 안에서는 구분자 해석을 억제한다(#354)
     for raw in _body_lines(text):
+        marker = _FENCE_LINE_RE.match(raw)
+        if fence is not None:
+            if marker and marker.group(1)[0] == fence:
+                fence = None  # 닫는 마커 — 마커 줄은 마크업이라 콘텐츠 제외
+                continue
+            code = raw.strip()  # 코드는 불릿 해석 없이 원문 유지(양끝 공백만 정돈)
+            if not code:
+                continue  # 펜스 안 빈 줄은 블록을 닫지 않는다
+            if current is None:
+                current = [code]  # 앞 산문 없는 순수 코드 펜스는 자체 블록
+                blocks.append(current)
+            else:
+                current.append(code)  # 코드는 앞 생각의 재료다 — 블록 연속
+            continue
+        if marker:
+            fence = marker.group(1)[0]
+            continue
         if not raw.strip() or _HEADING_RE.match(raw) or _RULE_RE.match(raw):
             current = None  # 빈 줄·헤딩·수평선은 현재 블록을 닫는다
             continue
