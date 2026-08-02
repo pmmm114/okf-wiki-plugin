@@ -261,10 +261,20 @@ def test_render_concept_materializes_frontmatter():
 
 
 class FakeEngine:
-    def __init__(self, bundle, fail_validate=False):
+    def __init__(self, bundle, fail_validate=False, frontmatter=None, query_rows=None):
         self.bundle = str(bundle)
         self.fail_validate = fail_validate
         self.calls: list[list[str]] = []
+        # update 로더(#351 U1)가 부르는 query 응답 — 기본은 bundle 픽스처 info.md.
+        # query_rows로 행 자체를 대체한다([] = valid 뷰 밖, 규격 미달·비개념).
+        self.query_rows = query_rows
+        self.frontmatter = frontmatter or {
+            "type": "fact",
+            "description": "사실.",
+            "layer": "information",
+            "resource": "https://ex.org",
+            "timestamp": "2026-01-01",
+        }
 
     def __call__(self, args):
         self.calls.append(args)
@@ -279,6 +289,10 @@ class FakeEngine:
             if "--chain" in args:
                 return "info.md\n"
             return json.dumps({"nodes": [], "edges": [], "typed_edges": []})
+        if op == "query":
+            if self.query_rows is not None:
+                return json.dumps(self.query_rows)
+            return json.dumps([{"frontmatter_json": json.dumps(self.frontmatter)}])
         return ""
 
 
@@ -438,3 +452,155 @@ def test_apply_preserves_rejections_on_engine_failure(bundle):
     assert report["error"]["stage"] == "log", report["error"]
     assert report["rejected"], "크래시 전에 결정된 반려가 사라졌다"
     assert any("어휘 위반" in r for r in report["rejected"][0]["reasons"]), report["rejected"]
+
+
+# --- #351 U1: mode create|update · layer 별칭·미기재 일반화 -------------------
+
+
+def _layer_only(proposal):
+    proposal = dict(proposal)
+    proposal["layer"] = proposal.pop("target_layer")
+    return proposal
+
+
+def test_gate_accepts_layer_alias(bundle):
+    assert (
+        okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), _layer_only(_proposal(bundle))) == []
+    )
+
+
+def test_gate_rejects_alias_conflict(bundle):
+    reasons = okf_promote.gate_proposal(
+        SPEC, LAYERS, str(bundle), _proposal(bundle, layer="wisdom")
+    )
+    assert any("불일치" in r for r in reasons)
+
+
+def test_gate_rejects_invalid_mode(bundle):
+    reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), _proposal(bundle, mode="patch"))
+    assert any("모드 위반" in r for r in reasons)
+
+
+def test_gate_layerless_create_skips_layer_gates_keeps_material_gates(bundle):
+    # 층 미기재 허용(#351) — rubric·미접지·정초는 안 걸리고 재료 해시는 여전히 걸린다
+    proposal = _proposal(bundle)
+    proposal.pop("target_layer")
+    proposal.pop("rubric")
+    assert okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), proposal) == []
+    (bundle / "info.md").write_text("변조", encoding="utf-8")
+    reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), proposal)
+    assert any("재료 수정됨" in r for r in reasons)
+
+
+def test_gate_update_requires_existing_target(bundle):
+    proposal = {
+        "mode": "update",
+        "path": "/ghost.md",
+        "type": "fact",
+        "description": "d.",
+        "body": "b",
+    }
+    reasons = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), proposal)
+    assert any("갱신 대상 없음" in r for r in reasons)
+
+
+def test_gate_update_blocks_relabel_allows_same_layer(bundle):
+    base = {"mode": "update", "path": "/info.md", "type": "fact", "description": "d.", "body": "b"}
+    relabel = okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), {**base, "layer": "knowledge"})
+    assert any("재라벨 금지" in r for r in relabel)
+    assert (
+        okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), {**base, "layer": "information"}) == []
+    )
+    assert okf_promote.gate_proposal(SPEC, LAYERS, str(bundle), base) == []  # 미기재 = 기존 유지
+
+
+def test_render_concept_without_layer_omits_layer_line():
+    proposal = {"type": "fact", "description": "d.", "body": "# 본문", "derived_from": []}
+    text = okf_promote.render_concept(SPEC, proposal)
+    assert "layer:" not in text and text.startswith("---\ntype: fact\n")
+
+
+def test_apply_update_merges_frontmatter_and_preserves_axes(bundle):
+    engine = FakeEngine(bundle)
+    proposal = {
+        "mode": "update",
+        "path": "/info.md",
+        "type": "fact",
+        "description": "갱신된 사실.",
+        "body": "# 새 답",
+    }
+    report = okf_promote.apply_proposals(str(bundle), [proposal], run=engine)
+    assert report["rejected"] == [] and report["promoted"][0]["mode"] == "update"
+    assert report["promoted"][0]["layer"] == "information"  # 기존 층 유지
+    written = (bundle / "info.md").read_text(encoding="utf-8")
+    assert "description: 갱신된 사실." in written and "# 새 답" in written
+    assert "timestamp: 2026-01-01" in written  # 미지 축 보존
+    assert "layer: information" in written and "resource: https://ex.org" in written
+    log_call = next(call for call in engine.calls if call[0] == "log")
+    assert "Update" in log_call and "(갱신)" in " ".join(log_call)
+    assert [c[0] for c in engine.calls].count("query") == 1
+
+
+def test_apply_update_restores_original_on_validate_failure(bundle):
+    original = (bundle / "info.md").read_text(encoding="utf-8")
+    engine = FakeEngine(bundle, fail_validate=True)
+    proposal = {
+        "mode": "update",
+        "path": "/info.md",
+        "type": "fact",
+        "description": "d.",
+        "body": "b",
+    }
+    report = okf_promote.apply_proposals(str(bundle), [proposal], run=engine)
+    assert report["promoted"] == [] and report["rejected"]
+    assert (bundle / "info.md").read_text(encoding="utf-8") == original  # 삭제가 아니라 복원
+
+
+def test_apply_update_rejects_unrenderable_frontmatter(bundle):
+    original = (bundle / "info.md").read_text(encoding="utf-8")
+    engine = FakeEngine(bundle, frontmatter={"type": "fact", "nested": {"a": 1}})
+    proposal = {
+        "mode": "update",
+        "path": "/info.md",
+        "type": "fact",
+        "description": "d.",
+        "body": "b",
+    }
+    report = okf_promote.apply_proposals(str(bundle), [proposal], run=engine)
+    assert any("실체화 불가" in r for r in report["rejected"][0]["reasons"])
+    assert (bundle / "info.md").read_text(encoding="utf-8") == original  # 파일 불변
+
+
+def test_apply_update_rejects_nonconforming_target(bundle):
+    # valid 뷰 밖(규격 미달·비개념)은 빈 행으로 온다 — 반려·파일 불변·집행 기록 없음.
+    # 질의 우주가 정말 valid 뷰인지는 test_context_roundtrip.py의 로더 왕복이 잠근다.
+    original = (bundle / "info.md").read_text(encoding="utf-8")
+    engine = FakeEngine(bundle, query_rows=[])
+    proposal = {
+        "mode": "update",
+        "path": "/info.md",
+        "type": "fact",
+        "description": "d.",
+        "body": "b",
+    }
+    report = okf_promote.apply_proposals(str(bundle), [proposal], run=engine)
+    assert any("개념 아님" in r for r in report["rejected"][0]["reasons"])
+    assert (bundle / "info.md").read_text(encoding="utf-8") == original  # 파일 불변
+    ops = [call[0] for call in engine.calls]
+    assert "log" not in ops and "index" not in ops
+
+
+def test_render_updated_concept_empty_derived_is_explicit_clear():
+    """미제공 = 유지, 빈 리스트 = 명시적 소거 — #358 리뷰가 물은 계약의 선언.
+
+    상위층은 미접지 게이트(`derived_given`)가 소거를 반려하므로, 이 계약이 실제로
+    작동하는 곳은 층 게이트가 없는 대상뿐이다.
+    """
+    existing = {"type": "fact", "description": "d.", "derived_from": ["/info.md"]}
+    proposal = {"type": "fact", "description": "d.", "body": "b"}
+    keep = okf_promote.render_updated_concept(SPEC, proposal, dict(existing))
+    assert "derived_from:\n  - /info.md" in keep  # 미제공 = 유지
+    clear = okf_promote.render_updated_concept(
+        SPEC, {**proposal, "derived_from": []}, dict(existing)
+    )
+    assert "derived_from" not in clear  # 빈 리스트 = 명시적 소거
