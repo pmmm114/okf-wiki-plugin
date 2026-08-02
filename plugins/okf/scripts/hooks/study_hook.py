@@ -7,9 +7,11 @@ Claude Code 메모리 저장을 감지해 ``study.capture`` 정책대로 후보�
 (경고 방출은 SessionStart 계열의 몫, #91 §3).
 
 - `capture` `off`(또는 study 부재·vault 미옵트인): 무동작.
-- `review`/`auto`: 저장 내용의 **모든 개념 블록**을 스니펫으로 뽑아 활성 스코프의
-  inbox에 적재(이미 promoted/discarded된 블록이면 skip). 적재 보고는 레벨로 갈린다
-  (#366, #352와 같은 원리) — review는 관측형(승격은 사람 주도), auto만 /study 지시형.
+- `review`/`auto`: 저장 내용을 파일 추적 스냅샷과 diff해 **새로 나타난 개념 블록만**
+  활성 스코프의 inbox에 적재한다(#369 — 무변경 재저장은 완전 무동작·무보고,
+  recurrence는 저장 이벤트가 아니라 출현 전이 수). 이미 promoted/discarded된 블록은
+  skip. 적재 보고는 사건 유형(추가/변경)을 병기하고 레벨로 갈린다(#366, #352와 같은
+  원리) — review는 관측형(승격은 사람 주도), auto만 /study 지시형.
 
 #69 훅 컨벤션 정렬: stdlib-only, 무출력 fail-fast ``exit 0``, ``exit 2`` 미발생,
 stdin은 바이트로 읽어 로케일 무관 디코드.
@@ -22,21 +24,22 @@ import os
 import sys
 from pathlib import Path
 
-import study_blocks
 import study_inbox
 import study_scope
 from okf_hooks import diagnose as _diagnose
 
-# 적재 보고 문구 — capture 레벨별 분기의 단일원천(#366). review는 관측형(지시 없음 —
-# 승격은 사람 주도), auto만 능동 드레인 지시(#352가 SessionStart에 적용한 것과 같은 원리).
-# 대기 규모 표기는 두 레벨 공통이다(무음 적체 방지 — #352).
+# 적재 보고 문구 — 사건 유형(#369)×capture 레벨(#366) 분기의 단일원천. review는
+# 관측형(지시 없음 — 승격은 사람 주도), auto만 능동 드레인 지시(#352가 SessionStart에
+# 적용한 것과 같은 원리). 대기 규모 표기는 두 레벨 공통이다(무음 적체 방지 — #352).
+# 무변경 저장은 문구 자체가 없다(fast-path 무보고 — 아무 일도 없었으므로 신호도 없음).
+_EVENT_LABELS = {"added": "메모리 파일 추가", "changed": "메모리 파일 변경"}
 _REPORT_FORMS = {
     "review": (
-        "메모리 후보 {appended}건을 study 인박스에 적재(이 파일). "
+        "{event}(이 파일) — 새 후보 {appended}건을 study 인박스에 적재. "
         "전체 대기 파일 {files}개·{total}건."
     ),
     "auto": (
-        "메모리 후보 {appended}건을 study 인박스에 적재(이 파일). "
+        "{event}(이 파일) — 새 후보 {appended}건을 study 인박스에 적재. "
         "전체 대기 파일 {files}개·{total}건. /study로 검토·승격하라."
     ),
 }
@@ -68,20 +71,10 @@ def run(payload: dict, project: str | Path) -> str | None:
         except OSError:
             return None
 
-    # 저장 내용의 **모든 개념 블록**을 적재한다(#131) — 예전 "마지막 줄만"의 과소 캡처를
-    # 없애고 scan과 동일 단위로 통일한다. 이미 처리된 블록(자식 전부 resolved)은 건너뛴다.
-    appended = 0
-    for block in study_blocks.concept_blocks(content):
-        snippet = " ".join(block)
-        if not snippet:
-            continue
-        line_hashes = [study_inbox.content_hash(line)[:12] for line in block]
-        bid = study_inbox.content_hash(snippet)[:12]
-        if study_inbox.block_resolved(runtime, bid, line_hashes):
-            continue  # 블록 id 또는 모든 자식 줄이 이미 promoted/discarded
-        study_inbox.append(runtime, snippet, file_path, line_hashes=line_hashes)
-        appended += 1
-    if not appended:
+    # 파일 추적 diff 캡처(#369) — 스냅샷과 비교해 새로 나타난 블록만 적재된다.
+    # 무변경·재출현뿐·전부 기처리면 새 리뷰거리가 없으므로 무보고.
+    result = study_inbox.capture_file(runtime, file_path, content)
+    if not result["appended"]:
         return None
 
     # 보고는 파일 단위(#257) — 훅은 호출당 파일 1개를 처리하므로 "이번 저장분"과
@@ -89,7 +82,10 @@ def run(payload: dict, project: str | Path) -> str | None:
     pending = study_inbox.list_candidates(runtime)
     files = len({c["source"] for c in pending})
     return _REPORT_FORMS[scope["capture"]].format(
-        appended=appended, files=files, total=len(pending)
+        event=_EVENT_LABELS[result["event"]],
+        appended=result["appended"],
+        files=files,
+        total=len(pending),
     )
 
 

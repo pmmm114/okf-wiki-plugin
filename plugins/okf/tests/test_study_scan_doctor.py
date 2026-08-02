@@ -88,6 +88,20 @@ def test_scan_hash_aligns_with_hook_capture(tmp_path):
     assert result["unqueued"] == []
 
 
+def test_scan_enqueue_updates_file_snapshot(tmp_path):
+    # #369 — scan --enqueue는 파일 스냅샷을 동시 갱신한다: 직후 같은 내용의 훅 저장이
+    # 완전 무동작이어야 전이가 이중 계수되지 않는다
+    path = _memory_file(tmp_path, ["eta fact"])
+    project = _project(tmp_path)
+    (project / ".okf-wiki.json").write_text(
+        json.dumps({"study": {"capture": "review"}}), encoding="utf-8"
+    )
+    study_cli.scan_memory(project, enqueue=True)
+    payload = {"tool_input": {"file_path": str(path), "content": path.read_text(encoding="utf-8")}}
+    assert study_hook.run(payload, project) is None
+    assert [c["recurrence"] for c in study_inbox.list_candidates(_rt(project))] == [1]
+
+
 def test_scan_cli_outputs_json(tmp_path, capsys):
     _memory_file(tmp_path, ["zeta fact"])
     project = _project(tmp_path)

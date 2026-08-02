@@ -143,6 +143,57 @@ def test_report_auto_directs_to_study(tmp_path):
     assert message and "/study" in message
 
 
+def test_unchanged_resave_is_full_noop(tmp_path):
+    # #369 — 같은 내용 재저장은 완전 무동작: 보고 없음, recurrence 불변(저장 이벤트를 세지 않는다)
+    _cfg(tmp_path, "review")
+    payload = {"tool_input": {"file_path": _mem(), "content": "* fact one\n"}}
+    assert study_hook.run(payload, tmp_path)
+    assert study_hook.run(payload, tmp_path) is None
+    cands = study_inbox.list_candidates(_rt(tmp_path))
+    assert [c["recurrence"] for c in cands] == [1]
+
+
+def test_change_touches_only_new_blocks(tmp_path):
+    # #369 — 블록 하나가 추가돼도 계속 있던 블록의 recurrence는 오르지 않는다(출현 전이만 계수)
+    _cfg(tmp_path, "review")
+    study_hook.run(
+        {"tool_input": {"file_path": _mem(), "content": "* fact one\n* fact two\n"}}, tmp_path
+    )
+    message = study_hook.run(
+        {"tool_input": {"file_path": _mem(), "content": "* fact one\n* fact two\n* fact three\n"}},
+        tmp_path,
+    )
+    assert message and "후보 1건" in message and "변경" in message
+    recs = {c["snippet"]: c["recurrence"] for c in study_inbox.list_candidates(_rt(tmp_path))}
+    assert recs == {"fact one": 1, "fact two": 1, "fact three": 1}
+
+
+def test_removed_block_reappearance_counts_transition(tmp_path):
+    # #369 — 지웠다가 다시 쓰면 전이 +1이고, 저널에 disappear/reappear 타임라인이 남는다
+    _cfg(tmp_path, "review")
+    both = "* fact one\n* fact keep\n"
+    study_hook.run({"tool_input": {"file_path": _mem(), "content": both}}, tmp_path)
+    study_hook.run({"tool_input": {"file_path": _mem(), "content": "* fact keep\n"}}, tmp_path)
+    study_hook.run({"tool_input": {"file_path": _mem(), "content": both}}, tmp_path)
+    recs = {c["snippet"]: c["recurrence"] for c in study_inbox.list_candidates(_rt(tmp_path))}
+    assert recs["fact one"] == 2 and recs["fact keep"] == 1
+    actions = [e["action"] for e in study_inbox.read_journal(_rt(tmp_path))]
+    assert "disappear" in actions and "reappear" in actions
+
+
+def test_report_carries_file_event_type(tmp_path):
+    # #369 — 보고는 사건 유형을 병기한다: 첫 캡처는 "추가", 이후 변경은 "변경"
+    _cfg(tmp_path, "review")
+    first = study_hook.run(
+        {"tool_input": {"file_path": _mem(), "content": "* fact one\n"}}, tmp_path
+    )
+    second = study_hook.run(
+        {"tool_input": {"file_path": _mem(), "content": "* fact one\n* fact two\n"}}, tmp_path
+    )
+    assert first and "추가" in first
+    assert second and "변경" in second
+
+
 def _run_hook(project, stdin: str):
     return subprocess.run(
         [str(SHIM), str(SCRIPT)],
