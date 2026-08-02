@@ -11,7 +11,7 @@
                                                          핸들러 실행(경로·git·trust 게이트)
   study scan     <project> [--enqueue]                   미큐잉 후보 결정론 탐지(+재적재)
   study audit    <project>                                캡처 감사 — 미포착 줄 코드 분류(관측 전용)
-  study log      <project> [--limit N]                    이벤트 저널(capture/promote/discard)
+  study log      <project> [--limit N]                    이벤트 저널(capture·전이/promote/discard)
   study near     <project> [--top-k N]                    근사중복 자문(가까운 상위 K + 거리)
   study near-bundle <bundle> --snippet S --layer L [--top-k N]  후보↔같은 층 번들 근사중복(자문)
   study migrate  [<project>]                              vault .okf-study → 유저 스코프 멱등 이동
@@ -344,7 +344,7 @@ def cmd_near_bundle(args) -> int:
 
 
 def cmd_log(args) -> int:
-    # 이벤트 저널(capture/promote/discard 이력) — 비-git 스테이징의 순서·로그(#114 U5)
+    # 이벤트 저널(capture·전이(#369)/promote/discard 이력) — 비-git 스테이징의 순서·로그(#114 U5)
     _promote, runtime = _scope(args.project)
     events = study_inbox.read_journal(runtime, limit=args.limit) if runtime else []
     print(json.dumps(events, ensure_ascii=False, indent=2))
@@ -542,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
     scn.add_argument("project", nargs="?", default=".")
     scn.add_argument("--enqueue", action="store_true")
 
-    lg = sub.add_parser("log", help="이벤트 저널(capture/promote/discard 이력) 출력")
+    lg = sub.add_parser("log", help="이벤트 저널(capture·전이/promote/discard 이력) 출력")
     lg.add_argument("project", nargs="?", default=".")
     lg.add_argument("--limit", type=int, default=None)
 
