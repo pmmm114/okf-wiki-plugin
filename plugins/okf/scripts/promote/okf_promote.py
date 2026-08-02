@@ -332,12 +332,14 @@ def _existing_frontmatter(bundle: str, rel: str, run) -> dict:
 
     플러그인은 frontmatter를 직접 파싱하지 않는다(파스는 엔진 소관 — stdlib 원칙과
     파서 단일화 둘 다). 개념이 아니면(파스 불가·비개념) ValueError — update 불가.
+    질의 우주는 valid 뷰(§9 통과 집합) — concept 테이블이면 규격 미달도 frontmatter가
+    차서 통과하는데, 그 문서는 layer_map 밖이라 재라벨 게이트가 조용히 꺼진다(#358).
     """
     escaped = rel.replace("'", "''")
-    sql = f"SELECT frontmatter_json FROM concept WHERE path = '{escaped}'"
+    sql = f"SELECT frontmatter_json FROM valid WHERE path = '{escaped}'"
     rows = json.loads(_staged(run, "query", ["query", bundle, sql, "--json"]))
     if not rows or not rows[0].get("frontmatter_json"):
-        raise ValueError(f"개념 아님: {rel} — frontmatter가 파스되지 않는 파일은 update 불가")
+        raise ValueError(f"개념 아님: {rel} — §9 밖 문서(파스 불가·규격 미달)는 update 불가")
     return json.loads(rows[0]["frontmatter_json"])
 
 
@@ -374,7 +376,8 @@ def render_updated_concept(spec: dict, proposal: dict, existing: dict) -> str:
 
     병합 규칙: type·description은 제안 값(필수), 층은 기존 우선(제안 기재는 게이트가
     동일성·신규 부여를 이미 판정), derived_from·resource는 **제안이 준 경우만** 대체
-    (미제공 = 유지). body는 제안이 전체를 새로 저작한다(§3 갱신 = 편집·교체).
+    (미제공 = 유지, 빈 리스트 = 명시적 소거 — 상위층 소거는 미접지 게이트가 반려).
+    body는 제안이 전체를 새로 저작한다(§3 갱신 = 편집·교체).
     """
     merged = dict(existing)
     merged["type"] = proposal["type"]

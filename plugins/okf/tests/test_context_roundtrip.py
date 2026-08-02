@@ -163,6 +163,24 @@ def test_promote_gate_gets_layer_material_from_real_engine(bundle: str):
     assert layer_map.get(_KNOW[0]) == "knowledge"
 
 
+def test_update_loader_universe_is_valid_view_on_real_engine(tmp_path: Path):
+    """update 로더(#351 U1)의 질의 우주가 §9 통과 집합(valid 뷰)임을 실엔진으로 잠근다.
+
+    concept 테이블을 질의하면 규격 미달(frontmatter는 파스되지만 type이 빈 문서)도
+    frontmatter가 차서 로더를 통과하고, 그 문서는 layer_map 밖이라 재라벨 게이트가
+    조용히 꺼진다 — update가 §9 밖 문서를 개념으로 수선하며 착지한다(#358 리뷰 실측).
+    FakeEngine은 query 응답을 고정 반환해 이 구분을 가리므로 실엔진으로만 잠긴다.
+    """
+    _write(tmp_path, *_INFO, resource="https://example.invalid/src")
+    (tmp_path / "bad.md").write_text(
+        '---\ntype: ""\ndescription: 규격 미달.\nlayer: wisdom\n---\n\n# 몸\n', encoding="utf-8"
+    )
+    fm = okf_promote._existing_frontmatter(str(tmp_path), _INFO[0], okf_promote._okf_run)
+    assert fm["type"] == _INFO[1]
+    with pytest.raises(ValueError, match="개념 아님"):
+        okf_promote._existing_frontmatter(str(tmp_path), "bad.md", okf_promote._okf_run)
+
+
 def test_explore_builtin_payload_comes_from_real_engine(bundle: str):
     """내장 탐색 제공자가 실물 렌더에서 신호·맵을 만든다(계약 응답까지)."""
     signals = okf_explore._builtin_payload(bundle, "signals", topic="", layer=None)

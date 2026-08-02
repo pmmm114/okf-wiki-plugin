@@ -261,11 +261,13 @@ def test_render_concept_materializes_frontmatter():
 
 
 class FakeEngine:
-    def __init__(self, bundle, fail_validate=False, frontmatter=None):
+    def __init__(self, bundle, fail_validate=False, frontmatter=None, query_rows=None):
         self.bundle = str(bundle)
         self.fail_validate = fail_validate
         self.calls: list[list[str]] = []
-        # update 로더(#351 U1)가 부르는 query 응답 — 기본은 bundle 픽스처 info.md
+        # update 로더(#351 U1)가 부르는 query 응답 — 기본은 bundle 픽스처 info.md.
+        # query_rows로 행 자체를 대체한다([] = valid 뷰 밖, 규격 미달·비개념).
+        self.query_rows = query_rows
         self.frontmatter = frontmatter or {
             "type": "fact",
             "description": "사실.",
@@ -288,6 +290,8 @@ class FakeEngine:
                 return "info.md\n"
             return json.dumps({"nodes": [], "edges": [], "typed_edges": []})
         if op == "query":
+            if self.query_rows is not None:
+                return json.dumps(self.query_rows)
             return json.dumps([{"frontmatter_json": json.dumps(self.frontmatter)}])
         return ""
 
@@ -565,3 +569,38 @@ def test_apply_update_rejects_unrenderable_frontmatter(bundle):
     report = okf_promote.apply_proposals(str(bundle), [proposal], run=engine)
     assert any("실체화 불가" in r for r in report["rejected"][0]["reasons"])
     assert (bundle / "info.md").read_text(encoding="utf-8") == original  # 파일 불변
+
+
+def test_apply_update_rejects_nonconforming_target(bundle):
+    # valid 뷰 밖(규격 미달·비개념)은 빈 행으로 온다 — 반려·파일 불변·집행 기록 없음.
+    # 질의 우주가 정말 valid 뷰인지는 test_context_roundtrip.py의 로더 왕복이 잠근다.
+    original = (bundle / "info.md").read_text(encoding="utf-8")
+    engine = FakeEngine(bundle, query_rows=[])
+    proposal = {
+        "mode": "update",
+        "path": "/info.md",
+        "type": "fact",
+        "description": "d.",
+        "body": "b",
+    }
+    report = okf_promote.apply_proposals(str(bundle), [proposal], run=engine)
+    assert any("개념 아님" in r for r in report["rejected"][0]["reasons"])
+    assert (bundle / "info.md").read_text(encoding="utf-8") == original  # 파일 불변
+    ops = [call[0] for call in engine.calls]
+    assert "log" not in ops and "index" not in ops
+
+
+def test_render_updated_concept_empty_derived_is_explicit_clear():
+    """미제공 = 유지, 빈 리스트 = 명시적 소거 — #358 리뷰가 물은 계약의 선언.
+
+    상위층은 미접지 게이트(`derived_given`)가 소거를 반려하므로, 이 계약이 실제로
+    작동하는 곳은 층 게이트가 없는 대상뿐이다.
+    """
+    existing = {"type": "fact", "description": "d.", "derived_from": ["/info.md"]}
+    proposal = {"type": "fact", "description": "d.", "body": "b"}
+    keep = okf_promote.render_updated_concept(SPEC, proposal, dict(existing))
+    assert "derived_from:\n  - /info.md" in keep  # 미제공 = 유지
+    clear = okf_promote.render_updated_concept(
+        SPEC, {**proposal, "derived_from": []}, dict(existing)
+    )
+    assert "derived_from" not in clear  # 빈 리스트 = 명시적 소거
