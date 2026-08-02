@@ -98,7 +98,9 @@ def file_hash(text: str) -> str:
     return hashlib.sha256(str(text).encode("utf-8")).hexdigest()
 
 
-def capture_file(runtime: str | Path, source: str, text: str) -> dict:
+def capture_file(
+    runtime: str | Path, source: str, text: str, labels: frozenset[str] | None = None
+) -> dict:
     """파일 단위 캡처(#369) — 파일 추적 스냅샷과 diff해 **새로 나타난 블록만** 적재한다.
 
     반환 ``{event, appended, reappeared}``. ``event``는 ``"unchanged"``(해시 동일 —
@@ -120,7 +122,7 @@ def capture_file(runtime: str | Path, source: str, text: str) -> dict:
     appended = reappeared = 0
     now_ids: list[str] = []
     handled: set[str] = set()
-    for block in study_blocks.concept_blocks(text):
+    for block in study_blocks.concept_blocks(text, labels=labels):
         snippet = " ".join(block)
         if not _sanitize(snippet):
             continue
@@ -148,7 +150,9 @@ def capture_file(runtime: str | Path, source: str, text: str) -> dict:
     }
 
 
-def track_file(runtime: str | Path, source: str, text: str) -> None:
+def track_file(
+    runtime: str | Path, source: str, text: str, labels: frozenset[str] | None = None
+) -> None:
     """스냅샷만 갱신한다(#369) — 적재를 자체 경로로 마친 소비자용(scan ``--enqueue``).
 
     갱신 없이 캡처와 별도 경로로 적재하면 다음 훅 캡처가 같은 블록을 전이로 다시
@@ -158,7 +162,7 @@ def track_file(runtime: str | Path, source: str, text: str) -> None:
     if not study_store.available():
         return
     ids: list[str] = []
-    for block in study_blocks.concept_blocks(text):
+    for block in study_blocks.concept_blocks(text, labels=labels):
         snippet = " ".join(block)
         if _sanitize(snippet):
             ids.append(content_hash(snippet)[:_ID_LEN])

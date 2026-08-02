@@ -76,6 +76,7 @@ def scan_memory(
     """
     if runtime is None:
         runtime = _scope(project)[1]
+    labels = study_blocks.effective_labels(study_scope.declared_noise_labels(project))  # #370
     known = {c["id"] for c in study_inbox.list_candidates(runtime)} if runtime else set()
     unqueued: list[dict] = []
     seen: set[str] = set()
@@ -91,7 +92,7 @@ def scan_memory(
             except OSError:
                 continue
             scanned.append((str(path), text))
-            for block in study_blocks.concept_blocks(text):  # 개념 블록 단위(#131)
+            for block in study_blocks.concept_blocks(text, labels=labels):  # 개념 블록 단위(#131)
                 snippet = " ".join(block)
                 if not snippet:
                     continue
@@ -113,7 +114,7 @@ def scan_memory(
         # #369 — 적재를 마친 파일의 추적 스냅샷을 동시 갱신한다(다음 훅 캡처의 전이
         # 이중 계수 방지). 관측 전용 scan(무 enqueue)은 상태를 바꾸지 않는다.
         for source, text in scanned:
-            study_inbox.track_file(runtime, source, text)
+            study_inbox.track_file(runtime, source, text, labels=labels)
     return {"scanned_files": files, "unqueued": unqueued, "enqueued": enqueued}
 
 
@@ -236,12 +237,13 @@ def cmd_prune(args) -> int:
     # discard(영구 원장 + 공유 원장 write-through)는 노이즈 id 오염이 된다. 저널은
     # per-id 대신 집계 1건 — doctor의 최근-이력 뷰를 수백 행으로 덮지 않는다.
     _promote, runtime = _scope(args.project)
+    labels = study_blocks.effective_labels(study_scope.declared_noise_labels(args.project))  # #370
     matches: list[dict] = []
     if runtime:
         matches = [
             c
             for c in study_inbox.list_candidates(runtime)
-            if study_blocks.is_noise_snippet(c["snippet"])
+            if study_blocks.is_noise_snippet(c["snippet"], labels=labels)
         ]
     if args.dry_run:
         # 오폭 검토(#263): is_noise_snippet은 텍스트 근사라 `--- ` 접두 실사실·diff 헤더

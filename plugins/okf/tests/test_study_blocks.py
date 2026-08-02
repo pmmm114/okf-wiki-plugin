@@ -150,6 +150,27 @@ def test_label_like_real_fact_is_preserved():
 # --- 원자·자식(A2′) ---------------------------------------------------------
 
 
+def test_declared_label_blocks_are_dropped():
+    # #370 — 소비처 선언 라벨(study.noiseLabels)의 단독 블록은 후보가 아니다
+    labels = study_blocks.effective_labels(["근거"])
+    assert study_blocks.concept_blocks("**근거:**\n- 실측으로 확인했다\n", labels=labels) == [
+        ["실측으로 확인했다"]
+    ]
+
+
+def test_declared_labels_are_additive_only():
+    # #370 — 선언은 내장 셋에 합집합될 뿐, 내장(why 등)을 끄지 못한다
+    labels = study_blocks.effective_labels([])
+    assert study_blocks.concept_blocks("**Why:**\n- 이유 본문\n", labels=labels) == [["이유 본문"]]
+
+
+def test_noise_snippet_honors_declared_labels():
+    # #370 — prune 근사(is_noise_snippet)도 같은 유효 셋을 쓴다. 미선언 라벨은 실사실이다
+    labels = study_blocks.effective_labels(["근거"])
+    assert study_blocks.is_noise_snippet("**근거:**", labels=labels)
+    assert not study_blocks.is_noise_snippet("**근거:**")
+
+
 def test_multiline_block_is_single_candidate(tmp_path):
     block = ["decision X", "because Y"]
     lh = [study_inbox.content_hash(line)[:12] for line in block]

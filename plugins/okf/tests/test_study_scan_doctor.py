@@ -121,6 +121,16 @@ def _valid_vault(tmp_path, study=None):
     return vault
 
 
+def test_doctor_shows_effective_noise_labels(tmp_path):
+    # #370 — 유효 라벨 필터(내장 ∪ 선언)를 doctor가 가시화한다(무음 캡처 억제 방지)
+    project = _project(tmp_path)
+    (project / ".okf-wiki.json").write_text(
+        json.dumps({"study": {"capture": "review", "noiseLabels": ["근거"]}}), encoding="utf-8"
+    )
+    out = okf_doctor.run(str(project))
+    assert "라벨 필터" in out and "근거" in out and "why" in out
+
+
 def test_doctor_fallback_trace(monkeypatch, tmp_path):
     vault = _valid_vault(tmp_path, {"capture": "review"})
     monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))

@@ -70,6 +70,17 @@ def _label_key(line: str) -> str:
     return key.strip("*").strip().lower()
 
 
+def effective_labels(declared) -> frozenset[str]:
+    """유효 노이즈 라벨 셋(#370) — 내장 ∪ 소비처 선언(``_label_key`` 정규화 후).
+
+    **additive만이다** — 선언으로 내장을 끌 수 없다(무음 캡처 억제 방지). 어휘는
+    소비처(``.okf-wiki.json``의 ``study.noiseLabels``)가 선언하고, 규칙(라벨-단독
+    블록의 정확 일치 제외 — 휴리스틱 없음)은 이 모듈이 소유한다. 가시화는 doctor.
+    """
+    extra = frozenset(_label_key(v) for v in (declared or []) if isinstance(v, str) and v.strip())
+    return _NOISE_LABELS | extra
+
+
 # frontmatter 안쪽이 **YAML 매핑꼴**인지 — 위치만으로 단정하지 않기 위한 확인(#305).
 # 허용: `키: 값` · 들여쓴 연속(리스트 항목·중첩) · 주석 · 빈 줄.
 _YAML_KEY_RE = re.compile(r"^[A-Za-z_][\w.\-]*\s*:")
@@ -107,8 +118,14 @@ def _body_lines(text: str) -> list[str]:
     return lines
 
 
-def concept_blocks(text: str) -> list[list[str]]:
-    """텍스트를 개념 블록(각각 불릿-제거된 줄 리스트)으로 나눈다."""
+def concept_blocks(text: str, labels: frozenset[str] | None = None) -> list[list[str]]:
+    """텍스트를 개념 블록(각각 불릿-제거된 줄 리스트)으로 나눈다.
+
+    ``labels``는 라벨-단독 노이즈 판정의 유효 셋(``effective_labels``) — 미지정이면
+    내장 셋만(#370, 하위호환).
+    """
+    if labels is None:
+        labels = _NOISE_LABELS
     blocks: list[list[str]] = []
     current: list[str] | None = None
     fence: str | None = None  # 열린 펜스의 문자 — 안에서는 구분자 해석을 억제한다(#354)
@@ -144,27 +161,29 @@ def concept_blocks(text: str) -> list[list[str]]:
             current.append(stripped)  # 들여쓴 하위 불릿·산문 연속 줄
     # 라벨-단독·코드 조각 단독 블록은 후보가 아니다 — 라벨 내용은 뒤따르는 블록이
     # 이미 따로 갖고, 펜스 마커·닫는 태그는 지식이 아니라 마크업 잔재다(#352).
-    return [b for b in blocks if not (len(b) == 1 and _is_structural_noise(b[0]))]
+    return [b for b in blocks if not (len(b) == 1 and _is_structural_noise(b[0], labels))]
 
 
-def _is_structural_noise(line: str) -> bool:
-    """단독 줄이 구조 잔재인가 — 고정 라벨 셋 또는 코드 조각 고정 패턴(fullmatch)."""
+def _is_structural_noise(line: str, labels: frozenset[str]) -> bool:
+    """단독 줄이 구조 잔재인가 — 유효 라벨 셋 또는 코드 조각 고정 패턴(fullmatch)."""
     stripped = line.strip()
     return (
-        _label_key(line) in _NOISE_LABELS
+        _label_key(line) in labels
         or bool(_FENCE_MARK_RE.fullmatch(stripped))
         or bool(_CLOSING_TAG_RE.fullmatch(stripped))
     )
 
 
-def is_noise_snippet(snippet: str) -> bool:
+def is_noise_snippet(snippet: str, labels: frozenset[str] | None = None) -> bool:
     """이미 적재된 후보의 노이즈 판정 — **prune 전용** 텍스트 근사(#256).
 
     영구 필터는 위치(선두 펜스) 기준으로 추출 단계에서 걸러지지만, DB의 스니펫엔
     위치 정보가 없어 조인 형태(``--- `` 접두 = frontmatter 블록)로 근사한다 —
     실측 코퍼스 위양성 0. diff 헤더 인용을 일상 캡처하는 코퍼스라면 prune 결과
-    목록을 검토하고 쓰라.
+    목록을 검토하고 쓰라. ``labels``는 추출 필터와 같은 유효 라벨 셋(#370).
     """
+    if labels is None:
+        labels = _NOISE_LABELS
     joined = " ".join(str(snippet).split())
     if re.fullmatch(r"-{3,}", joined):
         return True
@@ -172,4 +191,4 @@ def is_noise_snippet(snippet: str) -> bool:
         return True
     # 코드 조각 단독(#352) — 저장 스니펫 2,759건 전수 실측에서 매치 7건(펜스 4·태그 3)
     # 전부 노이즈, 위양성 0. 추출 필터와 같은 fullmatch 패턴이라 기적재 잔재를 잇는다.
-    return _is_structural_noise(joined)
+    return _is_structural_noise(joined, labels)
