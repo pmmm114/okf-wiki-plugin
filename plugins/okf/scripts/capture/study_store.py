@@ -161,6 +161,8 @@ def insert_candidate(
 ) -> bool:
     """후보를 적재하고 **새로 들어갔는지**(True) 재등장인지(False) 반환한다.
 
+    #369부터 호출부(capture_file)가 **출현 전이에서만** 재캡처를 전달한다 — 이 함수의
+    카운터 증가는 기계 동작일 뿐, recurrence의 의미는 저장 이벤트가 아니라 전이 수다.
     동일 id 재캡처는 **재등장 카운터를 올리고 source·ingested_at을 최근 캡처값으로
     갱신한다**(#132·#255) — rename·이동된 파일의 후보가 죽은 경로에 영구 귀속되지
     않는다. ``captured_at``(valid-time, 첫 캡처)·``ingested_at``(transaction-time,
