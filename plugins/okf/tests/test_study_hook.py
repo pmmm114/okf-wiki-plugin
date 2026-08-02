@@ -123,6 +123,26 @@ def test_message_reports_file_and_total_counts(tmp_path):
     assert "파일 2개·3건" in message  # 전체 대기: 파일 2개, 후보 3건
 
 
+def test_report_review_is_observational(tmp_path):
+    # #366 — review는 관측형(승격은 사람 주도): 적재·대기 규모만 보고, /study 지시 없음
+    # (#352가 SessionStart 나즈에 적용한 review/auto 분기와 같은 원리)
+    _cfg(tmp_path, "review")
+    message = study_hook.run(
+        {"tool_input": {"file_path": _mem(), "content": "* fact one\n"}}, tmp_path
+    )
+    assert message and "인박스" in message
+    assert "/study" not in message
+
+
+def test_report_auto_directs_to_study(tmp_path):
+    # #366 — auto는 능동 드레인 지시를 유지한다
+    _cfg(tmp_path, "auto")
+    message = study_hook.run(
+        {"tool_input": {"file_path": _mem(), "content": "* fact one\n"}}, tmp_path
+    )
+    assert message and "/study" in message
+
+
 def _run_hook(project, stdin: str):
     return subprocess.run(
         [str(SHIM), str(SCRIPT)],

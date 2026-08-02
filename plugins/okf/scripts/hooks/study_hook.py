@@ -8,7 +8,8 @@ Claude Code 메모리 저장을 감지해 ``study.capture`` 정책대로 후보�
 
 - `capture` `off`(또는 study 부재·vault 미옵트인): 무동작.
 - `review`/`auto`: 저장 내용의 **모든 개념 블록**을 스니펫으로 뽑아 활성 스코프의
-  inbox에 적재(이미 promoted/discarded된 블록이면 skip).
+  inbox에 적재(이미 promoted/discarded된 블록이면 skip). 적재 보고는 레벨로 갈린다
+  (#366, #352와 같은 원리) — review는 관측형(승격은 사람 주도), auto만 /study 지시형.
 
 #69 훅 컨벤션 정렬: stdlib-only, 무출력 fail-fast ``exit 0``, ``exit 2`` 미발생,
 stdin은 바이트로 읽어 로케일 무관 디코드.
@@ -25,6 +26,20 @@ import study_blocks
 import study_inbox
 import study_scope
 from okf_hooks import diagnose as _diagnose
+
+# 적재 보고 문구 — capture 레벨별 분기의 단일원천(#366). review는 관측형(지시 없음 —
+# 승격은 사람 주도), auto만 능동 드레인 지시(#352가 SessionStart에 적용한 것과 같은 원리).
+# 대기 규모 표기는 두 레벨 공통이다(무음 적체 방지 — #352).
+_REPORT_FORMS = {
+    "review": (
+        "메모리 후보 {appended}건을 study 인박스에 적재(이 파일). "
+        "전체 대기 파일 {files}개·{total}건."
+    ),
+    "auto": (
+        "메모리 후보 {appended}건을 study 인박스에 적재(이 파일). "
+        "전체 대기 파일 {files}개·{total}건. /study로 검토·승격하라."
+    ),
+}
 
 
 def _dig(data, *keys):
@@ -73,9 +88,8 @@ def run(payload: dict, project: str | Path) -> str | None:
     # "전체 대기"를 분리 표기한다. 대기 집계는 캡처 스냅샷 누적이다(파일 현재 상태 아님).
     pending = study_inbox.list_candidates(runtime)
     files = len({c["source"] for c in pending})
-    return (
-        f"메모리 후보 {appended}건을 study 인박스에 적재(이 파일). "
-        f"전체 대기 파일 {files}개·{len(pending)}건. /study로 검토·승격하라."
+    return _REPORT_FORMS[scope["capture"]].format(
+        appended=appended, files=files, total=len(pending)
     )
 
 
