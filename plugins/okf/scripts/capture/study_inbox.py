@@ -25,6 +25,7 @@ import datetime
 import hashlib
 from pathlib import Path
 
+import study_blocks
 import study_simhash
 import study_store
 
@@ -90,6 +91,80 @@ def append(
     if inserted:
         journal_append(runtime, "capture", ident, source=source)  # 순서·시각 이력(#114 U5)
     return ident
+
+
+def file_hash(text: str) -> str:
+    """파일 내용 해시(원문 그대로 — 변경 감지용, sanitize 없음)."""
+    return hashlib.sha256(str(text).encode("utf-8")).hexdigest()
+
+
+def capture_file(runtime: str | Path, source: str, text: str) -> dict:
+    """파일 단위 캡처(#369) — 파일 추적 스냅샷과 diff해 **새로 나타난 블록만** 적재한다.
+
+    반환 ``{event, appended, reappeared}``. ``event``는 ``"unchanged"``(해시 동일 —
+    완전 무동작) | ``"added"``(스냅샷 없음 = 이 파일의 첫 캡처) | ``"changed"``.
+    ``appended``는 신규 적재 수(새 리뷰거리), ``reappeared``는 기존 후보의 재출현 수
+    (전이 +1이되 새 리뷰거리는 아님). **계속 있던 블록(스냅샷 ∩ 현재)은 무동작**이다 —
+    recurrence가 저장 이벤트가 아니라 출현 전이를 세게 하는 지점. 원장 처리분은
+    전이여도 재적재하지 않는다(discard 존중). 전이는 저널에 남는다(reappear/disappear
+    — 파일의 블록 구성 타임라인을 id 수준에서 복원 가능하게).
+    """
+    source = _sanitize(source)
+    if not study_store.available():
+        return {"event": "unavailable", "appended": 0, "reappeared": 0}
+    digest = file_hash(text)
+    prev = study_store.get_file_track(runtime, source)
+    if prev is not None and prev["file_hash"] == digest:
+        return {"event": "unchanged", "appended": 0, "reappeared": 0}
+    prev_ids = set(prev["block_ids"]) if prev else set()
+    appended = reappeared = 0
+    now_ids: list[str] = []
+    handled: set[str] = set()
+    for block in study_blocks.concept_blocks(text):
+        snippet = " ".join(block)
+        if not _sanitize(snippet):
+            continue
+        ident = content_hash(snippet)[:_ID_LEN]
+        now_ids.append(ident)
+        if ident in handled or ident in prev_ids:
+            continue  # 파일 내 중복 또는 계속 있던 블록 — 전이 아님
+        handled.add(ident)
+        line_hashes = [content_hash(line)[:_ID_LEN] for line in block]
+        if block_resolved(runtime, ident, line_hashes):
+            continue
+        if study_store.has_candidate(runtime, ident):
+            reappeared += 1
+            journal_append(runtime, "reappear", ident, source=source)  # 전이 저널(#369)
+        else:
+            appended += 1
+        append(runtime, snippet, source, line_hashes=line_hashes)
+    for gone in sorted(prev_ids - set(now_ids)):
+        journal_append(runtime, "disappear", gone, source=source)
+    study_store.set_file_track(runtime, source, digest, list(dict.fromkeys(now_ids)), _now())
+    return {
+        "event": "changed" if prev is not None else "added",
+        "appended": appended,
+        "reappeared": reappeared,
+    }
+
+
+def track_file(runtime: str | Path, source: str, text: str) -> None:
+    """스냅샷만 갱신한다(#369) — 적재를 자체 경로로 마친 소비자용(scan ``--enqueue``).
+
+    갱신 없이 캡처와 별도 경로로 적재하면 다음 훅 캡처가 같은 블록을 전이로 다시
+    세어 이중 계수된다. 관측 전용 scan(무 enqueue)은 이 함수를 부르지 않는다 —
+    관측은 상태를 바꾸지 않는다.
+    """
+    if not study_store.available():
+        return
+    ids: list[str] = []
+    for block in study_blocks.concept_blocks(text):
+        snippet = " ".join(block)
+        if _sanitize(snippet):
+            ids.append(content_hash(snippet)[:_ID_LEN])
+    study_store.set_file_track(
+        runtime, _sanitize(source), file_hash(text), list(dict.fromkeys(ids)), _now()
+    )
 
 
 def near_duplicates(
@@ -246,8 +321,9 @@ def record(
     # A2′(#131): 블록 id + 자식 줄-해시를 함께 원장에 — 미래에 같은 줄이 **다른 그룹핑**
     # 으로 재캡처돼도 줄-단위로 dedup되어 재부상하지 않는다(ledger 연속성).
     children = [h for h in study_store.candidate_lines(runtime, ident) if h != ident]
+    source = study_store.candidate_source(runtime, ident)  # 파일 타임라인 병기(#369)
     study_store.insert_resolution(runtime, ident, status, ref)
-    journal_append(runtime, status, ident, ref=ref, layer=layer)  # 순서·시각·층 이력(#114·#189 U5)
+    journal_append(runtime, status, ident, ref=ref, layer=layer, source=source)
     for child in children:
         study_store.insert_resolution(runtime, child, status, None)
     shared = _global_ledger_root(runtime)

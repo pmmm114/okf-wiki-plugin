@@ -79,6 +79,7 @@ def scan_memory(
     known = {c["id"] for c in study_inbox.list_candidates(runtime)} if runtime else set()
     unqueued: list[dict] = []
     seen: set[str] = set()
+    scanned: list[tuple[str, str]] = []  # (source, text) — --enqueue의 스냅샷 갱신용(#369)
     files = 0
     for directory in memory_dirs(project):
         for path in sorted(directory.rglob("*.md")):
@@ -89,6 +90,7 @@ def scan_memory(
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
+            scanned.append((str(path), text))
             for block in study_blocks.concept_blocks(text):  # 개념 블록 단위(#131)
                 snippet = " ".join(block)
                 if not snippet:
@@ -108,6 +110,10 @@ def scan_memory(
         for cand in unqueued:
             study_inbox.append(runtime, cand["snippet"], cand["source"], line_hashes=cand["lines"])
             enqueued.append(cand["id"])
+        # #369 — 적재를 마친 파일의 추적 스냅샷을 동시 갱신한다(다음 훅 캡처의 전이
+        # 이중 계수 방지). 관측 전용 scan(무 enqueue)은 상태를 바꾸지 않는다.
+        for source, text in scanned:
+            study_inbox.track_file(runtime, source, text)
     return {"scanned_files": files, "unqueued": unqueued, "enqueued": enqueued}
 
 

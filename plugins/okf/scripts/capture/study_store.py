@@ -58,6 +58,12 @@ CREATE TABLE IF NOT EXISTS event (
     ident  TEXT NOT NULL,
     extra  TEXT
 );
+CREATE TABLE IF NOT EXISTS file_track (
+    source     TEXT PRIMARY KEY,
+    file_hash  TEXT NOT NULL,
+    block_ids  TEXT NOT NULL,
+    updated_at TEXT
+);
 """
 
 # 기존 db(구 유닛 스키마) 업그레이드용 — CREATE TABLE IF NOT EXISTS는 컬럼을 더하지
@@ -222,7 +228,8 @@ def has_candidate(runtime: str | Path, ident: str) -> bool:
 def list_candidates(runtime: str | Path) -> list[dict]:
     """[{id, date, snippet, source, recurrence}] 최신 우선.
 
-    ``recurrence``(재등장 수)는 승격 판단 신호로 인라인 노출한다(#132). 시각 메타
+    ``recurrence``(출현 전이 수 — 파일 저장 횟수가 아니라 블록이 파일에 새로 나타난
+    횟수, #369)는 승격 판단 신호로 인라인 노출한다(#132). 시각 메타
     (captured_at/ingested_at)는 출력 결정성을 위해 노출하지 않는다(기록 전용 provenance).
     """
     if not _exists(runtime):
@@ -262,6 +269,48 @@ def clear_candidates(runtime: str | Path) -> list[str]:
         conn.execute("DELETE FROM candidate")
         conn.execute("DELETE FROM candidate_line")
     return ids
+
+
+def candidate_source(runtime: str | Path, ident: str) -> str | None:
+    """후보의 현재 source 경로 — resolve 저널의 파일 병기용(#369)."""
+    if not _exists(runtime):
+        return None
+    with _connect(runtime) as conn:
+        row = conn.execute("SELECT source FROM candidate WHERE id=?", (ident,)).fetchone()
+    return row[0] if row else None
+
+
+# --- file_track (파일 추적 스냅샷, #369) ------------------------------------
+#
+# 파일별 **최신 상태 지문**(내용 해시 + 블록 id 집합)만 유지한다 — 버전 이력이 아니다
+# (staging은 소모성, 이력은 승격 후 git 번들의 몫). 캡처가 이 스냅샷과 diff해
+# 새로 나타난 블록만 적재한다.
+
+
+def get_file_track(runtime: str | Path, source: str) -> dict | None:
+    """소스 파일의 최근 캡처 스냅샷 {file_hash, block_ids} — 없으면 None."""
+    if not _exists(runtime):
+        return None
+    with _connect(runtime) as conn:
+        row = conn.execute(
+            "SELECT file_hash, block_ids FROM file_track WHERE source=?", (source,)
+        ).fetchone()
+    if row is None:
+        return None
+    return {"file_hash": row[0], "block_ids": json.loads(row[1])}
+
+
+def set_file_track(
+    runtime: str | Path, source: str, file_hash: str, block_ids: list[str], updated_at: str
+) -> None:
+    """소스 파일의 캡처 스냅샷을 upsert한다(#369)."""
+    with _connect(runtime) as conn:
+        conn.execute(
+            "INSERT INTO file_track(source, file_hash, block_ids, updated_at) VALUES(?,?,?,?) "
+            "ON CONFLICT(source) DO UPDATE SET file_hash=excluded.file_hash, "
+            "block_ids=excluded.block_ids, updated_at=excluded.updated_at",
+            (source, file_hash, json.dumps(block_ids), updated_at),
+        )
 
 
 # --- resolution (ledger) --------------------------------------------------
