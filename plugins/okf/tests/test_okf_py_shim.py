@@ -133,8 +133,6 @@ EXPECTED_WIRING = {
     },
     "hooks/study_session.py": {("SessionStart", None)},
     "hooks/study_hook.py": {("PostToolUse", "Write|Edit")},
-    # 턴 종료 회고는 도구 종류를 가리지 않는다 — 무엇이 막혔든 세야 하므로 matcher가 없다
-    "hooks/study_reflect.py": {("Stop", None)},
 }
 
 
