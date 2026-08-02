@@ -604,3 +604,37 @@ def test_render_updated_concept_empty_derived_is_explicit_clear():
         SPEC, {**proposal, "derived_from": []}, dict(existing)
     )
     assert "derived_from" not in clear  # 빈 리스트 = 명시적 소거
+
+
+def test_apply_log_note_lands_in_log_summary(bundle):
+    """`log_note`(#351 U2)가 create·update 양쪽 log 요약에 새겨진다 — 캡처 일자 같은
+    소비처 provenance가 apply 위임 후에도 git-추적 log.md에 남는 자리다(#114 U5)."""
+    engine = FakeEngine(bundle)
+    create = _proposal(bundle, log_note="captured 2026-07-19")
+    update = {
+        "mode": "update",
+        "path": "/info.md",
+        "type": "fact",
+        "description": "갱신.",
+        "body": "b",
+        "log_note": "captured 2026-07-20",
+    }
+    report = okf_promote.apply_proposals(str(bundle), [create, update], run=engine)
+    assert report["rejected"] == []
+    summaries = [" ".join(call) for call in engine.calls if call[0] == "log"]
+    assert any("layer knowledge ← 하위 1건, captured 2026-07-19" in s for s in summaries)
+    assert any("(갱신, captured 2026-07-20)" in s for s in summaries)
+
+
+def test_apply_lint_warns_carry_machine_code(bundle):
+    """`lint_warns`는 `{path, code, message}`다 — 소비 문서가 `code`로 분기한다(#351 U2).
+
+    한국어 문자열이면 소비처가 문구 매칭으로 퇴행한다(#306·#296과 같은 축). 기본
+    FakeEngine은 resource 없는 정보층 렌더 + 빈 그래프라 `no_source`가 발화한다.
+    """
+    engine = FakeEngine(bundle)
+    report = okf_promote.apply_proposals(str(bundle), [_proposal(bundle)], run=engine)
+    assert report["promoted"] and report["lint_warns"], report
+    for warn in report["lint_warns"]:
+        assert set(warn) == {"path", "code", "message"}, warn
+        assert warn["code"] in okf_promote.okf_layers.WARN_CODES
