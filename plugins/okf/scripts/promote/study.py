@@ -10,6 +10,7 @@
   study dispatch <project> --source S --concept-{path,type,topic,layer} <vals>
                                                          핸들러 실행(경로·git·trust 게이트)
   study scan     <project> [--enqueue]                   미큐잉 후보 결정론 탐지(+재적재)
+  study audit    <project>                                캡처 감사 — 미포착 줄 코드 분류(관측 전용)
   study log      <project> [--limit N]                    이벤트 저널(capture/promote/discard)
   study near     <project> [--top-k N]                    근사중복 자문(가까운 상위 K + 거리)
   study near-bundle <bundle> --snippet S --layer L [--top-k N]  후보↔같은 층 번들 근사중복(자문)
@@ -229,6 +230,38 @@ def cmd_clear(args) -> int:
 def cmd_scan(args) -> int:
     _promote, runtime = _scope(args.project)
     print(json.dumps(scan_memory(args.project, runtime, enqueue=args.enqueue), ensure_ascii=False))
+    return 0
+
+
+def audit_memory(project: str | Path) -> dict:
+    """캡처 감사(#371) — 메모리 파일의 미포착 줄을 코드 분류로 보고한다(관측 전용).
+
+    scan과 같은 파일 워크를 쓰되 상태를 일절 바꾸지 않는다 — 큐·원장·스냅샷 무변경.
+    코드 어휘는 ``study_blocks.AUDIT_CODES``가 단일원천이다. 판정·임계·제안 없음,
+    종료코드로 판정하지 않는다(항상 0).
+    """
+    labels = study_blocks.effective_labels(study_scope.declared_noise_labels(project))
+    dropped: list[dict] = []
+    files = 0
+    for directory in memory_dirs(project):
+        for path in sorted(directory.rglob("*.md")):
+            if not path.is_file():
+                continue
+            files += 1
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for drop in study_blocks.audit_lines(text, labels=labels):
+                dropped.append({"source": str(path), **drop})
+    counts = {code: 0 for code in study_blocks.AUDIT_CODES}
+    for entry in dropped:
+        counts[entry["code"]] += 1
+    return {"scanned_files": files, "dropped": dropped, "counts": counts}
+
+
+def cmd_audit(args) -> int:
+    print(json.dumps(audit_memory(args.project), ensure_ascii=False))
     return 0
 
 
@@ -502,6 +535,9 @@ def main(argv: list[str] | None = None) -> int:
     dsp.add_argument("--concept-topic", default="")
     dsp.add_argument("--concept-layer", default="", choices=layers)
 
+    adt = sub.add_parser("audit", help="캡처 감사 — 미포착 줄 코드 분류 보고(관측 전용, #371)")
+    adt.add_argument("project", nargs="?", default=".")
+
     scn = sub.add_parser("scan", help="미큐잉 후보 탐지(+--enqueue 재적재)")
     scn.add_argument("project", nargs="?", default=".")
     scn.add_argument("--enqueue", action="store_true")
@@ -539,6 +575,7 @@ def main(argv: list[str] | None = None) -> int:
         "clear": cmd_clear,
         "dispatch": cmd_dispatch,
         "scan": cmd_scan,
+        "audit": cmd_audit,
         "log": cmd_log,
         "near": cmd_near,
         "near-bundle": cmd_near_bundle,

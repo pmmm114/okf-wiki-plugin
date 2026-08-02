@@ -102,6 +102,17 @@ def test_scan_enqueue_updates_file_snapshot(tmp_path):
     assert [c["recurrence"] for c in study_inbox.list_candidates(_rt(project))] == [1]
 
 
+def test_audit_cli_outputs_json(tmp_path, capsys):
+    # #371 — 캡처 감사 CLI(관측 전용): 미포착 줄을 코드 분류로 보고하고 상태를 바꾸지 않는다
+    _memory_file(tmp_path, ["감사 사실"])
+    project = _project(tmp_path)
+    assert study_cli.main(["audit", str(project)]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["scanned_files"] == 1
+    assert any(d["code"] == "heading" for d in out["dropped"])  # "# Memory" 헤딩 텍스트 유실 관측
+    assert study_inbox.list_candidates(_rt(project)) == []  # 관측은 적재하지 않는다
+
+
 def test_scan_cli_outputs_json(tmp_path, capsys):
     _memory_file(tmp_path, ["zeta fact"])
     project = _project(tmp_path)

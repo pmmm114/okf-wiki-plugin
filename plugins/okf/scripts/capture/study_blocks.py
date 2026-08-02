@@ -94,28 +94,94 @@ def _looks_like_frontmatter(inner: list[str]) -> bool:
     return all(_YAML_KEY_RE.match(line) or _YAML_CONT_RE.match(line) for line in inner)
 
 
-def _body_lines(text: str) -> list[str]:
-    """파일 선두 frontmatter 펜스를 걷어낸 본문 줄들(#256 · #305).
+# 감사 코드 어휘(#371) — 소비처는 이 상수로 분기한다(문구 매칭 금지)
+AUDIT_CODES = ("frontmatter", "heading", "fence_marker", "noise_label")
 
-    1행이 ``---``이고 닫는 펜스(``---``/``...``)가 있으며 **안쪽이 YAML 매핑꼴**일 때만
-    스킵한다. 닫는 펜스가 없으면 frontmatter가 아니므로 전체를 본문으로 남긴다(보수적).
 
-    매핑꼴 확인이 없던 시절엔 위치만으로 단정했다. 그러면 **수평선을 구분자로 쓰는**
-    메모리 파일에서 첫 구간이 통째로 삼켜진다 — 선두 ``---`` 다음에 ``---``나 ``...``가
-    한 번 더 나오면 그 사이가 frontmatter로 취급됐다(실측). 선두 ``---`` 하나만으로는
-    소실되지 않았기 때문에 발현 조건이 좁고 조용했다.
+def _parse(text: str, labels: frozenset[str]) -> tuple[list[list[str]], list[dict]]:
+    """단일 상태기계(#371) — (개념 블록들, 미포착 줄 기록)을 한 걸음에서 산출한다.
 
-    **블록 분할·id 계산은 건드리지 않는다** — 경계가 바뀌면 기존 인박스·원장 dedup과
-    어긋난다. 여기서 정밀화하는 것은 펜스 판정 하나뿐이다.
+    캡처(``concept_blocks``)와 감사(``audit_lines``)가 같은 걸음을 공유한다 — 구현이
+    둘이면 감사가 캡처와 어긋나는 순간 관측이 거짓이 된다.
+
+    선두 frontmatter(#256 · #305): 1행이 ``---``이고 닫는 펜스(``---``/``...``)가 있으며
+    **안쪽이 YAML 매핑꼴**일 때만 스킵한다. 위치만으로 단정하면 수평선을 구분자로 쓰는
+    파일의 첫 구간이 통째로 삼켜진다(실측) — 닫는 펜스가 없으면 전체를 본문으로
+    남긴다(보수적). 블록 분할·id 계산은 종전과 동일하다 — 경계가 바뀌면 기존
+    인박스·원장 dedup과 어긋난다.
     """
+    drops: list[dict] = []
+
+    def _drop(no: int, raw: str, code: str) -> None:
+        drops.append({"line": no, "text": raw, "code": code})
+
     lines = text.splitlines()
     if lines and lines[0].startswith("﻿"):
         lines[0] = lines[0].lstrip("﻿")  # UTF-8 BOM 파일에서 펜스 판정 무력화 방지
+    start = 0
     if lines and _FENCE_OPEN_RE.match(lines[0]):
         for j in range(1, len(lines)):
             if _FENCE_CLOSE_RE.match(lines[j]):
-                return lines[j + 1 :] if _looks_like_frontmatter(lines[1:j]) else lines
-    return lines
+                if _looks_like_frontmatter(lines[1:j]):
+                    for k in range(j + 1):
+                        _drop(k + 1, lines[k], "frontmatter")
+                    start = j + 1
+                break
+    blocks: list[list[str]] = []
+    origins: list[int] = []  # 블록별 첫 줄 번호(1-based) — 필터 드롭의 감사 귀속용
+    current: list[str] | None = None
+    fence: str | None = None  # 열린 펜스의 문자 — 안에서는 구분자 해석을 억제한다(#354)
+    for idx in range(start, len(lines)):
+        raw = lines[idx]
+        no = idx + 1
+        marker = _FENCE_LINE_RE.match(raw)
+        if fence is not None:
+            if marker and marker.group(1)[0] == fence:
+                fence = None  # 닫는 마커 — 마커 줄은 마크업이라 콘텐츠 제외
+                _drop(no, raw, "fence_marker")
+                continue
+            code = raw.strip()  # 코드는 불릿 해석 없이 원문 유지(양끝 공백만 정돈)
+            if not code:
+                continue  # 펜스 안 빈 줄은 블록을 닫지 않는다
+            if current is None:
+                current = [code]  # 앞 산문 없는 순수 코드 펜스는 자체 블록
+                blocks.append(current)
+                origins.append(no)
+            else:
+                current.append(code)  # 코드는 앞 생각의 재료다 — 블록 연속
+            continue
+        if marker:
+            fence = marker.group(1)[0]
+            _drop(no, raw, "fence_marker")
+            continue
+        if _HEADING_RE.match(raw):
+            _drop(no, raw, "heading")  # 헤딩 텍스트는 구분자로 버려진다 — 유실 관측(#371)
+            current = None
+            continue
+        if not raw.strip() or _RULE_RE.match(raw):
+            current = None  # 빈 줄·수평선은 현재 블록을 닫는다(정보 없음 — 감사 미기록)
+            continue
+        stripped = _strip_bullet(raw)
+        if not stripped:
+            continue
+        is_top_bullet = bool(_TOP_BULLET_RE.match(raw))  # 원본 기준(들여쓰기 없는 불릿)
+        if is_top_bullet or current is None:
+            current = [stripped]  # 새 블록: 최상위 불릿 또는 문단 첫 줄
+            blocks.append(current)
+            origins.append(no)
+        else:
+            current.append(stripped)  # 들여쓴 하위 불릿·산문 연속 줄
+    # 라벨-단독·코드 조각 단독 블록은 후보가 아니다 — 라벨 내용은 뒤따르는 블록이
+    # 이미 따로 갖고, 펜스 마커·닫는 태그는 지식이 아니라 마크업 잔재다(#352).
+    kept: list[list[str]] = []
+    for block, first_line in zip(blocks, origins):
+        if len(block) == 1 and _is_structural_noise(block[0], labels):
+            noise_code = "noise_label" if _label_key(block[0]) in labels else "fence_marker"
+            _drop(first_line, block[0], noise_code)
+            continue
+        kept.append(block)
+    drops.sort(key=lambda d: d["line"])
+    return kept, drops
 
 
 def concept_blocks(text: str, labels: frozenset[str] | None = None) -> list[list[str]]:
@@ -126,42 +192,20 @@ def concept_blocks(text: str, labels: frozenset[str] | None = None) -> list[list
     """
     if labels is None:
         labels = _NOISE_LABELS
-    blocks: list[list[str]] = []
-    current: list[str] | None = None
-    fence: str | None = None  # 열린 펜스의 문자 — 안에서는 구분자 해석을 억제한다(#354)
-    for raw in _body_lines(text):
-        marker = _FENCE_LINE_RE.match(raw)
-        if fence is not None:
-            if marker and marker.group(1)[0] == fence:
-                fence = None  # 닫는 마커 — 마커 줄은 마크업이라 콘텐츠 제외
-                continue
-            code = raw.strip()  # 코드는 불릿 해석 없이 원문 유지(양끝 공백만 정돈)
-            if not code:
-                continue  # 펜스 안 빈 줄은 블록을 닫지 않는다
-            if current is None:
-                current = [code]  # 앞 산문 없는 순수 코드 펜스는 자체 블록
-                blocks.append(current)
-            else:
-                current.append(code)  # 코드는 앞 생각의 재료다 — 블록 연속
-            continue
-        if marker:
-            fence = marker.group(1)[0]
-            continue
-        if not raw.strip() or _HEADING_RE.match(raw) or _RULE_RE.match(raw):
-            current = None  # 빈 줄·헤딩·수평선은 현재 블록을 닫는다
-            continue
-        stripped = _strip_bullet(raw)
-        if not stripped:
-            continue
-        is_top_bullet = bool(_TOP_BULLET_RE.match(raw))  # 원본 기준(들여쓰기 없는 불릿)
-        if is_top_bullet or current is None:
-            current = [stripped]  # 새 블록: 최상위 불릿 또는 문단 첫 줄
-            blocks.append(current)
-        else:
-            current.append(stripped)  # 들여쓴 하위 불릿·산문 연속 줄
-    # 라벨-단독·코드 조각 단독 블록은 후보가 아니다 — 라벨 내용은 뒤따르는 블록이
-    # 이미 따로 갖고, 펜스 마커·닫는 태그는 지식이 아니라 마크업 잔재다(#352).
-    return [b for b in blocks if not (len(b) == 1 and _is_structural_noise(b[0], labels))]
+    return _parse(text, labels)[0]
+
+
+def audit_lines(text: str, labels: frozenset[str] | None = None) -> list[dict]:
+    """캡처 감사(#371) — 어떤 블록에도 들어가지 않은 본문 줄을 코드 분류로 보고한다.
+
+    관측 전용 재료다 — 판정·임계·제안 없음. 코드 어휘는 ``AUDIT_CODES``가 단일원천:
+    frontmatter(선두 YAML) · heading(구분자로 버려진 헤딩 텍스트) · fence_marker
+    (펜스 마커와 마크업 잔재 단독 블록) · noise_label(유효 라벨 셋의 단독 블록).
+    빈 줄·수평선은 정보가 없어 기록하지 않는다.
+    """
+    if labels is None:
+        labels = _NOISE_LABELS
+    return _parse(text, labels)[1]
 
 
 def _is_structural_noise(line: str, labels: frozenset[str]) -> bool:
