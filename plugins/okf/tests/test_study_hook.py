@@ -194,6 +194,18 @@ def test_report_carries_file_event_type(tmp_path):
     assert second and "변경" in second
 
 
+def test_config_noise_labels_filter_capture(tmp_path):
+    # #370 — 설정 선언 라벨의 단독 블록은 캡처되지 않는다(어휘는 소비처, 규칙은 플러그인)
+    (tmp_path / ".okf-wiki.json").write_text(
+        json.dumps({"study": {"capture": "review", "handlers": [], "noiseLabels": ["근거"]}}),
+        encoding="utf-8",
+    )
+    content = "**근거:**\n- 라벨 아래 실사실\n"
+    study_hook.run({"tool_input": {"file_path": _mem(), "content": content}}, tmp_path)
+    snippets = [c["snippet"] for c in study_inbox.list_candidates(_rt(tmp_path))]
+    assert snippets == ["라벨 아래 실사실"]
+
+
 def _run_hook(project, stdin: str):
     return subprocess.run(
         [str(SHIM), str(SCRIPT)],

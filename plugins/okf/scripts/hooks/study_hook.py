@@ -24,6 +24,7 @@ import os
 import sys
 from pathlib import Path
 
+import study_blocks
 import study_inbox
 import study_scope
 from okf_hooks import diagnose as _diagnose
@@ -73,7 +74,9 @@ def run(payload: dict, project: str | Path) -> str | None:
 
     # 파일 추적 diff 캡처(#369) — 스냅샷과 비교해 새로 나타난 블록만 적재된다.
     # 무변경·재출현뿐·전부 기처리면 새 리뷰거리가 없으므로 무보고.
-    result = study_inbox.capture_file(runtime, file_path, content)
+    # 노이즈 라벨 어휘는 소비처 선언(설정)과 내장의 합집합이다(#370).
+    labels = study_blocks.effective_labels(study_scope.declared_noise_labels(project))
+    result = study_inbox.capture_file(runtime, file_path, content, labels=labels)
     if not result["appended"]:
         return None
 

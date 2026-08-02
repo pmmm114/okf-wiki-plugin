@@ -141,6 +141,11 @@ def _store_notes(project: str) -> list[str]:
             "OKF_PYTHON을 SQLite 포함 파이썬으로 지정하라."
         ]
     lines = ["  sqlite3: 사용 가능"]
+    # 유효 라벨 필터 가시화(#370) — 라벨은 캡처를 조용히 빼는 방향으로만 작동하므로
+    # 무엇이 걸러지는지 여기서 보여준다(내장 ∪ 소비처 선언 study.noiseLabels).
+    # 표기는 "라벨 필터" — "노이즈"를 쓰면 기적재 노이즈 자문 줄 탐색과 충돌한다(#263 테스트 계약).
+    effective = study_blocks.effective_labels(study_scope.declared_noise_labels(project))
+    lines.append(f"  라벨 필터(유효): {', '.join(sorted(effective))}")
     if study_legacy.has_legacy(str(study_scope.user_scope_runtime())):
         lines.append(
             "  ⚠ 유저 스코프에 레거시 markdown 스테이징 잔존 — `study migrate`로 study.db 이관"
@@ -158,7 +163,9 @@ def _prune_cmd(project_arg: str) -> str:
     return f'"{plugin}/bin/okf-py" "{plugin}/scripts/promote/study.py" prune "{project_arg}"'
 
 
-def _noise_advisory(runtime: str, cmd: str | None) -> list[str]:
+def _noise_advisory(
+    runtime: str, cmd: str | None, labels: frozenset[str] | None = None
+) -> list[str]:
     """기적재 노이즈가 있으면 prune 자문 1줄(#263) — discard 오폭(원장 비가역 오염) 방지.
 
     is_noise_snippet은 prune과 같은 텍스트 근사(#256) — 안내 대상과 prune 매치가 일치한다.
@@ -166,7 +173,7 @@ def _noise_advisory(runtime: str, cmd: str | None) -> list[str]:
     배치(주입 전용 vault 등) — 실행 불가 명령 인용은 오도라 카운트만 보인다.
     """
     cands = study_inbox.list_candidates(runtime)
-    noise = sum(1 for c in cands if study_blocks.is_noise_snippet(c["snippet"]))
+    noise = sum(1 for c in cands if study_blocks.is_noise_snippet(c["snippet"], labels=labels))
     if not noise:
         return []
     if cmd is None:
@@ -181,9 +188,10 @@ def _noise_advisory(runtime: str, cmd: str | None) -> list[str]:
 def _inbox_lines(project: str) -> list[str]:
     lines = []
     scope = study_scope.resolve_capture(project)
+    labels = study_blocks.effective_labels(study_scope.declared_noise_labels(project))  # #370
     if scope["runtime_root"] and scope["scope"] == "project":
         lines.append(f"  project 대기: {_pending_summary(scope['runtime_root'])}")
-        lines += _noise_advisory(scope["runtime_root"], _prune_cmd(project))
+        lines += _noise_advisory(scope["runtime_root"], _prune_cmd(project), labels)
     vault, _reason = okf_vault.vault_state()
     if vault is not None:
         shared = str(study_scope.user_scope_runtime())
@@ -197,7 +205,7 @@ def _inbox_lines(project: str) -> list[str]:
             cmd = _prune_cmd(str(vault))
         else:
             cmd = None
-        lines += _noise_advisory(shared, cmd)
+        lines += _noise_advisory(shared, cmd, labels)
     return lines or ["  (활성 inbox 없음)"]
 
 

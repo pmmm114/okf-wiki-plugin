@@ -130,6 +130,25 @@ def resolve_capture(project: str | Path) -> dict:
     return _cap(None, None, "off", "none", None, config_error=broken)
 
 
+def declared_noise_labels(project: str | Path) -> list[str]:
+    """소비처 선언 노이즈 라벨(#370) — 프로젝트 ∪ 유효 vault의 ``study.noiseLabels``.
+
+    합집합 재료만 모은다(정규화·내장 결합은 ``study_blocks.effective_labels``의 몫).
+    라벨은 캡처를 **빼는** 방향으로만 작동하고 코드 실행이 없으므로 trust 게이트 없이
+    커밋 설정을 신뢰한다 — 무음 캡처 억제의 가시화는 doctor가 맡는다.
+    """
+    values: list[str] = []
+    vault, _reason = okf_vault.vault_state()
+    for root in (project, vault):
+        if root is None:
+            continue
+        block = study_block(okf_vault.load_config(root)) or {}
+        raw = block.get("noiseLabels")
+        if isinstance(raw, list):
+            values.extend(v for v in raw if isinstance(v, str))
+    return values
+
+
 def vault_capture_state(vault: str | Path) -> str:
     """유효 vault의 캡처 준비 상태를 반환한다 — 마법사·doctor의 기계 판정용.
 
