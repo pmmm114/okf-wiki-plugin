@@ -241,6 +241,22 @@ def test_entrance_default_form_rejects_mid_path_insertion(monkeypatch, tmp_path)
     assert not study_scope.is_memory_path(inserted, {}, tmp_path)
 
 
+def test_entrance_default_form_nested_subdir(monkeypatch, tmp_path):
+    # #364 — memory/ 하위 중첩 파일도 기본형이다(깊이 무관 — L0 명시형(#17)과 같은 원리)
+    cfg = tmp_path / "custom-cfg"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    path = str(cfg / "projects" / "proj" / "memory" / "sub" / "notes.md")
+    assert study_scope.is_memory_path(path, {}, tmp_path)
+
+
+def test_entrance_legacy_nested_subdir(tmp_path):
+    # #364 — 레거시 느슨형도 memory/ 이하 깊이 무관(앵커·구조 느슨함은 #305 유지)
+    path = os.path.join(
+        os.path.expanduser("~"), ".claude", "projects", "proj", "memory", "topic", "n.md"
+    )
+    assert study_scope.is_memory_path(path, {}, tmp_path)
+
+
 def test_entrance_invalid_pattern_tolerated(monkeypatch, tmp_path, capsys):
     vault = _vault(tmp_path, {"study": {"capture": "review", "memoryPathPattern": "("}})
     monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
