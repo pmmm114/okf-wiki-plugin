@@ -37,7 +37,9 @@ frontmatter를 엔진 query(재료 제공자)로 로드해 제안 필드만 병�
 
 CLI: ``okf_promote.py snapshot <bundle> --paths <p>…`` ·
 ``okf_promote.py apply <bundle> --proposals <file|->``. apply는 결과 JSON을 내고
-반려가 있으면 exit 1. 엔진 실행은 bin/okf 셔틀 경유(stdlib 전용), 어휘·정초 순서는
+반려가 있으면 exit 1. 반려 사유는 ``{code, detail}``이다(#360) — 소비처는 ``code``로
+분기하고(한국어 detail 매칭 금지) 코드 어휘는 ``REJECT_CODES``가 단일원천이다.
+엔진 실행은 bin/okf 셔틀 경유(stdlib 전용), 어휘·정초 순서는
 okf_layers(LAYERS.md 기계 판독 블록)에서 로드한다(하드코딩 0).
 """
 
@@ -122,6 +124,39 @@ RUBRIC_KEYS = ("new_insight", "falsification")
 
 _MODES = ("create", "update")
 
+# 반려 코드(#360) — 소비처가 detail(한국어)이 아니라 code로 분기하는 기계 축.
+# okf_layers.WARN_CODES(#306)·okf_remote.REFRESH_REASONS와 같은 계약 형태 — 각 코드에
+# 실행 가능한 복구 지시가 붙는다. detail은 사람용 표시다(값·경로가 든 진단 문장).
+REJECT_CODES: dict[str, str] = {
+    "bad_mode": "mode가 어휘 밖이다 — create|update로 명시하라",
+    "layer_conflict": "layer와 target_layer(별칭)가 다르다 — 하나만 쓰거나 같은 값으로",
+    "bad_layer": "layer가 층 어휘 밖이다 — LAYERS 어휘로 고치거나 미기재로",
+    "bad_path": "path 형식 오류 — 번들 상대 .md 경로로",
+    "bundle_escape": "경로가 번들 경계를 벗어난다 — 번들 안 경로로",
+    "create_exists": "create 대상이 이미 존재한다 — 갱신 의도면 mode: update로",
+    "update_missing": "update 대상이 없다 — 오타이거나, 신설 의도면 mode: create로",
+    "relabel": "기존 층과 다른 layer — 재라벨 금지, 층간 이동은 적립·신설로",
+    "rubric_missing": "상위 층 create에 자기검증이 비었다 — new_insight·falsification을 채워라",
+    "missing_field": "필수 텍스트 필드가 비었다 — type·description·body를 채워라",
+    "ungrounded_proposal": "상위 층 제안에 derived_from이 없다 — 근거 하위 개념을 이어라",
+    "missing_material": "derived_from 대상이 번들에 없다 — 먼저 쓰거나 allow_dangling에 명시하라",
+    "unlayered_material": "재료에 layer가 없다 — 층 없는 개념은 정초 재료 불가",
+    "bad_material_layer": "재료의 layer가 어휘 밖이다 — 재료 frontmatter를 고쳐라",
+    "derivation_inversion": "정초 역전 — 파생 대상을 더 낮은 층으로",
+    "snapshot_missing": "재료 스냅샷이 없다 — snapshot 해시를 materials에 담아라",
+    "material_changed": "재료가 스냅샷 이후 수정됐다 — snapshot을 다시 떠라",
+    "missing_resource": "정보층 create에 출처가 없다 — resource를 채워라",
+    "update_unrenderable": "기존 개념을 기계 실체화할 수 없다 — 스킬 §3 수동 편집으로",
+    "validate_failed": "validate --strict 실패 — 번들은 롤백/복원됐다, 제안을 고쳐라",
+}
+
+
+def _reason(code: str, detail: str) -> dict:
+    """반려 사유 1건 — code는 REJECT_CODES 어휘여야 한다(미등록 코드는 즉시 죽는다)."""
+    if code not in REJECT_CODES:
+        raise ValueError(f"미등록 반려 코드: {code}")
+    return {"code": code, "detail": detail}
+
 
 def proposal_mode(proposal: dict) -> str | None:
     """명시적 모드(기본 create) — 어휘 밖 값은 None(반려 사유는 게이트가 만든다)."""
@@ -144,14 +179,15 @@ def gate_proposal(
     bundle: str,
     proposal: dict,
     batch_promoted: set[str] | None = None,
-) -> list[str]:
-    """§9 금지의 기계 게이트(순수 판정 — 번들은 읽기만 한다). 사유 목록을 반환하고
-    빈 리스트면 통과. 판정(층 분류·새 인식)은 하지 않는다 — 원칙 준수 검사만.
+) -> list[dict]:
+    """§9 금지의 기계 게이트(순수 판정 — 번들은 읽기만 한다). ``{code, detail}`` 사유
+    목록을 반환하고 빈 리스트면 통과(코드 어휘는 ``REJECT_CODES`` 단일원천, #360).
+    판정(층 분류·새 인식)은 하지 않는다 — 원칙 준수 검사만.
 
     ``batch_promoted``는 같은 배치에서 방금 집행된 개념 집합 — §9 원칙 3("같은
     변경에서 먼저 승격")의 캐스케이드를 위해 그 재료에는 스냅샷 해시를 면제한다
     (파이프라인이 직접 쓴 파일이라 무결성이 자체 보장된다)."""
-    reasons: list[str] = []
+    reasons: list[dict] = []
     batch_promoted = batch_promoted or set()
     order = spec["order"]
     rank = {value: index for index, value in enumerate(order)}
@@ -159,38 +195,58 @@ def gate_proposal(
 
     mode = proposal_mode(proposal)
     if mode is None:
-        reasons.append(f"모드 위반: mode {proposal.get('mode')!r} (허용: {_MODES})")
+        reasons.append(
+            _reason("bad_mode", f"모드 위반: mode {proposal.get('mode')!r} (허용: {_MODES})")
+        )
         mode = "create"  # 나머지 게이트는 보수적으로 create 기준으로 계속 본다
 
     layer, conflict = proposal_layer(proposal)
     if conflict:
-        reasons.append("layer/target_layer 불일치 — 별칭은 같은 값이어야 한다")
+        reasons.append(
+            _reason("layer_conflict", "layer/target_layer 불일치 — 별칭은 같은 값이어야 한다")
+        )
     if layer is not None and layer not in rank:
-        reasons.append(f"어휘 위반: layer {layer!r} (허용: {order})")
+        reasons.append(_reason("bad_layer", f"어휘 위반: layer {layer!r} (허용: {order})"))
         layer = None  # 판정 불가 층으로는 층 게이트를 잇지 않는다(반려는 이미 기록)
 
     target_rel = norm_rel(proposal.get("path") or "")
     existing_layer: str | None = None
     if not target_rel or not target_rel.endswith(".md"):
-        reasons.append(f"경로 형식 오류: {proposal.get('path')!r} (번들 상대 .md 경로)")
+        reasons.append(
+            _reason("bad_path", f"경로 형식 오류: {proposal.get('path')!r} (번들 상대 .md 경로)")
+        )
     elif escapes_bundle(bundle, target_rel):
-        reasons.append(f"번들 경계 탈출: path {target_rel} — 번들 밖은 validate·index가 못 본다")
+        reasons.append(
+            _reason(
+                "bundle_escape",
+                f"번들 경계 탈출: path {target_rel} — 번들 밖은 validate·index가 못 본다",
+            )
+        )
     elif mode == "create" and os.path.exists(os.path.join(bundle, target_rel)):
         reasons.append(
-            f"신설 아님: {target_rel} 이미 존재 — 재라벨·덮어쓰기 금지(§9 금지 2). "
-            "갱신 의도면 mode: update로 명시하라(#351)"
+            _reason(
+                "create_exists",
+                f"신설 아님: {target_rel} 이미 존재 — 재라벨·덮어쓰기 금지(§9 금지 2). "
+                "갱신 의도면 mode: update로 명시하라(#351)",
+            )
         )
     elif mode == "update":
         if not os.path.isfile(os.path.join(bundle, target_rel)):
             reasons.append(
-                f"갱신 대상 없음: {target_rel} — 오타이거나, 신설 의도면 mode: create(#351)"
+                _reason(
+                    "update_missing",
+                    f"갱신 대상 없음: {target_rel} — 오타이거나, 신설 의도면 mode: create(#351)",
+                )
             )
         else:
             existing_layer = layer_map.get(target_rel)
             if layer is not None and existing_layer is not None and layer != existing_layer:
                 reasons.append(
-                    f"재라벨 금지: {target_rel} {existing_layer} → {layer} "
-                    "(§9 금지 2 — 층간 이동은 적립·신설로)"
+                    _reason(
+                        "relabel",
+                        f"재라벨 금지: {target_rel} {existing_layer} → {layer} "
+                        "(§9 금지 2 — 층간 이동은 적립·신설로)",
+                    )
                 )
     effective_layer = layer if layer is not None else existing_layer
 
@@ -203,17 +259,25 @@ def gate_proposal(
         rubric = proposal.get("rubric")
         if not isinstance(rubric, dict):
             reasons.append(
-                f"rubric 없음: {effective_layer} 제안은 자기검증이 필요하다 ({RUBRIC_KEYS})"
+                _reason(
+                    "rubric_missing",
+                    f"rubric 없음: {effective_layer} 제안은 자기검증이 필요하다 ({RUBRIC_KEYS})",
+                )
             )
         else:
             missing = [k for k in RUBRIC_KEYS if not str(rubric.get(k) or "").strip()]
             if missing:
-                reasons.append(f"rubric 미기재: {missing} — 빈칸으로는 승인 근거가 되지 않는다")
+                reasons.append(
+                    _reason(
+                        "rubric_missing",
+                        f"rubric 미기재: {missing} — 빈칸으로는 승인 근거가 되지 않는다",
+                    )
+                )
 
     for field in _REQUIRED_TEXT_FIELDS:
         value = proposal.get(field)
         if not isinstance(value, str) or not value.strip():
-            reasons.append(f"필수 필드 없음/빈 값: {field}")
+            reasons.append(_reason("missing_field", f"필수 필드 없음/빈 값: {field}"))
 
     derived_given = proposal.get("derived_from") is not None
     derived = [norm_rel(p) for p in proposal.get("derived_from") or []]
@@ -233,7 +297,7 @@ def gate_proposal(
     ):
         for rel in rels:
             if rel and escapes_bundle(bundle, rel):
-                reasons.append(f"번들 경계 탈출: {field} {rel}")
+                reasons.append(_reason("bundle_escape", f"번들 경계 탈출: {field} {rel}"))
 
     if (
         rules.get("upper_requires_derived_from")
@@ -242,40 +306,68 @@ def gate_proposal(
         and not derived
         and (mode == "create" or derived_given)  # update 미제공은 기존 접지 유지
     ):
-        reasons.append(f"미접지 제안: {effective_layer}는 비어있지 않은 derived_from 필요(§4)")
+        reasons.append(
+            _reason(
+                "ungrounded_proposal",
+                f"미접지 제안: {effective_layer}는 비어있지 않은 derived_from 필요(§4)",
+            )
+        )
 
     for dep in derived:
         fs = os.path.join(bundle, dep)
         if not os.path.isfile(fs):
             if dep not in allow_dangling:
                 reasons.append(
-                    f"근거 부재: {dep} — 번들에 없음. 미작성 신호로 남기려면 "
-                    f"allow_dangling에 명시(§9 금지 1: 날조 금지)"
+                    _reason(
+                        "missing_material",
+                        f"근거 부재: {dep} — 번들에 없음. 미작성 신호로 남기려면 "
+                        "allow_dangling에 명시(§9 금지 1: 날조 금지)",
+                    )
                 )
             continue
         dep_layer = layer_map.get(dep)
         if rules.get("derivation_strictly_downward"):
             if dep_layer is None:
-                reasons.append(f"재료 미분류: {dep} — layer 없는 개념은 정초 재료 불가(엄격 하향)")
+                reasons.append(
+                    _reason(
+                        "unlayered_material",
+                        f"재료 미분류: {dep} — layer 없는 개념은 정초 재료 불가(엄격 하향)",
+                    )
+                )
             elif dep_layer not in rank:
                 # rank 밖 층은 **반려**다. 예전엔 `rank[dep_layer]`가 KeyError로 죽어
                 # 배치 중간에서 크래시했는데, 그 exit 1은 "반려 있음"과 같은 코드라
                 # 소비처가 구분할 수 없었다. 어휘 밖 값은 정초 관계를 판정할 수 없으므로
                 # `is None`(미분류)과 같은 부류로 흡수한다 — 판정 불가는 통과가 아니다.
                 reasons.append(
-                    f"재료 층 어휘 밖: {dep}({dep_layer}) — 허용: {order} "
-                    f"(오타이거나 렌더 파싱 오염일 수 있다)"
+                    _reason(
+                        "bad_material_layer",
+                        f"재료 층 어휘 밖: {dep}({dep_layer}) — 허용: {order} "
+                        "(오타이거나 렌더 파싱 오염일 수 있다)",
+                    )
                 )
             elif effective_layer in rank and rank[dep_layer] >= rank[effective_layer]:
-                reasons.append(f"정초 역전: {dep}({dep_layer}) ≥ {effective_layer}(§9 금지 5)")
+                reasons.append(
+                    _reason(
+                        "derivation_inversion",
+                        f"정초 역전: {dep}({dep_layer}) ≥ {effective_layer}(§9 금지 5)",
+                    )
+                )
         if dep in batch_promoted:
             continue  # 같은 배치에서 방금 집행된 재료 — 스냅샷 면제(§9 원칙 3 캐스케이드)
         if dep not in materials:
             reasons.append(
-                f"재료 스냅샷 누락: {dep} — snapshot 해시를 materials에 포함(금지 3 게이트)"
+                _reason(
+                    "snapshot_missing",
+                    f"재료 스냅샷 누락: {dep} — snapshot 해시를 materials에 포함(금지 3 게이트)",
+                )
             )
         elif sha256_file(fs) != materials[dep]:
-            reasons.append(f"재료 수정됨: {dep} — snapshot 이후 내용 변경(§9 금지 3)")
+            reasons.append(
+                _reason(
+                    "material_changed", f"재료 수정됨: {dep} — snapshot 이후 내용 변경(§9 금지 3)"
+                )
+            )
 
     if (
         mode == "create"
@@ -283,7 +375,11 @@ def gate_proposal(
         and effective_layer == order[0]
         and not (proposal.get("resource") or "").strip()
     ):
-        reasons.append(f"정보층 출처 필요: {order[0]} 신설은 resource 필수(§4 접지)")
+        reasons.append(
+            _reason(
+                "missing_resource", f"정보층 출처 필요: {order[0]} 신설은 resource 필수(§4 접지)"
+            )
+        )
 
     return reasons
 
@@ -474,7 +570,9 @@ def _apply_proposals(
                 existing_fm = _existing_frontmatter(bundle, target_rel, run)
                 rendered = render_updated_concept(spec, proposal, existing_fm)
             except ValueError as exc:
-                rejected.append({"path": target_rel, "reasons": [str(exc)]})
+                rejected.append(
+                    {"path": target_rel, "reasons": [_reason("update_unrenderable", str(exc))]}
+                )
                 continue
         else:
             rendered = render_concept(spec, proposal)
@@ -491,7 +589,12 @@ def _apply_proposals(
             else:
                 with open(fs, "w", encoding="utf-8") as f:
                     f.write(original)  # 갱신 반려가 기존 개념을 지우면 안 된다
-            rejected.append({"path": target_rel, "reasons": [f"validate --strict 실패: {exc}"]})
+            rejected.append(
+                {
+                    "path": target_rel,
+                    "reasons": [_reason("validate_failed", f"validate --strict 실패: {exc}")],
+                }
+            )
             continue
 
         chain = [

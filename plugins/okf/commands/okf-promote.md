@@ -18,10 +18,10 @@ argument-hint: "[<topic> | --layer <layer> | --bundle <path>]"
 
 4. **③ 선별(사람, 필수)**: 제안 목록을 표로 제시한다 — 층 · 경로 · description · 근거 n건 · 새 인식 요지 · 반증 요지. 사용자가 **부분집합**을 승인/반려하거나 재판정을 요청한다(→ 3단계 루프). 전량 자동 승인 없음, 모호하면 물어본다.
 
-5. **④ 게이트+집행(스크립트, 결정적)**: 승인분만 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/promote/okf_promote.py" apply <bundle> --proposals <선택분.json>`. 스크립트가 §9 금지를 기계 게이트한 뒤 통과분만 쓰기 → `validate --strict` → 사슬 감사 → `log --kind Promotion`(update는 `Update`) → `index --write`를 수행한다. 결과 JSON의 `promoted`/`rejected`(사유)/ `lint_warns`(`{path, code, message}` — 분기는 `code`로)를 그대로 보인다. 반려 사유에 `rubric`이 있으면 3단계로 돌아가 자기검증을 채운다 — 빈칸은 승인 근거가 되지 않는다.
+5. **④ 게이트+집행(스크립트, 결정적)**: 승인분만 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/promote/okf_promote.py" apply <bundle> --proposals <선택분.json>`. 스크립트가 §9 금지를 기계 게이트한 뒤 통과분만 쓰기 → `validate --strict` → 사슬 감사 → `log --kind Promotion`(update는 `Update`) → `index --write`를 수행한다. 결과 JSON의 `promoted`/`rejected`/ `lint_warns`(`{path, code, message}` — 분기는 `code`로)를 그대로 보인다. `rejected[].reasons[]`도 `{code, detail}`이다(#360) — **`code`로 분기한다**(한국어 `detail` 매칭 금지, 코드 어휘는 `okf_promote.REJECT_CODES`가 단일원천 — 코드별 복구 지시 포함). `rubric_missing`이면 3단계로 돌아가 자기검증을 채운다 — 빈칸은 승인 근거가 되지 않는다.
    - **종료코드로 먼저 분기한다**(출력 텍스트가 아니라): `0` 전량 승격 · `1` 반려 있음 · `3` **집행 크래시** · `2` 인자·로드 오류.
 
-6. **⑤ 결과 처리**: 반려는 사유별로 — 게이트·검증 실패는 제안을 수정해 4단계 재선별로, 근사중복 갱신 판정분은 3단계에서 `mode: update` 제안으로 전환한다(중첩 frontmatter 등 실체화 불가 반려만 스킬 §3 수동 편집으로). `lint_warns`의 의도적 dangle은 "미작성 지식 신호"로 안내한다.
+6. **⑤ 결과 처리**: 반려는 사유별로 — 게이트·검증 실패는 제안을 수정해 4단계 재선별로, 근사중복 갱신 판정분은 3단계에서 `mode: update` 제안으로 전환한다(`update_unrenderable` — 중첩 frontmatter 등 실체화 불가 반려만 스킬 §3 수동 편집으로). `lint_warns`의 의도적 dangle은 "미작성 지식 신호"로 안내한다.
    - **`error`가 있으면**(exit 3) 엔진 호출이 중간에 죽은 것이다. `error.stage`(`context`·`graph`·`log`·`index`)와 `error.detail`을 그대로 보이고, **같은 배치의 `promoted`가 이미 번들에 쓰였다**는 사실을 함께 알린다 — `index`가 돌지 않았으면 색인이 개념과 어긋난 상태다. 이때 **7단계 디스패치로 진행하지 않는다**(반쪽 상태를 원격에 반영하지 않는다). 사용자에게 `okf validate <bundle> --strict`와 `okf index <bundle> --write`로 번들을 정합시킨 뒤 재시도하도록 안내한다.
 
 7. **⑥ 디스패치(원격 반영)**: 이 커맨드도 `/study`와 **같은 곳**(번들)에 쓰므로, 그 번들이 관리형 clone이면 승격분이 로컬 잔재로 남아 신선도 갱신을 막는다(#216 V4). 승격 개념마다 `"${CLAUDE_PLUGIN_ROOT}/bin/okf-py" "${CLAUDE_PLUGIN_ROOT}/scripts/promote/study.py" dispatch <bundle의 repo 루트> --source manual --concept-path <경로> --concept-type <type> --concept-topic <topic> --concept-layer <layer>`를 실행한다.

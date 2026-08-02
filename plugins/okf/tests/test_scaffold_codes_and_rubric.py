@@ -153,7 +153,7 @@ def _proposal(**over):
 def test_upper_layer_proposal_without_rubric_is_rejected(rubric):
     """상위 층 제안은 rubric 없이 통과하지 못한다 — 빈칸은 승인 근거가 아니다."""
     reasons = okf_promote.gate_proposal(SPEC, {}, ".", _proposal(rubric=rubric))
-    assert any("rubric" in r for r in reasons), reasons
+    assert any(r["code"] == "rubric_missing" for r in reasons), reasons
 
 
 def test_information_layer_does_not_require_rubric():
@@ -161,7 +161,7 @@ def test_information_layer_does_not_require_rubric():
     reasons = okf_promote.gate_proposal(
         SPEC, {}, ".", _proposal(target_layer="information", rubric=None)
     )
-    assert not any("rubric" in r for r in reasons), reasons
+    assert not any(r["code"] == "rubric_missing" for r in reasons), reasons
 
 
 def test_rubric_is_persisted_in_rendered_concept():
