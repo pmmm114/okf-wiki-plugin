@@ -227,14 +227,16 @@ def memory_dir_candidates(project: str | Path) -> list[str]:
 def _legacy_memory_re() -> re.Pattern[str]:
     roots = {os.path.expanduser("~"), _config_dir()}
     alt = "|".join(sorted(re.escape(r.rstrip("/")) for r in roots if r))
-    return re.compile(rf"^(?:{alt})(?:/.*)?/\.claude/projects/[^/]+/memory/[^/]+\.md$")
+    # memory/ 이하는 깊이 무관(#364) — L0 명시형(#17)과 같은 원리로 하위 조직을 허용한다
+    return re.compile(rf"^(?:{alt})(?:/.*)?/\.claude/projects/[^/]+/memory/.+\.md$")
 
 
 def _default_form_re() -> re.Pattern[str]:
-    # 문서화된 기본형 — <config>/projects/<단일요소>/memory/<파일>.md (#16 수정 지점)
+    # 문서화된 기본형 — <config>/projects/<단일요소>/memory/<경로>.md (#16 수정 지점)
     # 위치 0 앵커(#363, #305와 같은 원리) — 앵커가 없으면 config 절대경로가 경로 중간에
     # 부분문자열로 삽입된 무관 파일까지 기본형으로 오인된다.
-    return re.compile("^" + re.escape(_config_dir()) + r"/projects/[^/]+/memory/[^/]+\.md$")
+    # memory/ 이하는 깊이 무관(#364) — 프로젝트 슬러그 자리는 단일 요소를 유지한다.
+    return re.compile("^" + re.escape(_config_dir()) + r"/projects/[^/]+/memory/.+\.md$")
 
 
 def _vault_pattern(vault: str | None) -> re.Pattern[str] | None:
