@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 import okf_vault
@@ -231,7 +232,9 @@ def _legacy_memory_re() -> re.Pattern[str]:
 
 def _default_form_re() -> re.Pattern[str]:
     # 문서화된 기본형 — <config>/projects/<단일요소>/memory/<파일>.md (#16 수정 지점)
-    return re.compile(re.escape(_config_dir()) + r"/projects/[^/]+/memory/[^/]+\.md$")
+    # 위치 0 앵커(#363, #305와 같은 원리) — 앵커가 없으면 config 절대경로가 경로 중간에
+    # 부분문자열로 삽입된 무관 파일까지 기본형으로 오인된다.
+    return re.compile("^" + re.escape(_config_dir()) + r"/projects/[^/]+/memory/[^/]+\.md$")
 
 
 def _vault_pattern(vault: str | None) -> re.Pattern[str] | None:
@@ -245,9 +248,11 @@ def _vault_pattern(vault: str | None) -> re.Pattern[str] | None:
     try:
         return re.compile(raw)
     except re.error as exc:
-        import sys
-
-        print(f"study_scope: memoryPathPattern 무효 — 무시: {exc}", file=sys.stderr)
+        print(
+            f"study_scope: memoryPathPattern 무효 — 무시: {exc} "
+            "(vault .okf-wiki.json의 study.memoryPathPattern을 수정하라)",
+            file=sys.stderr,
+        )
         return None
 
 

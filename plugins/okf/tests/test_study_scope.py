@@ -232,11 +232,22 @@ def test_entrance_vault_pattern_override(monkeypatch, tmp_path):
     assert study_scope.is_memory_path("/opt/weird-mem/x.md", {}, tmp_path)
 
 
+def test_entrance_default_form_rejects_mid_path_insertion(monkeypatch, tmp_path):
+    # #363 A1 — config 절대경로가 경로 **중간에** 부분문자열로 나타나면 기본형이 아니다
+    # (#305가 레거시형에 박은 위치 앵커와 같은 원리 — 정당한 매치는 위치 0뿐)
+    cfg = tmp_path / "cfg"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    inserted = str(tmp_path / "evil") + str(cfg / "projects" / "proj" / "memory" / "MEMORY.md")
+    assert not study_scope.is_memory_path(inserted, {}, tmp_path)
+
+
 def test_entrance_invalid_pattern_tolerated(monkeypatch, tmp_path, capsys):
     vault = _vault(tmp_path, {"study": {"capture": "review", "memoryPathPattern": "("}})
     monkeypatch.setenv(okf_vault.VAULT_ENV, str(vault))
     assert not study_scope.is_memory_path("/opt/anything/x.md", {}, tmp_path)
-    assert "memoryPathPattern" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "memoryPathPattern" in err
+    assert "study.memoryPathPattern" in err  # #363 A2 — 원인만이 아니라 조치까지 안내한다
 
 
 def test_entrance_non_md_rejected(tmp_path):

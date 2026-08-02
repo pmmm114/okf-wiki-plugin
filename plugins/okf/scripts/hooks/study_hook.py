@@ -1,4 +1,4 @@
-"""study capture 훅 (S2, #74 · #91 V2) — PostToolUse(Write).
+"""study capture 훅 (S2, #74 · #91 V2) — PostToolUse(Write·Edit).
 
 Claude Code 메모리 저장을 감지해 ``study.capture`` 정책대로 후보를 inbox에
 적재한다. **훅은 절대 승격·디스패치하지 않는다**(모델 부재) — 적재 또는
