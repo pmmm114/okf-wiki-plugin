@@ -38,7 +38,7 @@ def test_skill_placement_flow_calls_census():
 
 def test_study_command_calls_census_before_conceptualizing():
     """승격 커맨드의 개념화 단계가 셔틀 경유로 census를 부른다."""
-    body = _section(STUDY_CMD.read_text(encoding="utf-8"), "4. **개념화", "5. **로그")
+    body = _section(STUDY_CMD.read_text(encoding="utf-8"), "4. **개념화", "5. **게이트")
     assert CENSUS_CALL in body, f"개념화 단계에 {CENSUS_CALL} 호출이 없다"
 
 

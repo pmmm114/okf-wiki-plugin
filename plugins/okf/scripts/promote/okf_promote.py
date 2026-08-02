@@ -13,7 +13,9 @@
 제안 계약(Epic #197 §3 · #351 U1 일반화): ``{mode?: "create"|"update"(기본 create),
 layer?(별칭 target_layer — 하위호환), path(번들 상대), type, description, body,
 derived_from?: [경로], materials: [{path, sha256}], resource?, allow_dangling?:
-[경로], rubric?}``. 경로는 ``/`` 시작을 허용하며 내부적으로 정규화한다.
+[경로], rubric?, log_note?}``. 경로는 ``/`` 시작을 허용하며 내부적으로 정규화한다.
+``log_note``는 log.md 요약에 덧붙는 자유 문구다(검증 없음) — 소비처 provenance
+(예: 캡처 일자)가 apply 위임 후에도 git-추적 이력에 남는 자리(#114 U5 · #351 U2).
 
 모드 규칙(#351 — 명시적 mode, 실존 암묵 판별 금지): create인데 path 실존이면 반려
 (§9 금지 2), update인데 부재면 반려(오타가 신설로 둔갑하지 않게). update는 기존
@@ -505,15 +507,18 @@ def _apply_proposals(
         layer, _conflict = proposal_layer(proposal)
         effective_layer = layer if layer is not None else layer_map.get(target_rel)
         if mode == "update":
-            summary = f"{proposal['description']} (갱신)"
+            note = "갱신"
             kind = "Update"  # 스킬 §3 유지 플로우 — supersedes 이력은 log.md 엔트리다
         else:
             material_count = len(proposal.get("derived_from") or [])
             note = f"하위 {material_count}건"
             if effective_layer:
                 note = f"layer {effective_layer} ← {note}"
-            summary = f"{proposal['description']} ({note})"
             kind = "Promotion"
+        log_note = str(proposal.get("log_note") or "").strip()
+        if log_note:
+            note = f"{note}, {log_note}"
+        summary = f"{proposal['description']} ({note})"
         _staged(run, "log", ["log", "append", concept_dir, "-m", summary, "--kind", kind])
         if effective_layer:
             layer_map[target_rel] = effective_layer  # 같은 배치의 후속 제안이 접지 가능
@@ -522,7 +527,7 @@ def _apply_proposals(
             {"path": target_rel, "layer": effective_layer, "chain": chain, "mode": mode}
         )
 
-    lint_warns: list[str] = []
+    lint_warns: list[dict] = []
     if promoted:
         _staged(run, "index", ["index", bundle, "--write"])
         fresh_map = okf_layers.parse_layer_map(
@@ -537,9 +542,8 @@ def _apply_proposals(
                 run, "graph", ["graph", bundle, "--edges-from", spec["derivation_field"], "--json"]
             )
         )
-        lint_warns = [
-            f"{path}  {message}" for path, message in okf_layers.check(spec, fresh_map, fresh_graph)
-        ]
+        # {path, code, message} — 소비처는 code로 분기한다(한국어 message는 사람용 표시)
+        lint_warns = okf_layers.check_findings(spec, fresh_map, fresh_graph)
     return {"promoted": promoted, "rejected": rejected, "lint_warns": lint_warns}
 
 
