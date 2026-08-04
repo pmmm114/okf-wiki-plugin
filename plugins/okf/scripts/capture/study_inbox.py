@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import heapq
 from pathlib import Path
 
 import study_blocks
@@ -172,6 +173,35 @@ def track_file(
     )
 
 
+def _fingerprint_index(runtime: str | Path) -> dict[str, int]:
+    """``{id: 지문}`` — 지문 테이블을 **1회** 로드하고 hex를 한 번만 정수화한다.
+
+    지문이 없는 후보(토큰 0개 = 판정 불가)는 애초에 들이지 않는다 — 0으로 접어
+    비교하면 무관한 것들이 거리 0으로 묶인다.
+    """
+    return {cid: int(hx, 16) for cid, hx in study_store.list_fingerprints(runtime) if hx}
+
+
+def _nearest(index: dict[str, int], ident: str, top_k: int) -> list[dict]:
+    """``index`` 안에서 ``ident``와 가까운 **상위 K** — ``[{id, distance}]``.
+
+    순위 키는 ``(거리, id)``라 동률에서도 결정적이다. 전량 정렬이 아니라 힙으로
+    K개만 뽑는다 — 결과는 같고(완전 순서), 후보 수가 클수록 값싸다.
+    """
+    target = index.get(ident)
+    if target is None:
+        return []
+    ranked = heapq.nsmallest(
+        top_k,
+        (
+            (study_simhash.hamming(target, value), cid)
+            for cid, value in index.items()
+            if cid != ident
+        ),
+    )
+    return [{"id": cid, "distance": distance} for distance, cid in ranked]
+
+
 def near_duplicates(
     runtime: str | Path, ident: str, top_k: int = study_simhash.DEFAULT_TOP_K
 ) -> list[dict]:
@@ -184,22 +214,41 @@ def near_duplicates(
     11~32라 임계 3은 사실상 발화하지 않았고, 그 빈 결과가 '근사중복 없음'으로 읽혔다.
     거리를 함께 실어 판정을 사람·모델에게 넘긴다.
 
-    지문이 없는 후보(토큰 0개 = 판정 불가)는 **양쪽 모두 제외**한다 — 0으로 접어
-    비교하면 무관한 것들이 거리 0으로 묶인다.
+    지문이 없는 후보(토큰 0개 = 판정 불가)는 **양쪽 모두 제외**한다.
+
+    **단건 질의용**이다 — 호출마다 지문 테이블을 다시 로드하므로, 여러 후보를 한
+    번에 볼 때는 `near_duplicate_pairs`를 쓴다(#382).
     """
     if not study_store.available():
         return []
-    fingerprints = study_store.list_fingerprints(runtime)
-    target = next((hx for cid, hx in fingerprints if cid == ident), None)
-    if not target:
-        return []
-    target_int = int(target, 16)
-    scored = [
-        {"id": cid, "distance": study_simhash.hamming(target_int, int(hx, 16))}
-        for cid, hx in fingerprints
-        if cid != ident and hx
-    ]
-    return sorted(scored, key=lambda h: (h["distance"], h["id"]))[:top_k]
+    return _nearest(_fingerprint_index(runtime), ident, top_k)
+
+
+def near_duplicate_pairs(
+    runtime: str | Path, idents: list[str], top_k: int = study_simhash.DEFAULT_TOP_K
+) -> dict[str, list[dict]]:
+    """``idents`` 각각의 근사중복 상위 K — ``{id: [{id, distance}]}``, 빈 결과는 뺀다.
+
+    자문 성격·순위·판정 불가 제외는 `near_duplicates`와 같은 계약이고, 다른 것은
+    지문을 **한 번만** 확보한다는 것뿐이다(#382). 후보마다 단건 질의를 부르면 단건
+    용으로 옳은 "1회 로드 + N 비교"가 N번 반복되며 비용이 제곱이 된다 — 실측 후보
+    2,897건에서 지문 테이블 전체 SELECT 2,897회 · 행 왕복 840만 · 12.8초였다.
+    로드와 hex→int 변환을 1회로 접으면 같은 출력이 3.4초다. 남는 해밍 계산 840만
+    회는 전수 쌍대 과제의 본질 비용이라 줄이지 않는다.
+
+    쌍대 비교를 SQL로 내리는 길은 실측에서 기각됐다(13.7초) — SQLite에 popcount가
+    없어 해밍을 파이썬 콜백으로 등록해야 하고, 그러면 self-join 840만 행마다 그
+    콜백을 도는 꼴이라 메모리 루프보다 느리다. inbox 조회는 지문 확보(SELECT)까지다.
+    """
+    if not study_store.available():
+        return {}
+    index = _fingerprint_index(runtime)
+    pairs: dict[str, list[dict]] = {}
+    for ident in idents:
+        near = _nearest(index, ident, top_k)
+        if near:
+            pairs[ident] = near
+    return pairs
 
 
 def set_layer(runtime: str | Path, ident: str, layer: str | None) -> None:
