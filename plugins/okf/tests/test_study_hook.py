@@ -313,3 +313,20 @@ def test_auto_memory_directory_capture(monkeypatch, tmp_path):
     message = study_hook.run(payload, tmp_path)
     assert message and "인박스" in message
     assert study_inbox.list_candidates(_rt(tmp_path))[0]["snippet"] == "moved memory"
+
+
+def test_backlog_counts_come_from_group_aggregate(monkeypatch, tmp_path):
+    # #388 — "전체 대기" 집계는 건수·파일수뿐이라 본문 전량 인출 없이 store 집계로 선다
+    # (#383 `test_group_views_never_fetch_the_whole_inbox`와 같은 게이트 형태).
+    _cfg(tmp_path, "review")
+    seed = {"tool_input": {"file_path": _mem(), "content": "# M\n\n* 먼저 쌓인 후보\n"}}
+    assert study_hook.run(seed, tmp_path)
+
+    def _forbidden(*_args, **_kwargs):
+        raise AssertionError("전량 인출 — 전체 대기 집계는 candidate_groups로 센다(#388)")
+
+    monkeypatch.setattr(study_inbox, "list_candidates", _forbidden)
+    other = _mem().replace("MEMORY.md", "other.md")
+    payload = {"tool_input": {"file_path": other, "content": "# M\n\n* 새 후보\n"}}
+    message = study_hook.run(payload, tmp_path)
+    assert message and "파일 2개·2건" in message  # 집계 값은 전량 인출 경로와 동일하다

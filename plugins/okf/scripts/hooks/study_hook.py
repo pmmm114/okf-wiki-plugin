@@ -81,14 +81,14 @@ def run(payload: dict, project: str | Path) -> str | None:
         return None
 
     # 보고는 파일 단위(#257) — 훅은 호출당 파일 1개를 처리하므로 "이번 저장분"과
-    # "전체 대기"를 분리 표기한다. 대기 집계는 캡처 스냅샷 누적이다(파일 현재 상태 아님).
-    pending = study_inbox.list_candidates(runtime)
-    files = len({c["source"] for c in pending})
+    # "전체 대기"를 분리 표기한다. 대기 집계는 캡처 스냅샷 누적이며(파일 현재 상태 아님),
+    # 건수·파일수뿐이라 본문 전량 인출 없이 store 집계로 센다(#388).
+    groups = study_inbox.candidate_groups(runtime)
     return _REPORT_FORMS[scope["capture"]].format(
         event=_EVENT_LABELS[result["event"]],
         appended=result["appended"],
-        files=files,
-        total=len(pending),
+        files=len(groups),
+        total=sum(g["count"] for g in groups),
     )
 
 

@@ -104,3 +104,21 @@ def test_sqlite3_absence_silent_without_capture_optin(monkeypatch, tmp_path):
     project = tmp_path / "scratch"
     project.mkdir()
     assert study_session.run(project) is None
+
+
+def test_backlog_counts_come_from_group_aggregate(monkeypatch, tmp_path):
+    # #388 — 나즈의 건수·파일수는 본문 전량 인출 없이 store 집계로 선다
+    # (#383 `test_group_views_never_fetch_the_whole_inbox`와 같은 게이트 형태).
+    (tmp_path / ".okf-wiki.json").write_text(
+        json.dumps({"study": {"capture": "review"}}), encoding="utf-8"
+    )
+    study_inbox.append(_rt(tmp_path), "a", "/mem/one.md")
+    study_inbox.append(_rt(tmp_path), "b", "/mem/one.md")
+    study_inbox.append(_rt(tmp_path), "c", "/mem/two.md")
+
+    def _forbidden(*_args, **_kwargs):
+        raise AssertionError("전량 인출 — 건수·파일수는 candidate_groups로 센다(#388)")
+
+    monkeypatch.setattr(study_inbox, "list_candidates", _forbidden)
+    message = study_session.run(tmp_path)
+    assert message and "후보 3개(파일 2개" in message  # 집계 값은 전량 인출 경로와 동일하다
