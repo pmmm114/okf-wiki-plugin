@@ -34,18 +34,20 @@ def run(project: str | Path) -> str | None:
             "study: 이 파이썬에 sqlite3(_sqlite3) 없음 — 캡처가 적재 없이 무동작한다"
             "(fail-closed). /okf-doctor로 상태를 확인하라."
         )
-    cands = study_inbox.list_candidates(scope["runtime_root"])
-    if not cands:
+    # 나즈에 쓰는 수치는 건수·파일수뿐 — 본문 전량 인출 없이 store 집계로 센다(#388)
+    groups = study_inbox.candidate_groups(scope["runtime_root"])
+    if not groups:
         return None
-    files = len({c["source"] for c in cands})  # 리뷰 결정 단위 = 파일(#257)
+    total = sum(g["count"] for g in groups)
+    files = len(groups)  # 리뷰 결정 단위 = 파일(#257)
     if scope["capture"] == "review":
         # 관측 1줄(#352) — auto의 지시형 나즈와 달리 규모만 알린다(임계값·판정 없음).
         return (
-            f"study: 승격 대기 후보 {len(cands)}개(파일 {files}개, capture=review). "
+            f"study: 승격 대기 후보 {total}개(파일 {files}개, capture=review). "
             "원하면 /study로 검토·승격할 수 있다."
         )
     return (
-        f"study: 승격 대기 후보 {len(cands)}개(파일 {files}개, capture=auto). "
+        f"study: 승격 대기 후보 {total}개(파일 {files}개, capture=auto). "
         "study 승격 플로우로 검토·승격하라 — 핸들러 실행은 로컬 trust 승인이 필요하다."
     )
 
