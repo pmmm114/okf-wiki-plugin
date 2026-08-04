@@ -293,13 +293,12 @@ def cmd_prune(args) -> int:
 
 def cmd_near(args) -> int:
     # 근사중복 자문(#133) — 재서술 후보를 트리아지에서 표면화한다(자동병합·게이팅 없음).
+    # 일괄 뷰라 지문은 후보마다가 아니라 한 번만 확보한다(#382).
     _promote, runtime = _scope(args.project)
-    pairs: dict[str, list[str]] = {}
+    pairs: dict[str, list[dict]] = {}
     if runtime:
-        for cand in study_inbox.list_candidates(runtime):
-            dups = study_inbox.near_duplicates(runtime, cand["id"], top_k=args.top_k)
-            if dups:
-                pairs[cand["id"]] = dups
+        idents = [c["id"] for c in study_inbox.list_candidates(runtime)]
+        pairs = study_inbox.near_duplicate_pairs(runtime, idents, top_k=args.top_k)
     print(json.dumps(pairs, ensure_ascii=False, indent=2))
     return 0
 

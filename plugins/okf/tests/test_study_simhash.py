@@ -14,6 +14,7 @@ import study
 import study_inbox
 import study_scope
 import study_simhash
+import study_store
 
 
 def test_fingerprint_deterministic_and_hex_width():
@@ -133,8 +134,11 @@ def test_near_duplicates_empty_without_sqlite(monkeypatch, tmp_path):
     assert study_inbox.near_duplicates(tmp_path, "whatever") == []
 
 
-def test_study_near_cli(monkeypatch, tmp_path, capsys):
-    # 실측: `study near` 서브커맨드가 근사중복 쌍을 JSON으로 낸다(#133 U6)
+def _near_cli_project(monkeypatch, tmp_path):
+    """`study near`가 도는 최소 프로젝트 — 후보 3건이 적재된 review 스코프.
+
+    ``(project, 첫 후보 id)``를 돌려준다.
+    """
     monkeypatch.setenv("HOME", str(tmp_path / "h"))
     monkeypatch.delenv(okf_vault.VAULT_ENV, raising=False)
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
@@ -144,12 +148,108 @@ def test_study_near_cli(monkeypatch, tmp_path, capsys):
         json.dumps({"study": {"capture": "review"}}), encoding="utf-8"
     )
     rt = study_scope.resolve_capture(project)["runtime_root"]
-    a = study_inbox.append(rt, "alpha beta gamma", "M.md")
+    first = study_inbox.append(rt, "alpha beta gamma", "M.md")
     study_inbox.append(rt, "gamma beta alpha", "M.md")  # 재배열 → 지문 동일
+    study_inbox.append(rt, "completely different words here", "M.md")
+    return project, first
+
+
+def test_study_near_cli(monkeypatch, tmp_path, capsys):
+    # 실측: `study near` 서브커맨드가 근사중복 쌍을 JSON으로 낸다(#133 U6)
+    project, a = _near_cli_project(monkeypatch, tmp_path)
 
     assert study.main(["near", str(project), "--top-k", "5"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert a in out and out[a]  # 근사중복 쌍이 잡힌다
+
+
+# --- 일괄 뷰의 지문 확보 (#382) -----------------------------------------------
+#
+# `study near`는 후보마다 단건 자문(`near_duplicates`)을 부르던 구조라, 단건용으로
+# 옳은 "1회 로드 + N 비교"가 일괄 뷰에서 N번 반복되며 비용이 제곱이 됐다 — 실측
+# 후보 2,897건에서 지문 테이블 전체 SELECT 2,897회, 행 왕복 840만.
+#
+# 일괄 뷰는 지문을 **1회 확보**하고 메모리에서 쌍대 비교한다. 계약은 둘이다:
+# 출력이 단건 경로와 **같을 것**, 그리고 지문 로드가 **1회일 것**.
+
+
+def _count_fingerprint_loads(monkeypatch) -> list:
+    """``list_fingerprints`` 호출 카운터 — 로드 1회 계약용."""
+    calls: list = []
+    original = study_store.list_fingerprints
+
+    def counted(runtime):
+        calls.append(runtime)
+        return original(runtime)
+
+    monkeypatch.setattr(study_store, "list_fingerprints", counted)
+    return calls
+
+
+def test_near_duplicate_pairs_equals_per_candidate_single_query(tmp_path):
+    """일괄 뷰 출력 == 후보마다 단건 자문을 부른 출력(순서·거리·상위 K 포함).
+
+    단건 API가 이 동등성의 참조 구현이다 — 지문 판정 불가 후보가 양쪽 모두에서
+    빠지는 것까지 같은 계약이라 키릴 스니펫을 섞는다.
+
+    다만 대조만으로는 부족하다: 두 경로가 확보·순위 헬퍼를 공유하므로 **헬퍼 자체가
+    틀리면 양쪽이 똑같이 틀리고 이 대조는 녹색으로 남는다**(뮤테이션 실증 — 판정 불가를
+    0으로 접기, 상위 K 절단 생략이 둘 다 미탐지였다). 그 둘은 참조 대조가 아니라 값으로
+    직접 단언한다.
+    """
+    ids = [
+        study_inbox.append(tmp_path, snippet, "M.md")
+        for snippet in (
+            "alpha beta gamma",
+            "gamma beta alpha",
+            "completely different words here",
+            "머지 전에는 반드시 스쿼시한다",
+            "브랜치 이름은 소문자와 하이픈만 쓴다",
+            "Привет мир вот текст",  # 토큰 0개 → 지문 없음
+        )
+    ]
+    cyrillic = ids[-1]
+    idents = [c["id"] for c in study_inbox.list_candidates(tmp_path)]
+
+    expected = {}
+    for ident in idents:
+        near = study_inbox.near_duplicates(tmp_path, ident, top_k=3)
+        if near:
+            expected[ident] = near
+
+    pairs = study_inbox.near_duplicate_pairs(tmp_path, idents, top_k=3)
+    assert pairs == expected
+    assert list(pairs) == list(expected)  # 후보 순서도 계약(JSON 출력 순서)
+    assert cyrillic not in pairs  # 판정 불가는 질의 대상에서 빠지고
+    assert all(cyrillic != hit["id"] for near in pairs.values() for hit in near)  # 상대로도 안 뜬다
+    assert all(len(near) <= 3 for near in pairs.values())  # 지문 5건 > K=3 → 절단이 발동한다
+
+
+def test_near_duplicate_pairs_loads_fingerprints_once(monkeypatch, tmp_path):
+    for snippet in ("alpha beta gamma", "gamma beta alpha", "delta epsilon zeta"):
+        study_inbox.append(tmp_path, snippet, "M.md")
+    idents = [c["id"] for c in study_inbox.list_candidates(tmp_path)]
+    calls = _count_fingerprint_loads(monkeypatch)
+
+    study_inbox.near_duplicate_pairs(tmp_path, idents, top_k=3)
+
+    assert len(calls) == 1, f"후보 {len(idents)}건에 지문 로드 {len(calls)}회 — 후보마다 재로드한다"
+
+
+def test_study_near_cli_loads_fingerprints_once(monkeypatch, tmp_path, capsys):
+    """CLI 경로도 1회 — `cmd_near`가 단건 루프로 되돌아가면 여기서 붉어진다."""
+    project, _first = _near_cli_project(monkeypatch, tmp_path)
+    calls = _count_fingerprint_loads(monkeypatch)
+
+    assert study.main(["near", str(project), "--top-k", "5"]) == 0
+
+    capsys.readouterr()
+    assert len(calls) == 1, f"후보 3건에 지문 로드 {len(calls)}회"
+
+
+def test_near_duplicate_pairs_empty_without_sqlite(monkeypatch, tmp_path):
+    monkeypatch.setattr(study_inbox.study_store, "sqlite3", None)
+    assert study_inbox.near_duplicate_pairs(tmp_path, ["whatever"]) == {}
 
 
 # --- 실측 재서술 쌍 — 임계 3이 발화하지 않던 범위 (#306) ------------------------
