@@ -3,7 +3,9 @@
 ``/study`` 커맨드·승격 스킬이 부르는 **기계적 조작**을 제공한다. 판정(어떤 후보를
 어떤 개념으로 만들지)은 모델의 몫이고, 여기서는 목록·원장·드레인·디스패치만 한다.
 
-  study list     <project> [--by-file]                  후보 JSON(평탄 | 파일 그룹 뷰)
+  study list     <project> [--by-file] [--headers | --source PATH]
+                                                         후보 JSON(평탄 | 파일 그룹 뷰,
+                                                         헤더만 | 한 그룹만)
   study resolve  <project> (--id ID [--id ...] | --source PATH) --status S [--ref R] [--layer L]
                                                          원장 기록 + inbox 드레인(일괄 가능)
   study clear    <project>                              현재 후보 전부 discard
@@ -126,9 +128,47 @@ def _load_study(project: str | Path) -> tuple[str, list[dict]]:
     return study.get("capture", "off"), study.get("handlers") or []
 
 
+def _source_group(runtime: str | None, raw_source: str) -> tuple[list[dict], dict | None]:
+    """``--source`` 한 그룹의 후보를 해소한다 — ``list``·``resolve`` 공통 계약(#383).
+
+    저장 source는 ``_sanitize`` 통과본이므로 인자도 동일 정규화 후 **정확 문자열 일치**로
+    거른다. 경로 해석(``Path.resolve``·실존 검사)은 금물 — rename·삭제된 옛 경로의 잔존
+    후보 정리가 주 용례다(dispatch의 ``--source``는 캡처 채널로 다른 축이다).
+
+    매칭 0건은 무음 성공이 아니라 **가시적 실패**다 — 현존 source 목록을 담은 오류
+    payload를 함께 돌려줘 오타를 드러낸다.
+    """
+    wanted = study_inbox._sanitize(raw_source)
+    cands = study_inbox.list_candidates_by_source(runtime, wanted) if runtime else []
+    if cands:
+        return cands, None
+    groups = study_inbox.candidate_groups(runtime) if runtime else []
+    return [], {
+        "error": f"source 일치 후보 없음: {wanted}",
+        "sources": sorted(g["source"] for g in groups),
+    }
+
+
 def cmd_list(args) -> int:
     _promote, runtime = _scope(args.project)
-    cands = study_inbox.list_candidates(runtime) if runtime else []
+    if args.headers:
+        # 헤더 전용 뷰(#383) — 판정 동선 1단(어느 그룹을 펼칠지)에 필요한 것은 그룹 이름과
+        # 크기뿐이다. 스니펫 본문은 DB를 떠나지 않으므로 전량 인출 없이 목록이 선다.
+        print(
+            json.dumps(
+                study_inbox.candidate_groups(runtime) if runtime else [],
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
+    if args.source is not None:
+        cands, error = _source_group(runtime, args.source)
+        if error is not None:
+            print(json.dumps(error, ensure_ascii=False))
+            return 1
+    else:
+        cands = study_inbox.list_candidates(runtime) if runtime else []
     if args.by_file:
         # 파일 그룹 뷰(#257) — 리뷰 결정 단위(파일)로 묶되 후보 전 필드를 보존해
         # provenance·후보별 resolve 소비를 유지한다. 그룹은 캡처 스냅샷의 누적이라
@@ -149,25 +189,12 @@ def cmd_list(args) -> int:
 def cmd_resolve(args) -> int:
     _promote, runtime = _scope(args.project)
     if args.source is not None:
-        # 파일 단위 일괄(#258): 저장 source는 _sanitize 통과본 — 동일 정규화 후 **정확
-        # 문자열 일치**. 경로 해석(Path.resolve·실존 검사)은 금물 — rename·삭제된 옛
-        # 경로의 잔존 후보 일괄 정리가 주 용례다. dispatch의 --source(캡처 채널)와는
-        # 다른 축이다(이쪽은 candidate.source 컬럼).
-        wanted = study_inbox._sanitize(args.source)
-        cands = study_inbox.list_candidates(runtime) if runtime else []
-        ids = [c["id"] for c in cands if c["source"] == wanted]
-        if not ids:
-            # 매칭 0건은 무음 성공이 아니라 가시적 실패 — 현존 source를 보여 오타를 드러낸다
-            print(
-                json.dumps(
-                    {
-                        "error": f"source 일치 후보 없음: {wanted}",
-                        "sources": sorted({c["source"] for c in cands}),
-                    },
-                    ensure_ascii=False,
-                )
-            )
+        # 파일 단위 일괄(#258) — 그룹 해소는 list와 같은 계약을 공유한다(#383).
+        cands, error = _source_group(runtime, args.source)
+        if error is not None:
+            print(json.dumps(error, ensure_ascii=False))
             return 1
+        ids = [c["id"] for c in cands]
     else:
         ids = list(dict.fromkeys(args.id))
         # 존재 검사(#305). 없으면 오타·환각 id가 **exit 0으로** 원장·저널에 promoted로
@@ -509,6 +536,16 @@ def main(argv: list[str] | None = None) -> int:
     lst = sub.add_parser("list", help="후보 목록(JSON) — --by-file이면 파일 그룹 뷰")
     lst.add_argument("project", nargs="?", default=".")
     lst.add_argument("--by-file", action="store_true", dest="by_file")
+    # 판정 동선의 2단(헤더만 → 필요한 그룹만)에 대응하는 두 뷰(#383). 서로 배타다 —
+    # 한쪽은 본문을 싣지 않는 전량 목록이고 한쪽은 본문을 실은 한 그룹이라 겹치지 않는다.
+    view = lst.add_mutually_exclusive_group()
+    view.add_argument(
+        "--headers", action="store_true", help="그룹 헤더 [{source, count}]만 — --by-file 전용"
+    )
+    view.add_argument(
+        "--source",
+        help="candidate.source(파일 경로) 정확 일치 그룹만 — 무매칭은 현존 source와 함께 실패",
+    )
 
     res = sub.add_parser("resolve", help="원장 기록 + inbox 드레인(다중 --id·--source 일괄)")
     res.add_argument("project", nargs="?", default=".")
@@ -569,6 +606,9 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = ap.parse_args(argv)
+    if args.cmd == "list" and args.headers and not args.by_file:
+        # 헤더는 그룹 뷰의 머리다 — 평탄 목록에는 헤더가 없으므로 조용히 무시하지 않는다
+        lst.error("--headers는 --by-file 전용이다")
     handlers = {
         "list": cmd_list,
         "resolve": cmd_resolve,

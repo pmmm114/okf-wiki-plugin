@@ -79,6 +79,21 @@ _ADDED_COLUMNS = {
 }
 
 _ORDER = "ORDER BY captured_date DESC, seq ASC"  # 최신 날짜 우선, 동일 날짜는 적재순
+_FIELDS = "id, captured_date, snippet, source, recurrence"  # 후보 출력 shape의 단일원천
+
+# 그룹 뷰의 정렬은 **평탄 뷰의 첫 등장 순서**여야 한다(같은 목록의 두 뷰이므로) — 그래서
+# 그룹 키는 그룹의 선두 후보, 곧 `_ORDER`가 그 source에서 처음 뱉는 행이다. `MAX(날짜)`
+# 하나로는 부족하고(동일 날짜 그룹의 순서가 갈린다) `MIN(seq)`만으로도 안 된다(옛 후보가
+# 낮은 seq로 그룹을 끌어올린다) — **최신 날짜 안에서의 최소 seq**가 선두다.
+_GROUP_ORDER = """
+SELECT c.source, COUNT(*),
+       MIN(CASE WHEN c.captured_date = m.newest THEN c.seq END) AS lead_seq
+  FROM candidate c
+  JOIN (SELECT source, MAX(captured_date) AS newest FROM candidate GROUP BY source) m
+    ON m.source = c.source
+ GROUP BY c.source
+ ORDER BY MAX(c.captured_date) DESC, lead_seq ASC
+"""
 
 # 스키마 초기화를 경로당 1회로 직렬화한다(프로세스 내). 매 연산 연결에서 DDL을 돌리면
 # 16-스레드 동시 쓰기가 락 경합으로 후보를 유실했다 — 초기화만 잠그고 실제 쓰기는 WAL
@@ -234,16 +249,40 @@ def list_candidates(runtime: str | Path) -> list[dict]:
     횟수, #369)는 승격 판단 신호로 인라인 노출한다(#132). 시각 메타
     (captured_at/ingested_at)는 출력 결정성을 위해 노출하지 않는다(기록 전용 provenance).
     """
+    return _select_candidates(runtime, "")
+
+
+def list_candidates_by_source(runtime: str | Path, source: str) -> list[dict]:
+    """한 파일 그룹의 후보만 ``list_candidates``와 동일한 shape·정렬로 반환한다(#383).
+
+    매칭은 **저장값 정확 일치**다 — 경로 해석(``Path.resolve``·실존 검사)을 하지 않으므로
+    rename·삭제된 옛 경로의 잔존 후보도 그대로 집힌다(``resolve --source``와 같은 계약).
+    """
+    return _select_candidates(runtime, "WHERE source=?", (source,))
+
+
+def _select_candidates(runtime: str | Path, where: str, params: tuple = ()) -> list[dict]:
     if not _exists(runtime):
         return []
     with _connect(runtime) as conn:
-        rows = conn.execute(
-            f"SELECT id, captured_date, snippet, source, recurrence FROM candidate {_ORDER}"
-        ).fetchall()
+        rows = conn.execute(f"SELECT {_FIELDS} FROM candidate {where} {_ORDER}", params).fetchall()
     return [
         {"id": r[0], "date": r[1], "snippet": r[2], "source": r[3], "recurrence": r[4]}
         for r in rows
     ]
+
+
+def candidate_groups(runtime: str | Path) -> list[dict]:
+    """파일 그룹 헤더 ``[{source, count}]`` — 스니펫 본문이 DB를 떠나지 않는 집계(#383).
+
+    같은 목록의 헤더 뷰이므로 그룹 집합·건수·순서는 ``list_candidates``를 source로 묶은
+    것과 정확히 일치한다(정렬 근거는 ``_GROUP_ORDER`` 주석).
+    """
+    if not _exists(runtime):
+        return []
+    with _connect(runtime) as conn:
+        rows = conn.execute(_GROUP_ORDER).fetchall()
+    return [{"source": r[0], "count": r[1]} for r in rows]
 
 
 def delete_candidates(runtime: str | Path, ids: list[str] | set[str]) -> list[str]:
