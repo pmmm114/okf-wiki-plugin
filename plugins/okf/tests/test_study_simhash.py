@@ -191,15 +191,24 @@ def test_near_duplicate_pairs_equals_per_candidate_single_query(tmp_path):
 
     단건 API가 이 동등성의 참조 구현이다 — 지문 판정 불가 후보가 양쪽 모두에서
     빠지는 것까지 같은 계약이라 키릴 스니펫을 섞는다.
+
+    다만 대조만으로는 부족하다: 두 경로가 확보·순위 헬퍼를 공유하므로 **헬퍼 자체가
+    틀리면 양쪽이 똑같이 틀리고 이 대조는 녹색으로 남는다**(뮤테이션 실증 — 판정 불가를
+    0으로 접기, 상위 K 절단 생략이 둘 다 미탐지였다). 그 둘은 참조 대조가 아니라 값으로
+    직접 단언한다.
     """
-    for snippet in (
-        "alpha beta gamma",
-        "gamma beta alpha",
-        "completely different words here",
-        "머지 전에는 반드시 스쿼시한다",
-        "Привет мир вот текст",  # 토큰 0개 → 지문 없음
-    ):
+    ids = [
         study_inbox.append(tmp_path, snippet, "M.md")
+        for snippet in (
+            "alpha beta gamma",
+            "gamma beta alpha",
+            "completely different words here",
+            "머지 전에는 반드시 스쿼시한다",
+            "브랜치 이름은 소문자와 하이픈만 쓴다",
+            "Привет мир вот текст",  # 토큰 0개 → 지문 없음
+        )
+    ]
+    cyrillic = ids[-1]
     idents = [c["id"] for c in study_inbox.list_candidates(tmp_path)]
 
     expected = {}
@@ -211,6 +220,9 @@ def test_near_duplicate_pairs_equals_per_candidate_single_query(tmp_path):
     pairs = study_inbox.near_duplicate_pairs(tmp_path, idents, top_k=3)
     assert pairs == expected
     assert list(pairs) == list(expected)  # 후보 순서도 계약(JSON 출력 순서)
+    assert cyrillic not in pairs  # 판정 불가는 질의 대상에서 빠지고
+    assert all(cyrillic != hit["id"] for near in pairs.values() for hit in near)  # 상대로도 안 뜬다
+    assert all(len(near) <= 3 for near in pairs.values())  # 지문 5건 > K=3 → 절단이 발동한다
 
 
 def test_near_duplicate_pairs_loads_fingerprints_once(monkeypatch, tmp_path):
