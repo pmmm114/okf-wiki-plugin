@@ -50,10 +50,44 @@ def test_event_roundtrip_and_extra(tmp_path):
 def test_read_on_missing_db_does_not_create(tmp_path):
     runtime = tmp_path / "empty"
     assert study_store.list_candidates(runtime) == []
+    assert study_store.candidate_groups(runtime) == []
+    assert study_store.list_candidates_by_source(runtime, "M.md") == []
     assert study_store.read_events(runtime) == []
     assert study_store.has_resolution(runtime, "x") is False
     assert study_store.has_candidate(runtime, "x") is False
     assert not (runtime / study_store.DB_NAME).exists()  # 읽기는 파일을 만들지 않는다
+
+
+# --- 그룹 집계·필터 (#383) --------------------------------------------------
+
+
+def _seed_groups(runtime):
+    """그룹 순서의 두 함정을 동시에 밟는 배치 — a.md는 **가장 오래된 후보**(적재 1번)와
+    **가장 최신 후보**를 함께 갖고, b.md는 같은 최신 날짜를 a.md보다 **먼저** 적재했다.
+    `MAX(날짜)`만 보면 a·b 순서가 갈리고, `MIN(seq)`만 보면 a가 옛 후보로 앞질러 온다.
+    """
+    study_store.insert_candidate(runtime, "a1", "s1", "/mem/a.md", "2026-07-18")
+    study_store.insert_candidate(runtime, "b1", "s2", "/mem/b.md", "2026-07-20")
+    study_store.insert_candidate(runtime, "c1", "s3", "/mem/c.md", "2026-07-19")
+    study_store.insert_candidate(runtime, "a2", "s4", "/mem/a.md", "2026-07-20")
+
+
+def test_candidate_groups_order_by_group_lead_candidate(tmp_path):
+    # 그룹 순서 = 평탄 뷰에서 그 그룹이 처음 나오는 자리 = 최신 날짜 안에서의 최소 seq
+    _seed_groups(tmp_path)
+    assert study_store.candidate_groups(tmp_path) == [
+        {"source": "/mem/b.md", "count": 1},
+        {"source": "/mem/a.md", "count": 2},
+        {"source": "/mem/c.md", "count": 1},
+    ]
+
+
+def test_list_candidates_by_source_filters_exactly(tmp_path):
+    _seed_groups(tmp_path)
+    flat = study_store.list_candidates(tmp_path)
+    picked = study_store.list_candidates_by_source(tmp_path, "/mem/a.md")
+    assert picked == [c for c in flat if c["source"] == "/mem/a.md"]  # shape·정렬 동일
+    assert study_store.list_candidates_by_source(tmp_path, "/mem/a") == []  # 접두 아닌 정확 일치
 
 
 # --- fail-closed 가드 (_sqlite3 부재) --------------------------------------
@@ -66,6 +100,8 @@ def test_sqlite_absent_is_fail_closed(monkeypatch, tmp_path):
     ident = study_inbox.append(tmp_path, "snippet", "src")  # 크래시 없이 id 반환
     assert ident == study_inbox.content_hash("snippet")[:12]
     assert study_inbox.list_candidates(tmp_path) == []
+    assert study_inbox.candidate_groups(tmp_path) == []
+    assert study_inbox.list_candidates_by_source(tmp_path, "src") == []
     study_inbox.record(tmp_path, ident, "promoted")  # 무동작
     assert study_inbox.is_resolved(tmp_path, ident) is False
     assert study_inbox.read_journal(tmp_path) == []

@@ -219,6 +219,68 @@ def test_list_by_file_groups_preserving_candidate_fields(tmp_path, capsys):
     assert set(one[0]) == {"id", "date", "snippet", "source", "recurrence"}  # 전 필드 보존
 
 
+def test_list_headers_carry_the_same_groups_as_full_view(tmp_path, capsys):
+    # #383: 헤더 뷰는 같은 목록의 머리다 — 그룹·건수·순서가 전량 뷰와 정확히 일치하되
+    # 스니펫 본문을 싣지 않는다. 둘이 갈리면 헤더로 고른 그룹이 펼쳤을 때 다른 것이 된다.
+    study_inbox.append(_rt(tmp_path), "a", "/mem/one.md", date="2026-07-19")
+    study_inbox.append(_rt(tmp_path), "b", "/mem/one.md", date="2026-07-19")
+    study_inbox.append(_rt(tmp_path), "c", "/mem/two.md", date="2026-07-20")
+    study.main(["list", str(tmp_path), "--by-file"])
+    full = _out(capsys)
+    study.main(["list", str(tmp_path), "--by-file", "--headers"])
+    headers = _out(capsys)
+    assert headers == [{"source": g["source"], "count": g["count"]} for g in full]
+
+
+def test_list_source_expands_one_group(tmp_path, capsys):
+    # 헤더로 고른 그룹만 펼치는 동선 — 그룹 뷰면 그 그룹 하나, 평탄이면 그 후보들만
+    i1 = study_inbox.append(_rt(tmp_path), "a", "/mem/one.md", date="2026-07-19")
+    i2 = study_inbox.append(_rt(tmp_path), "b", "/mem/one.md", date="2026-07-19")
+    study_inbox.append(_rt(tmp_path), "c", "/mem/two.md", date="2026-07-20")
+    study.main(["list", str(tmp_path), "--by-file", "--source", "/mem/one.md"])
+    out = _out(capsys)
+    assert [(g["source"], g["count"]) for g in out] == [("/mem/one.md", 2)]
+    assert {c["id"] for c in out[0]["candidates"]} == {i1, i2}
+    study.main(["list", str(tmp_path), "--source", "/mem/one.md"])
+    assert {c["id"] for c in _out(capsys)} == {i1, i2}
+
+
+def test_list_source_no_match_fails_visibly(tmp_path, capsys):
+    # resolve --source와 같은 계약 — 무매칭은 빈 목록이 아니라 현존 source를 보이는 실패
+    study_inbox.append(_rt(tmp_path), "a", "/mem/one.md")
+    rc = study.main(["list", str(tmp_path), "--by-file", "--source", "/mem/gone.md"])
+    out = _out(capsys)
+    assert rc == 1 and out["sources"] == ["/mem/one.md"]
+
+
+def test_list_view_flags_are_guarded(tmp_path):
+    # 헤더는 그룹 뷰의 머리이고(평탄에는 없다), 헤더와 펼침은 서로를 부정한다 — 조용히
+    # 무시하면 사용자가 받은 것이 어느 뷰인지 알 수 없게 된다
+    with pytest.raises(SystemExit):
+        study.main(["list", str(tmp_path), "--headers"])
+    with pytest.raises(SystemExit):
+        study.main(["list", str(tmp_path), "--by-file", "--headers", "--source", "/mem/one.md"])
+
+
+def test_group_views_never_fetch_the_whole_inbox(tmp_path, capsys, monkeypatch):
+    # #383의 본론 — 헤더·펼침·일괄 드레인은 store SQL이 거른다. 전량 인출이 다시 끼어들면
+    # 출력만 옳고 비용은 그대로라, 규모가 커진 인박스에서 같은 병이 조용히 재발한다.
+    ident = study_inbox.append(_rt(tmp_path), "a", "/mem/one.md")
+
+    def _forbidden(*_args, **_kwargs):
+        raise AssertionError("전량 인출 — store 집계·필터로 거르지 않았다")
+
+    monkeypatch.setattr(study_inbox, "list_candidates", _forbidden)
+    assert study.main(["list", str(tmp_path), "--by-file", "--headers"]) == 0
+    assert study.main(["list", str(tmp_path), "--by-file", "--source", "/mem/one.md"]) == 0
+    capsys.readouterr()
+    assert study.main(["list", str(tmp_path), "--source", "/mem/gone.md"]) == 1  # 실패 경로도
+    assert _out(capsys)["sources"] == ["/mem/one.md"]  # 현존 source도 집계에서 온다
+    resolve = ["resolve", str(tmp_path), "--source", "/mem/one.md", "--status", "discarded"]
+    assert study.main(resolve) == 0
+    assert _out(capsys)["dropped"] == [ident]  # 드레인 동작 자체는 불변
+
+
 def test_session_observes_when_review(tmp_path):
     # #352 — review는 무음이 아니라 지시 없는 관측 1줄(저장 없는 세션의 적체 가시화)
     _cfg(tmp_path, "review", [])

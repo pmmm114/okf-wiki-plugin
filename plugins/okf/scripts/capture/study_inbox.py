@@ -288,6 +288,28 @@ def list_candidates(runtime: str | Path) -> list[dict]:
     return study_store.list_candidates(runtime)
 
 
+def candidate_groups(runtime: str | Path) -> list[dict]:
+    """파일 그룹 헤더 ``[{source, count}]``만 반환한다(#383).
+
+    ``list_candidates``를 source로 묶은 것과 그룹·건수·순서가 일치하되 **스니펫 본문을
+    싣지 않는다** — 판정 동선의 1단(어느 그룹을 펼칠지 고르기)이 전량 인출 없이 선다.
+    """
+    if not study_store.available():
+        return []
+    return study_store.candidate_groups(runtime)
+
+
+def list_candidates_by_source(runtime: str | Path, source: str) -> list[dict]:
+    """한 파일 그룹의 후보만 ``list_candidates``와 동일한 shape·정렬로 반환한다(#383).
+
+    ``source``는 **저장값 정확 일치**로 매칭된다 — 호출부가 ``_sanitize``를 통과시킨 값을
+    넘긴다(저장 시 같은 정규화를 거쳤다).
+    """
+    if not study_store.available():
+        return []
+    return study_store.list_candidates_by_source(runtime, source)
+
+
 def drop(runtime: str | Path, ids: list[str] | set[str]) -> list[str]:
     """주어진 id의 후보를 제거하고 실제로 제거된 id를 반환한다."""
     if not study_store.available():
