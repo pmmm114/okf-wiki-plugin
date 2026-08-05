@@ -824,6 +824,40 @@ def test_e2e_post_tool_use_axis_adjacent_real_engine(tmp_path):
     assert "c.md(via=derived_from)" in ctx, ctx  # 정초 엣지 인접 — 근거 병기
 
 
+@needs_uv
+def test_e2e_session_start_degrades_over_budget(tmp_path):
+    """실엔진 E2E — 예산 초과 번들에서 잘린 목록이 아니라 윤곽이 주입된다(#403).
+
+    실측(실번들 41개념·6,320자·개념 줄 평균 153자)에서 절단 임계는 약 52개념이므로
+    여기 80·160개념은 둘 다 초과다. 규모 2배 대조로 **주입 크기가 번들 규모와
+    무관하게 유계**임을 잠근다 — 절단이 있던 시절에는 이 크기가 예산에 붙어 있고
+    잘려나간 개념 수는 아무 데도 나타나지 않았다.
+    """
+    gist = (
+        "개념 {i}의 핵심 한 줄이다. 실번들 개념 줄은 경로·type·요약을 합쳐 평균 "
+        "153자이고, 전환 규모를 실물과 맞추려면 재료도 그 길이여야 한다."
+    )
+    sizes = {}
+    for count in (80, 160):
+        project = tmp_path / f"p{count}"
+        project.mkdir()
+        bundle = project / ".okf"
+        bundle.mkdir()
+        for i in range(count):
+            (bundle / f"c{i}.md").write_text(
+                f"---\ntype: Note\ndescription: {gist.format(i=i)}\n---\n\n# c{i}\n"
+            )
+        (project / ".okf-wiki.json").write_text("{}")
+        res = run_hook(PLUGIN / "scripts", "session-start", project=project)
+        assert res.returncode == 0, res.stderr
+        ctx = sem(res)["hookSpecificOutput"]["additionalContext"]
+        assert f"개념 {count} · " in ctx, ctx  # 윤곽이다
+        assert "c0.md" not in ctx, ctx  # 목록이 아니다 — 잘린 목록도 아니다
+        assert len(ctx) <= 8000, len(ctx)
+        sizes[count] = len(ctx)
+    assert abs(sizes[160] - sizes[80]) < 50, sizes
+
+
 def test_format_adjacent_groups_basis_per_path():
     """인접 후보 형식 — path별 근거 묶음. 판정·임계값 문구 없음(재료 병기)."""
     import okf_hooks
@@ -863,6 +897,8 @@ def test_session_start_outline_config_gate(henv):
     calls = read_and_reset_calls(henv.stub)
     assert "--outline" in calls, calls
     assert "--max-chars" not in calls and "--group-by" not in calls, calls
+    # 항상 윤곽이면 조건부 저하는 겹칠 수 없다(엔진이 조합을 사용 오류로 막는다, #403)
+    assert "--outline-if-over" not in calls, calls
     assert sem(res) is not None
 
 
@@ -875,8 +911,26 @@ def test_session_start_outline_type_laxity_keeps_default(henv):
     res = run_hook(henv.scripts, "session-start", project=henv.project, stub=henv.stub)
     assert res.returncode == 0, res.stderr
     calls = read_and_reset_calls(henv.stub)
-    assert "--outline" not in calls, calls
+    assert "--outline " not in calls and not calls.rstrip().endswith("--outline"), calls
     assert "--max-chars 8000" in calls, calls
+
+
+def test_session_start_auto_degrade_is_the_default(henv):
+    """기본 주입은 자동 저하를 켠 채 부른다(#403) — 예산 초과 시 절단 대신 윤곽.
+
+    설정 옵트인이 아니라 기본값이다. 절단은 무음이고(잘린 목록이 전량으로 읽힌다)
+    그 오독은 존재 대조를 조용히 부분 대조로 만들기 때문에, 켜기를 사용자 선택으로
+    두면 아무것도 닫지 못한다.
+    """
+    (henv.project / ".okf-wiki.json").write_text('{"context": {"groupBy": "layer"}}')
+    (henv.project / ".okf").mkdir()
+    (henv.project / ".okf" / "a.md").write_text("# doc\n")
+    (henv.stub / "stdout").write_text("<okf-context>\n개념 1\n</okf-context>\n")
+    res = run_hook(henv.scripts, "session-start", project=henv.project, stub=henv.stub)
+    assert res.returncode == 0, res.stderr
+    calls = read_and_reset_calls(henv.stub)
+    # 예산·투영 인자는 그대로 — 저하는 그 위에 얹히는 분기다
+    assert "--max-chars 8000 --group-by layer --outline-if-over" in calls, calls
 
 
 # ── 훅 3종의 오류 정책 통일 (#299) ────────────────────────────────────────────

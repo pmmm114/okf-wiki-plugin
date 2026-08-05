@@ -256,6 +256,10 @@ def hook_session_start():
     group_by = context_cfg.get("groupBy")
     if isinstance(group_by, str) and group_by.strip():
         okf_args += ["--group-by", _jq_out(group_by)]
+    # 예산 초과분을 잘라내는 대신 윤곽으로 저하한다(#403) — 설정이 아니라 기본값이다.
+    # 절단은 무음이라 잘린 목록이 전량으로 읽히고, 그 오독은 존재 대조를 조용히 부분
+    # 대조로 만든다. 전량이 예산에 들면 이 플래그는 무동작(출력 바이트 불변)이다.
+    okf_args.append("--outline-if-over")
     # 주입 형태 전환(#336)은 설정 게이트 — JSON 리터럴 true만 켠다(`is True`, #69와
     # 동형: 타입 불량은 기본값 관용). 윤곽은 개념 수 무관 크기라 예산·그룹 플래그가
     # 필요 없고, 전환은 소비자가 관찰로 검증한 뒤 택한다(기본은 현행 전량 목록).

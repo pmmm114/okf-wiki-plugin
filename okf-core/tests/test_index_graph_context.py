@@ -469,3 +469,109 @@ def test_context_outline_flag_rejects_projection_flags(tmp_path, capsys):
     capsys.readouterr()
     assert context_main([str(bundle), "--outline"]) == 0
     assert capsys.readouterr().out.startswith("<okf-context>")
+
+
+# --- 예산 초과 시 자동 저하 (#403) ----------------------------------------------
+#
+# 절단은 관측 대상이 아니라 **없앨 상태**다. 전량이 예산에 들면 전량, 넘으면 윤곽 —
+# 잘린 목록은 어느 규모에서도 산출될 수 없다. 분기는 문자 수 비교 하나이고 개념 수
+# 임계(maxConcepts류)는 여전히 금지다.
+
+
+def _sized_bundle(tmp_path, count, name):
+    """개념 `count`개 번들 — 자동 저하의 전환을 규모로 재는 재료.
+
+    요약 길이를 실번들 평균(개념 줄 153자)에 맞춘다. 짧은 줄로 재면 전환 규모가
+    실물과 어긋나 "몇 개념부터 저하되는가"를 이 테스트로 읽을 수 없다.
+    """
+    bundle = tmp_path / name
+    bundle.mkdir()
+    for i in range(count):
+        _concept(
+            bundle,
+            f"c{i}.md",
+            "Note",
+            f"개념 {i}의 핵심 한 줄이다. 실번들 개념 줄은 경로·type·요약을 합쳐 평균 "
+            "153자이고, 전환 규모를 실물과 맞추려면 재료도 그 길이여야 한다.",
+            layer="wisdom",
+        )
+    return bundle
+
+
+def test_context_outline_if_over_is_byte_identical_within_budget(tmp_path, capsys):
+    """전량이 예산에 들면 자동 저하는 무동작 — 출력이 무플래그와 **바이트 동일**하다."""
+    from okf_core.context import main as context_main
+
+    bundle = _axis_bundle(tmp_path)
+    assert context_main([str(bundle), "--outline-if-over"]) == 0
+    degraded = capsys.readouterr().out
+    assert context_main([str(bundle)]) == 0
+    assert degraded == capsys.readouterr().out
+
+
+def test_context_outline_if_over_degrades_instead_of_truncating(tmp_path, capsys):
+    """예산을 넘으면 **잘린 목록이 아니라** 윤곽 — 절단본은 산출될 수 없다."""
+    from okf_core.context import main as context_main
+
+    bundle = _sized_bundle(tmp_path, 80, "over")
+    assert context_main([str(bundle), "--max-chars", "8000", "--outline-if-over"]) == 0
+    out = capsys.readouterr().out.rstrip("\n")
+    assert "개념 80 · " in out, out
+    assert "c0.md" not in out, out  # 목록이 아니다 — 잘린 목록도 아니다
+    assert len(out) <= 8000
+
+
+def test_context_outline_if_over_bounds_injection_against_bundle_growth(tmp_path, capsys):
+    """번들이 배로 자라도 주입 크기는 유계 — 전량은 규모에 비례한다(대조)."""
+    from okf_core.context import main as context_main
+
+    small = _sized_bundle(tmp_path, 80, "small")
+    big = _sized_bundle(tmp_path, 160, "big")
+    assert context_main([str(small), "--outline-if-over"]) == 0
+    small_out = capsys.readouterr().out
+    assert context_main([str(big), "--outline-if-over"]) == 0
+    big_out = capsys.readouterr().out
+    assert len(big_out) < 1000 and len(small_out) < 1000, (len(small_out), len(big_out))
+    # 대조: 저하가 없었다면 규모에 비례해 늘었을 크기다
+    assert len(build_context(big, max_chars=10**9)) > 1.9 * len(
+        build_context(small, max_chars=10**9)
+    )
+
+
+def test_context_outline_if_over_keeps_projection_within_budget(tmp_path, capsys):
+    """예산에 들면 `--group-by` 투영이 그대로 산다 — 저하는 초과일 때만이다."""
+    from okf_core.context import main as context_main
+
+    bundle = _axis_bundle(tmp_path)
+    assert context_main([str(bundle), "--group-by", "layer", "--outline-if-over"]) == 0
+    assert "## wisdom" in capsys.readouterr().out
+
+
+def test_context_outline_if_over_boundary_is_over_not_at(tmp_path, capsys):
+    """예산과 **정확히 같은** 크기는 저하하지 않는다 — 전환은 넘을 때다(경계 실측)."""
+    from okf_core.context import main as context_main
+
+    bundle = _axis_bundle(tmp_path)
+    full = build_context(bundle)
+    assert context_main([str(bundle), "--max-chars", str(len(full)), "--outline-if-over"]) == 0
+    assert capsys.readouterr().out.rstrip("\n") == full
+    assert context_main([str(bundle), "--max-chars", str(len(full) - 1), "--outline-if-over"]) == 0
+    assert "개념 4 · " in capsys.readouterr().out
+
+
+def test_context_outline_if_over_degrades_at_zero_budget(tmp_path, capsys):
+    """예산 0도 같은 규칙 — 빈 래퍼가 아니라 윤곽이다(분기는 문자 수 비교 하나)."""
+    from okf_core.context import main as context_main
+
+    bundle = _axis_bundle(tmp_path)
+    assert context_main([str(bundle), "--max-chars", "0", "--outline-if-over"]) == 0
+    assert "개념 4 · " in capsys.readouterr().out
+
+
+def test_context_outline_if_over_rejects_outline_combination(tmp_path, capsys):
+    """`--outline`은 항상 윤곽이라 조건부 저하와 겹칠 수 없다 — 사용 오류 2."""
+    from okf_core.context import main as context_main
+
+    bundle = _axis_bundle(tmp_path)
+    assert context_main([str(bundle), "--outline", "--outline-if-over"]) == 2
+    assert "오류" in capsys.readouterr().err
