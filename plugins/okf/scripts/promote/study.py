@@ -17,6 +17,7 @@
   study near     <project> [--top-k N]                    근사중복 자문(어휘 겹침 상위 K)
   study dedup-miss <project> --concepts P P [--captured ID]  뒤늦게 발견한 중복 기록(관측)
   study dedup-report <project>                            중복 판정 실수요 집계
+  study usage-report <project>                            저장고 활용 관측 집계
   study migrate  [<project>]                              vault .okf-study → 유저 스코프 멱등 이동
   study prune    [<project>] [--dry-run]                  기적재 노이즈 후보 정리(원장 무기록 drop)
 
@@ -359,6 +360,14 @@ def cmd_dedup_report(args) -> int:
     return 0
 
 
+def cmd_usage_report(args) -> int:
+    # 저장고 활용 관측 집계(#400) — 건수와 개념별 분포만. 비율·문턱·제안은 내지 않는다.
+    _promote, runtime = _scope(args.project)
+    stats = study_inbox.usage_stats(runtime) if runtime else study_inbox.usage_stats(".")
+    print(json.dumps(stats, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_log(args) -> int:
     # 이벤트 저널(capture·전이(#369)/promote/discard 이력) — 비-git 스테이징의 순서·로그(#114 U5)
     _promote, runtime = _scope(args.project)
@@ -561,6 +570,9 @@ def main(argv: list[str] | None = None) -> int:
     dr = sub.add_parser("dedup-report", help="중복 판정 실수요 집계(#393)")
     dr.add_argument("project", nargs="?", default=".")
 
+    ur = sub.add_parser("usage-report", help="저장고 활용 관측 집계(#400)")
+    ur.add_argument("project", nargs="?", default=".")
+
     clr = sub.add_parser("clear", help="후보 전부 discard")
     clr.add_argument("project", nargs="?", default=".")
 
@@ -616,6 +628,7 @@ def main(argv: list[str] | None = None) -> int:
         "near": cmd_near,
         "dedup-miss": cmd_dedup_miss,
         "dedup-report": cmd_dedup_report,
+        "usage-report": cmd_usage_report,
         "migrate": cmd_migrate,
         "prune": cmd_prune,
     }
