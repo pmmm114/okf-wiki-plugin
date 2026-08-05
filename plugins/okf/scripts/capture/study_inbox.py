@@ -300,6 +300,53 @@ def journal_append(runtime: str | Path, action: str, ident: str, **extra) -> Non
     study_store.append_event(runtime, _now(), action, ident, filtered)
 
 
+def dedup_miss(
+    runtime: str | Path, concepts: list[str], captured: str | None = None
+) -> dict | None:
+    """뒤늦게 발견한 중복을 저널에 남긴다(#393) — 관측 기록, 원장·후보 무변경.
+
+    "이 두 개념이 같은 말이었다"를 승격 뒤에 알아챈 사건이다. 자문이 놓친 것이므로
+    의미 기반(임베딩) 도입 필요성의 **직접 근거**가 된다. 지금은 어휘 겹침만 재는 지표라
+    "번들 검증은 엄격 모드로"와 "지식 저장소 확인은 strict 옵션을"처럼 같은 말인데 겹치는
+    토큰이 없으면 0점이고, 그런 쌍이 실제로 얼마나 되는지는 값싸게 잴 수 없다(#387).
+
+    **건수만 센다** — 기록 시점에 그때의 지표 순위를 계산해 넣지 않는다. 쌓인 사례 자체가
+    골든셋이 되어 그때 오프라인으로 한 번에 평가하는 편이 낫고, 실시간 계산은 목적이
+    아니다. 판정하지 않으므로 종료코드로 다투지 않고 기록만 남긴다.
+    """
+    if len(concepts) < 2:
+        return None
+    if not study_store.available():
+        return None
+    entry = {"concepts": list(concepts), "captured": captured}
+    journal_append(runtime, "dedup_miss", captured or "-", concepts=list(concepts))
+    return entry
+
+
+def dedup_stats(runtime: str | Path) -> dict:
+    """중복 판정 실수요 집계(#393) — ``{promoted: {...}, misses: N, cases: [...]}``.
+
+    ``promoted``는 승격의 mode별 계수(분모), ``misses``는 뒤늦게 발견한 중복 건수(분자)다.
+    비율·문턱·제안은 내지 않는다 — 관측이고 판정은 사람이 한다.
+    """
+    counts = {"update": 0, "create": 0, "unstated": 0}
+    cases: list[dict] = []
+    if not study_store.available():
+        return {"promoted": counts, "misses": 0, "cases": cases}
+    for event in study_store.events_with_action(runtime, "promoted"):
+        mode = event.get("mode")
+        counts[mode if mode in ("update", "create") else "unstated"] += 1
+    for event in study_store.events_with_action(runtime, "dedup_miss"):
+        cases.append(
+            {
+                "ts": event.get("ts"),
+                "concepts": event.get("concepts", []),
+                "captured": None if event.get("id") == "-" else event.get("id"),
+            }
+        )
+    return {"promoted": counts, "misses": len(cases), "cases": cases}
+
+
 def read_journal(runtime: str | Path, limit: int | None = None) -> list[dict]:
     """이벤트 저널을 시간순(오래된→최신)으로 읽는다. limit면 최신 N개."""
     if not study_store.available():
@@ -350,7 +397,12 @@ def is_resolved(runtime: str | Path, ident: str) -> bool:
 
 
 def record(
-    runtime: str | Path, ident: str, status: str, ref: str | None = None, layer: str | None = None
+    runtime: str | Path,
+    ident: str,
+    status: str,
+    ref: str | None = None,
+    layer: str | None = None,
+    mode: str | None = None,
 ) -> None:
     """id를 promoted/discarded로 원장에 기록한다(이미 있으면 무시).
 
@@ -358,6 +410,11 @@ def record(
     원장에도 write-through한다. 교차 승격(#91 §4)은 이 함수로 원 스코프에 기록하되
     ``ref``에 vault 개념 경로를 담는 규약이다. ``layer``(정보/지식/지혜)가 주어지면 promote
     이벤트에 함께 새겨 후보 드레인 후에도 저널에 인식층 provenance가 남는다(#189 U5).
+
+    ``mode``(create/update)는 승격이 신설이었는지 **기존 개념 흡수**였는지다(#393). 흡수는
+    "이미 있다"를 알아챈 사건이라 중복 판정 실수요의 분모가 된다. apply 시점에 남길 수
+    없어(``okf_promote``는 캡처 런타임 무-import) 커맨드가 아는 값을 여기로 넘긴다.
+    미지정은 **미상**으로 두고 계수하지 않는다 — path 실존으로 암묵 판별하지 않는다(#351).
     """
     if status not in ("promoted", "discarded"):
         raise ValueError(f"알 수 없는 status: {status}")
@@ -368,7 +425,7 @@ def record(
     children = [h for h in study_store.candidate_lines(runtime, ident) if h != ident]
     source = study_store.candidate_source(runtime, ident)  # 파일 타임라인 병기(#369)
     study_store.insert_resolution(runtime, ident, status, ref)
-    journal_append(runtime, status, ident, ref=ref, layer=layer, source=source)
+    journal_append(runtime, status, ident, ref=ref, layer=layer, source=source, mode=mode)
     for child in children:
         study_store.insert_resolution(runtime, child, status, None)
     shared = _global_ledger_root(runtime)
