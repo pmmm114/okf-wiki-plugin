@@ -14,6 +14,9 @@ frontmatter description, 없으면 본문 첫 표 행·첫 문장에서 추출. 
 동일하게 내며 진단은 stderr로 낸다(거부는 훅 경로에서 주입 전무가 되는 순회귀).
 무플래그 출력은 바이트 불변. ``--outline``은 전량 목록 대신 축 윤곽(#336) —
 개념 수 무관 크기라 절단이 없고, 세부는 ``okf query`` 몫이다.
+``--outline-if-over``는 그 윤곽을 **예산을 넘을 때만** 쓴다(#403) — 전량이 들면
+전량 그대로, 넘으면 윤곽이라 잘린 목록은 어느 규모에서도 산출되지 않는다. 분기는
+문자 수 비교 하나이고, 개념 수 임계는 여전히 금지다.
 """
 
 from __future__ import annotations
@@ -109,7 +112,7 @@ def axis_values(doc: ParsedDoc, key: str) -> tuple[tuple[str, ...], str | None]:
 
 def build_context(
     root: str | Path,
-    max_chars: int = DEFAULT_MAX_CHARS,
+    max_chars: int | None = DEFAULT_MAX_CHARS,
     *,
     filter_key: str | None = None,
     filter_value: str | None = None,
@@ -117,6 +120,10 @@ def build_context(
     warnings: list[str] | None = None,
 ) -> str:
     """max_chars를 넘지 않는 래핑된 압축 인덱스 문자열을 만든다.
+
+    ``max_chars=None``이면 절단하지 않는다 — 자동 저하(#403)가 "전량이 예산에
+    드는가"를 재는 경로다. 넘치는지 알려면 넘친 것을 봐야 하므로, 절단된 결과로는
+    이 판정을 할 수 없다.
 
     filter_key/value(쌍)가 주어지면 그 frontmatter 축 값이 일치하는 개념만 담는다 —
     리스트 축은 멤버 일치로 전개한다(공유 표면 ``axis_values``). group_by가 주어지면
@@ -176,7 +183,8 @@ def build_context(
         out_lines = [line for _, line in entries]
 
     out = _OPEN
-    budget = max_chars - len(_CLOSE) - 1  # 닫는 래퍼 + 개행 몫 선차감
+    # 닫는 래퍼 + 개행 몫 선차감. None은 무절단 — 전량 크기를 재는 호출자용(#403)
+    budget = float("inf") if max_chars is None else max_chars - len(_CLOSE) - 1
     for line in out_lines:
         if len(out) + 1 + len(line) > budget:
             break
@@ -215,6 +223,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--group-by", metavar="KEY", help="frontmatter 축으로 섹션 그룹핑")
     ap.add_argument("--filter", metavar="KEY=VALUE", help="frontmatter 축 값으로 필터")
     ap.add_argument("--outline", action="store_true", help="전량 목록 대신 축 윤곽(#336)")
+    ap.add_argument(
+        "--outline-if-over",
+        action="store_true",
+        help="전량이 --max-chars를 넘으면 축 윤곽으로 대체 — 절단 대신 저하(#403)",
+    )
     args = ap.parse_args(argv)
 
     bundle = Path(args.bundle)
@@ -223,9 +236,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.outline:
-        if args.group_by or args.filter:
+        if args.group_by or args.filter or args.outline_if_over:
             print(
-                "오류: --outline은 단독 모드 — --group-by·--filter와 함께 쓸 수 없음",
+                "오류: --outline은 단독 모드 — --group-by·--filter·--outline-if-over와 "
+                "함께 쓸 수 없음",
                 file=sys.stderr,
             )
             return 2
@@ -242,12 +256,14 @@ def main(argv: list[str] | None = None) -> int:
     warns: list[str] = []
     text = build_context(
         bundle,
-        max_chars=args.max_chars,
+        max_chars=None if args.outline_if_over else args.max_chars,
         filter_key=filter_key,
         filter_value=filter_value,
         group_by=args.group_by,
         warnings=warns,
     )
+    if args.outline_if_over and len(text) > args.max_chars:
+        text = build_outline(bundle)
     for warn in warns:
         print(warn, file=sys.stderr)  # stdout은 주입 산출물 — 진단이 섞이면 오염(#300과 동일 원리)
     print(text)
