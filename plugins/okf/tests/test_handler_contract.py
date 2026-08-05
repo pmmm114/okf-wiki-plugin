@@ -73,7 +73,6 @@ LAYER_VALUES = okf_layers.load_layers_spec()["values"]
     "argv",
     [
         ["resolve", ".", "--id", "x", "--status", "promoted", "--layer", "지식"],
-        ["near-bundle", ".", "--snippet", "s", "--layer", "지식"],
         ["dispatch", ".", "--concept-layer", "지식"],
     ],
 )

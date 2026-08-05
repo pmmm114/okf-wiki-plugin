@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import okf_vault
 import pytest
@@ -302,38 +303,39 @@ def test_log_outputs_journal(tmp_path, capsys):
     assert out[0]["action"] == "capture" and out[0]["id"] == ident
 
 
-# --- 같은 층 번들 근사중복 (Epic #189 U3) -----------------------------------
+# --- 같은 층 번들 근사중복은 제거됐다 (#391) ---------------------------------
 
 
-def test_line_path_gist_parses_context_line():
-    assert study._line_path_gist("a/b.md [Fact] — orders table schema") == (
-        "a/b.md",
-        "orders table schema",
-    )
-    assert study._line_path_gist("a/b.md [Note]") == ("a/b.md", "")
+def test_near_bundle_subcommand_is_gone():
+    """후보↔번들 대조는 지표가 아니라 **주입된 개념 목록**이 맡는다(#391).
+
+    `okf context`가 개념 전량을 `<경로> [<type>] — <description>`으로 세션에 넣는다.
+    지표가 상위 K를 고르는 동안 모델은 이미 전량을 보고 있었다 — 부실해서가 아니라
+    불필요한 자리였다(#387 실측: R@5 0.761 · 기준선 0.376 대비 2.0배 · 노이즈 84.8%).
+    """
+    with pytest.raises(SystemExit) as exc:
+        study.main(["near-bundle", ".", "--snippet", "s", "--layer", "wisdom"])
+    assert exc.value.code == 2  # argparse: 알 수 없는 서브커맨드
 
 
-def test_same_layer_near_is_advisory():
-    # 같은 층 개념 중 토큰이 겹치는 것만 자문 표면화(자동병합·게이팅 없음)
-    snippet = "orders table customer_id column"
-    lines = [
-        "existing.md [Fact] — orders table customer_id column",  # 동일 토큰 → dist 0
-        "unrelated.md [Fact] — zzzqqq alpha beta gamma delta",  # 다른 토큰
+def test_near_bundle_helpers_are_gone():
+    """지표 헬퍼도 함께 사라진다 — 소비처 없는 코드를 남기지 않는다."""
+    for name in ("cmd_near_bundle", "same_layer_near", "_line_path_gist"):
+        assert not hasattr(study, name), f"{name}이 남아 있다"
+
+
+def test_docs_carry_no_near_bundle_reference():
+    """문서가 없는 명령을 지시하면 모델이 실행하고 실패한다 — 참조를 0으로 잠근다."""
+    plugin = Path(study.__file__).resolve().parent.parent.parent
+    docs = [
+        plugin / "commands" / "study.md",
+        plugin / "commands" / "okf-promote.md",
+        plugin / "skills" / "okf" / "SKILL.md",
+        plugin / "skills" / "okf" / "reference" / "LAYERS.md",
     ]
-    # 상위 K는 임계가 아니라 **순위**다(#306) — 가장 가까운 것이 먼저 오고 거리가 붙는다
-    hits = study.same_layer_near(snippet, lines, 5)
-    assert hits[0]["path"] == "existing.md"
-    assert hits[0]["distance"] == 0
-    assert hits[0]["gist"] == "orders table customer_id column"
-    assert hits[-1]["distance"] > 0  # 무관한 것은 뒤로 밀린다(사라지는 것이 아니라)
-
-    # K=1이면 가장 가까운 하나만
-    assert [h["path"] for h in study.same_layer_near(snippet, lines, 1)] == ["existing.md"]
-
-
-def test_same_layer_near_empty_when_no_same_layer_concepts():
-    # 그 층에 개념이 없으면 근사중복 없음(다른 층은 애초에 대조 대상이 아님)
-    assert study.same_layer_near("anything ascii tokens", [], 3) == []
+    for doc in docs:
+        assert doc.is_file(), f"문서 경로가 바뀌었다: {doc}"
+        assert "near-bundle" not in doc.read_text(encoding="utf-8"), f"{doc.name}에 잔존"
 
 
 # --- 인식층 계약 관통 (Epic #189 U5) ----------------------------------------

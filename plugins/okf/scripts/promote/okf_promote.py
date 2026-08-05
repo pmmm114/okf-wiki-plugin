@@ -7,8 +7,9 @@
 "새 인식" 평가는 사람+모델의 몫이고, 여기는 판정 산물의 원칙 준수만 검사한다.
 
 탐색 출력은 입력이 아니다(EXPLORE.md 불변식 1) — 재료 무수정 검증의 해시는
-``snapshot``이 직접 채집한다. 근사중복(near-bundle)도 게이트가 아니다(#189 결정 B,
-자문) — 커맨드가 제안 단계에서 별도로 자문한다. study 모듈 무-import(core⊥study).
+``snapshot``이 직접 채집한다. 기존 개념과의 존재 대조도 게이트가 아니다(#189 결정 B,
+자문) — 커맨드가 제안 단계에서 **주입된 개념 목록**으로 본다(#391: 지표 자문 없음).
+study 모듈 무-import(core⊥study).
 
 제안 계약(Epic #197 §3 · #351 U1 일반화): ``{mode?: "create"|"update"(기본 create),
 layer?(별칭 target_layer — 하위호환), path(번들 상대), type, description, body,
