@@ -40,8 +40,8 @@ import study_blocks
 import study_dispatch
 import study_inbox
 import study_legacy
+import study_overlap
 import study_scope
-import study_simhash
 import study_store
 import study_trust
 
@@ -544,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
 
     nr = sub.add_parser("near", help="근사중복 자문(SimHash 해밍거리) — 재서술 후보 표면화")
     nr.add_argument("project", nargs="?", default=".")
-    nr.add_argument("--top-k", type=int, default=study_simhash.DEFAULT_TOP_K)
+    nr.add_argument("--top-k", type=int, default=study_overlap.DEFAULT_TOP_K)
 
     mig = sub.add_parser("migrate", help="기존 vault .okf-study 런타임 → 유저 스코프 멱등 이동")
     mig.add_argument("project", nargs="?", default=".")

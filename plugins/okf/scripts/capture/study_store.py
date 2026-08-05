@@ -37,7 +37,6 @@ CREATE TABLE IF NOT EXISTS candidate (
     captured_at   TEXT,
     ingested_at   TEXT,
     recurrence    INTEGER NOT NULL DEFAULT 1,
-    simhash       TEXT,
     layer         TEXT
 );
 CREATE TABLE IF NOT EXISTS candidate_line (
@@ -73,10 +72,12 @@ _ADDED_COLUMNS = {
         "captured_at": "TEXT",
         "ingested_at": "TEXT",
         "recurrence": "INTEGER NOT NULL DEFAULT 1",
-        "simhash": "TEXT",
         "layer": "TEXT",
     },
 }
+# 구 db의 `simhash` 컬럼은 지우지 않는다 — 근사중복 지표가 BM25로 바뀌며 쓰기가
+# 끊겼고(#392), study.db는 소모성 런타임이라 남은 열이 읽히지 않으면 무해하다.
+# 새 db에는 애초에 만들지 않는다(_SCHEMA).
 
 _ORDER = "ORDER BY captured_date DESC, seq ASC"  # 최신 날짜 우선, 동일 날짜는 적재순
 _FIELDS = "id, captured_date, snippet, source, recurrence"  # 후보 출력 shape의 단일원천
@@ -172,7 +173,6 @@ def insert_candidate(
     line_hashes: list[str] | None = None,
     captured_at: str | None = None,
     ingested_at: str | None = None,
-    simhash: str | None = None,
 ) -> bool:
     """후보를 적재하고 **새로 들어갔는지**(True) 재등장인지(False) 반환한다.
 
@@ -183,7 +183,8 @@ def insert_candidate(
     않는다. ``captured_at``(valid-time, 첫 캡처)·``ingested_at``(transaction-time,
     최근 적재)은 후보에 부착되는 이원 타임스탬프다. ``captured_date``는 valid-time
     계열이라 재캡처에 불변(갱신하면 목록 정렬이 재배열된다). ``line_hashes``는 자식
-    줄-해시(A2′, #131). ``simhash``는 근사중복 자문용 지문(#133).
+    줄-해시(A2′, #131). 근사중복 자문용 지문은 더 이상 저장하지 않는다 — BM25가
+    코퍼스 통계에 의존해 미리 계산할 수 없다(#392).
 
     동일 내용 블록이 **여러 파일에 공존**하면 source는 최후 캡처 파일이 이긴다
     (last-write-wins) — 실측상 교차-파일 중복은 전부 보일러플레이트라 노이즈 필터
@@ -194,11 +195,11 @@ def insert_candidate(
             conn.execute("SELECT 1 FROM candidate WHERE id=?", (ident,)).fetchone() is not None
         )
         conn.execute(
-            "INSERT INTO candidate(id, snippet, source, captured_date, captured_at, ingested_at, "
-            "simhash) VALUES(?,?,?,?,?,?,?) "
+            "INSERT INTO candidate(id, snippet, source, captured_date, captured_at, "
+            "ingested_at) VALUES(?,?,?,?,?,?) "
             "ON CONFLICT(id) DO UPDATE SET recurrence = recurrence + 1, "
             "source = excluded.source, ingested_at = excluded.ingested_at",
-            (ident, snippet, source, captured_date, captured_at, ingested_at, simhash),
+            (ident, snippet, source, captured_date, captured_at, ingested_at),
         )
         if not existed and line_hashes:
             conn.executemany(
@@ -214,12 +215,16 @@ def set_layer(runtime: str | Path, ident: str, layer: str | None) -> None:
         conn.execute("UPDATE candidate SET layer=? WHERE id=?", (layer, ident))
 
 
-def list_fingerprints(runtime: str | Path) -> list[tuple[str, str | None]]:
-    """(id, simhash) 목록 — 근사중복 자문 스캔용(#133)."""
+def list_snippets(runtime: str | Path) -> list[tuple[str, str]]:
+    """(id, snippet) 목록 — 근사중복 자문의 코퍼스(#392).
+
+    지문이 아니라 **원문**을 낸다. BM25는 IDF가 코퍼스 전체에 걸려 있어 미리 계산해
+    저장할 수 없고, 그 덕에 저장분과 원문이 어긋나는 소급 결함이 생기지 않는다.
+    """
     if not _exists(runtime):
         return []
     with _connect(runtime) as conn:
-        return [(r[0], r[1]) for r in conn.execute("SELECT id, simhash FROM candidate").fetchall()]
+        return [(r[0], r[1]) for r in conn.execute("SELECT id, snippet FROM candidate").fetchall()]
 
 
 def candidate_lines(runtime: str | Path, ident: str) -> list[str]:
