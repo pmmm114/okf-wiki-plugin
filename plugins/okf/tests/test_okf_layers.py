@@ -50,6 +50,34 @@ def test_parse_layer_map_from_grouped_context():
     assert okf_layers.parse_layer_map(ctx) == {"info.md": "information", "wise.md": "wisdom"}
 
 
+def test_parsers_reject_lines_without_concept_shape():
+    """개념 줄이 아닌 줄은 어느 파서에서도 개념이 되지 않는다(#402).
+
+    파서는 섹션 안의 **모든** 줄을 개념으로 먹었다 — 엔진이 목록에 안내 한 줄을
+    더하면 그것이 층 맵·승격 후보·메타에 유령 개념으로 들어간다(실측: 조회 앵커가
+    wisdom 층 개념으로 잡혔다). 개념 줄의 형식(``<경로> [<type>]``)을 파서가 강제해
+    잡음을 구조적으로 막는다 — 특정 문구를 아는 것이 아니라 형식을 아는 것이라,
+    앵커 문구가 바뀌어도 새 잡음이 들어와도 같은 가드가 듣는다.
+
+    ``parse_context_meta``는 미분류를 버리지 않으려고 섹션 조건이 없어서, 앵커를
+    목록 앞으로 옮기는 우회로도 오염됐다(실측). 그래서 위치가 아니라 형식으로 막는다.
+    """
+    anchor = "세부 조회: okf query <번들경로> <SQL|-> — 축 값·링크·본문을 SQL로 판다."
+    ctx = (
+        "<okf-context>\n"
+        "## information\ninfo.md [Fact] — 사실\n"
+        "## wisdom\nwise.md [Convention] — 판단\n"
+        f"{anchor}\n"
+        "</okf-context>"
+    )
+    assert okf_layers.parse_layer_map(ctx) == {"info.md": "information", "wise.md": "wisdom"}
+    assert okf_layers.parse_layer_sections(ctx) == {
+        "information": ["info.md [Fact] — 사실"],
+        "wisdom": ["wise.md [Convention] — 판단"],
+    }
+    assert [row["path"] for row in okf_layers.parse_context_meta(ctx)] == ["info.md", "wise.md"]
+
+
 def test_check_clean_chain_no_findings():
     layer_map = {"info.md": "information", "know.md": "knowledge", "wise.md": "wisdom"}
     graph = {

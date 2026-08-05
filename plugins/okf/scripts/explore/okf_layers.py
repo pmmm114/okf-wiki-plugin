@@ -86,6 +86,16 @@ def _known_layers() -> frozenset[str]:
     return frozenset(load_layers_spec()["values"])
 
 
+def _is_concept_line(line: str) -> bool:
+    """개념 줄의 형식 계약 — 엔진 렌더는 ``<경로> [<type>] …``이다(#402).
+
+    섹션 안의 모든 줄을 개념으로 먹으면, 엔진이 목록에 안내 한 줄을 더하는 것만으로
+    유령 개념이 층 맵·승격 후보·메타에 들어간다. 특정 문구를 아는 대신 형식을 아는
+    가드라 문구가 바뀌어도, 새 잡음이 들어와도 같은 판정이 선다.
+    """
+    return " [" in line
+
+
 def parse_layer_map(context_output: str) -> dict:
     """``okf context --group-by <field>`` 출력에서 {개념경로: 층값}을 만든다.
 
@@ -103,7 +113,7 @@ def parse_layer_map(context_output: str) -> dict:
         head = _section_head(line, known)
         if head is not _NOT_A_SECTION:
             current = head
-        elif line and line not in (_CTX_OPEN, _CTX_CLOSE) and current is not None:
+        elif _is_concept_line(line) and current is not None:
             path = line.split(" [", 1)[0].strip()
             if path:
                 layer_map[path] = current
@@ -124,7 +134,7 @@ def parse_layer_sections(context_output: str) -> dict[str, list[str]]:
         head = _section_head(line, known)
         if head is not _NOT_A_SECTION:
             current = head
-        elif line and line not in (_CTX_OPEN, _CTX_CLOSE) and current is not None:
+        elif _is_concept_line(line) and current is not None:
             sections.setdefault(current, []).append(line)
     return sections
 
@@ -136,6 +146,9 @@ def parse_context_meta(context_output: str) -> list[dict]:
     섹션을 버리지 않는다** — 신호(미분류 규모)·층 맵은 전체 개념 우주가 필요하다.
     항목은 ``{path, type, description, layer}``이고 미분류는 ``layer=None``.
     개념 줄은 엔진 형식 ``<경로> [<type>] — <핵심>``이라 각 조각을 방어적으로 뽑는다.
+
+    섹션 조건이 없다는 성질 때문에 이 파서만은 **목록 앞에 놓인 안내 줄도** 먹었다 —
+    형식 가드(``_is_concept_line``)가 세 파서에서 같은 무게로 필요한 이유다(#402).
     """
     known = _known_layers()
     meta: list[dict] = []
@@ -144,17 +157,15 @@ def parse_context_meta(context_output: str) -> list[dict]:
         head = _section_head(line, known)
         if head is not _NOT_A_SECTION:
             current = head
-        elif line and line not in (_CTX_OPEN, _CTX_CLOSE):
-            path = line.split(" [", 1)[0].strip()
+        elif _is_concept_line(line):
+            path, rest = line.split(" [", 1)
+            path = path.strip()
             if not path:
                 continue
-            typ: str | None = None
-            desc: str | None = None
-            if " [" in line:
-                rest = line.split(" [", 1)[1]
-                typ = rest.split("]", 1)[0].strip() or None
-                if "— " in rest:
-                    desc = rest.split("— ", 1)[1].strip() or None
+            typ = rest.split("]", 1)[0].strip() or None
+            desc = None
+            if "— " in rest:
+                desc = rest.split("— ", 1)[1].strip() or None
             meta.append({"path": path, "type": typ, "description": desc, "layer": current})
     return meta
 

@@ -5,7 +5,7 @@ import json
 import shutil
 from pathlib import Path
 
-from okf_core.context import build_context, gist
+from okf_core.context import QUERY_ANCHOR, build_context, gist
 from okf_core.graph import build_graph, chain, linked_to
 from okf_core.index import write_indexes
 from okf_core.parser import parse
@@ -13,6 +13,11 @@ from okf_core.validate import validate_bundle
 
 FIXTURES = Path(__file__).parent / "fixtures"
 APPENDIX_A = FIXTURES / "appendix-a"
+
+
+def _body(out):
+    """래퍼·조회 앵커를 뺀 본문 줄 — 앵커는 개념이 아니다(#402)."""
+    return [ln for ln in out.split("\n")[1:-1] if ln != QUERY_ANCHOR]
 
 
 def test_index_regenerate_reparse_conformant(tmp_path):
@@ -75,7 +80,7 @@ def test_context_within_budget_and_line_format():
     out = build_context(APPENDIX_A)
     assert out.startswith("<okf-context>\n") and out.endswith("\n</okf-context>")
     assert len(out) <= 8000
-    lines = out.split("\n")[1:-1]
+    lines = _body(out)
     assert (
         "datasets/sales.md [BigQuery Dataset] — All sales-related tables for the retail business."
         in lines
@@ -107,7 +112,7 @@ def _axis_bundle(tmp_path):
 def test_context_group_by_axis(tmp_path):
     bundle = _axis_bundle(tmp_path)
     out = build_context(bundle, group_by="layer")
-    lines = out.split("\n")[1:-1]  # 래퍼 제외
+    lines = _body(out)  # 래퍼·앵커 제외
     # 값 알파벳순 섹션 + 미기재(None)는 맨 뒤
     assert [ln for ln in lines if ln.startswith("## ")] == [
         "## information",
@@ -126,7 +131,7 @@ def test_context_group_by_axis(tmp_path):
 
 def test_context_filter_axis(tmp_path):
     out = build_context(_axis_bundle(tmp_path), filter_key="layer", filter_value="wisdom")
-    lines = out.split("\n")[1:-1]
+    lines = _body(out)
     assert lines == ["wise.md [Convention] — 토마토는 과일 샐러드에 넣지 않는다."]
     assert not any(ln.startswith("## ") for ln in lines)  # 필터만 하면 섹션 없음
 
@@ -136,7 +141,7 @@ def test_context_axis_is_section9_neutral_and_default_unchanged(tmp_path):
     # §9 중립성: layer는 미지 optional 키라 판정에 영향 없음(전부 컨포먼트, warn 0)
     assert validate_bundle(bundle) == []
     # 무플래그 출력은 축 도입 전과 동일(그룹 헤딩 없음, walk 정렬 순서)
-    default = build_context(bundle).split("\n")[1:-1]
+    default = _body(build_context(bundle))
     assert not any(ln.startswith("## ") for ln in default)
     assert default[0].startswith("info.md ")
 
@@ -208,7 +213,7 @@ def test_gist_folds_multiline_description(tmp_path):
     assert "\n" not in summary, repr(summary)
     assert summary == "첫 줄이다. ## 배경 둘째 줄이다."
 
-    body_lines = build_context(tmp_path).split("\n")[1:-1]
+    body_lines = _body(build_context(tmp_path))
     assert len([ln for ln in body_lines if ln.startswith("a.md ")]) == 1
     assert not any(ln.startswith("## ") for ln in body_lines), body_lines
 
@@ -316,7 +321,7 @@ def test_context_filter_expands_list_axis(tmp_path):
     census는 채워진 축으로 세고 context는 빈 결과로 답하는 두 벌 상태였다.
     """
     out = build_context(_tags_bundle(tmp_path), filter_key="tags", filter_value="python")
-    lines = out.split("\n")[1:-1]
+    lines = _body(out)
     assert any(ln.startswith("listy.md ") for ln in lines), lines  # 리스트 멤버 일치
     assert any(ln.startswith("stringy.md ") for ln in lines), lines  # 문자열 일치(기존 유지)
     assert not any(ln.startswith("bare.md ") for ln in lines)
@@ -324,7 +329,7 @@ def test_context_filter_expands_list_axis(tmp_path):
 
 def test_context_filter_list_axis_non_member_excluded(tmp_path):
     out = build_context(_tags_bundle(tmp_path), filter_key="tags", filter_value="rust")
-    assert out.split("\n")[1:-1] == []
+    assert _body(out) == []
 
 
 def test_context_group_by_multivalue_axis_degrades_with_warning(tmp_path):
@@ -409,7 +414,7 @@ def test_context_filter_and_group_by_date_axis(tmp_path):
         encoding="utf-8",
     )
     out = build_context(bundle, filter_key="ts", filter_value="2026-07-19T00:00:00+00:00")
-    lines = out.split("\n")[1:-1]
+    lines = _body(out)
     assert [ln.split(" ")[0] for ln in lines] == ["new.md"]
     # 날짜 축은 문서당 값 1개(단일값)라 그룹핑이 성립 — 동일 오프셋이면 섹션 정렬이 곧 시간순
     warnings: list[str] = []
@@ -469,6 +474,35 @@ def test_context_outline_flag_rejects_projection_flags(tmp_path, capsys):
     capsys.readouterr()
     assert context_main([str(bundle), "--outline"]) == 0
     assert capsys.readouterr().out.startswith("<okf-context>")
+
+
+# --- 조회 앵커 상시화 (#402) ----------------------------------------------------
+
+
+def test_context_carries_query_anchor(tmp_path):
+    """전량 목록에도 조회 앵커가 붙는다 — 주입 형태와 무관하게 pull 입구가 보인다.
+
+    윤곽에만 앵커가 있으면 규모가 작은 저장고에서는 조회 경로가 세션 어디에도 나타나지
+    않는다. 앵커는 **개념 줄 형식이 아니어야** 한다 — 소비처 파서가 개념 줄을 형식으로
+    가려내므로(#402), 형식을 흉내 내면 그 자신이 유령 개념이 된다.
+    """
+    from okf_core.context import build_outline
+
+    bundle = _axis_bundle(tmp_path)
+    lines = build_context(bundle).split("\n")
+    assert lines[-1] == "</okf-context>"
+    assert lines[-2].startswith("세부 조회: okf query"), lines[-2:]
+    assert " [" not in lines[-2], "앵커가 개념 줄 형식이면 파서가 개념으로 먹는다"
+    assert lines[-2] in build_outline(bundle), "앵커 문구가 두 모드에서 갈렸다"
+
+
+def test_context_anchor_is_charged_to_budget(tmp_path):
+    """앵커 몫은 선차감이다 — 붙였다고 예산을 넘지 않는다."""
+    bundle = _axis_bundle(tmp_path)
+    for budget in (200, 300, 8000):
+        out = build_context(bundle, max_chars=budget)
+        assert len(out) <= budget, (budget, len(out))
+        assert out.split("\n")[-2].startswith("세부 조회: okf query"), budget
 
 
 # --- 예산 초과 시 자동 저하 (#403) ----------------------------------------------
