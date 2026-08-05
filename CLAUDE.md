@@ -40,7 +40,7 @@ docstring 첫 줄이 `<이름> — <역할>: <한 줄>` 형식으로 이 표와 
 | --- | --- | --- |
 | hooks | 진입점 | hooks.json이 부르는 훅 전부 — okf_hooks(주입·역링크 관측·재색인) + study 훅 2종(캡처 입구·드레인 나즈). 진입점은 여기에만 둔다 |
 | vault | 저장고 | 포인터·설정 해소(okf_vault)·관리형 clone git I/O(okf_remote). 의존 DAG의 바닥 |
-| capture | 세션→inbox | 캡처 정책·스테이징 런타임 — scope·blocks·simhash·store·inbox·scaffold·legacy |
+| capture | 세션→inbox | 캡처 정책·스테이징 런타임 — scope·blocks·overlap·store·inbox·scaffold·legacy |
 | promote | inbox→번들 | 승격 오케스트레이션(study CLI)·핸들러 디스패치·trust·§9 게이트+집행(okf_promote) |
 | explore | 관측·자문 | 접지 린트·탐색 신호(okf_layers)와 외부 제공자 배선(okf_explore). 전부 warn — 판정하지 않는다 |
 | doctor | 진단 | 폴백·캡처 입구 상태 보고(okf_doctor + study_doctor) |

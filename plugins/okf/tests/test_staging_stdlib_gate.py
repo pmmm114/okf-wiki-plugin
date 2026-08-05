@@ -12,13 +12,13 @@ import sys
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts" / "capture"
-STAGING = ["study_store.py", "study_simhash.py", "study_blocks.py", "study_legacy.py"]
+STAGING = ["study_store.py", "study_overlap.py", "study_blocks.py", "study_legacy.py"]
 FORBIDDEN = {"numpy", "scipy", "pandas", "requests", "datasketch", "simhash"}
 LOCAL = {
     "okf_vault",
     "study_inbox",
     "study_store",
-    "study_simhash",
+    "study_overlap",
     "study_blocks",
     "study_legacy",
     "study_dispatch",

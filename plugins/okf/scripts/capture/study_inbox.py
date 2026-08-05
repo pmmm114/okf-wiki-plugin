@@ -23,11 +23,10 @@ from __future__ import annotations
 
 import datetime
 import hashlib
-import heapq
 from pathlib import Path
 
 import study_blocks
-import study_simhash
+import study_overlap
 import study_store
 
 _ID_LEN = 12
@@ -88,7 +87,6 @@ def append(
         children,
         captured_at=captured_at or now,
         ingested_at=now,
-        simhash=study_simhash.fingerprint_hex(snippet),  # 근사중복 자문 지문(#133)
     )
     if inserted:
         journal_append(runtime, "capture", ident, source=source)  # 순서·시각 이력(#114 U5)
@@ -173,86 +171,53 @@ def track_file(
     )
 
 
-def _fingerprint_index(runtime: str | Path) -> dict[str, int]:
-    """``{id: 지문}`` — 지문 테이블을 **1회** 로드하고 hex를 한 번만 정수화한다.
+def _overlap_index(runtime: str | Path):
+    """후보 원문을 **1회** 로드해 어휘 겹침 색인을 만든다(#392).
 
-    지문이 없는 후보(토큰 0개 = 판정 불가)는 애초에 들이지 않는다 — 0으로 접어
-    비교하면 무관한 것들이 거리 0으로 묶인다.
+    지문 캐시가 아니라 원문에서 매번 만든다 — BM25의 IDF가 코퍼스 전체에 걸려 있어
+    미리 계산해 저장할 수 없기 때문이다. 그 대가로 저장분과 원문이 어긋나는 소급
+    결함이 원천에서 사라진다(구 지문 잔존 실측 105건).
     """
-    return {cid: int(hx, 16) for cid, hx in study_store.list_fingerprints(runtime) if hx}
-
-
-def _nearest(index: dict[str, int], ident: str, top_k: int) -> list[dict]:
-    """``index`` 안에서 ``ident``와 가까운 **상위 K** — ``[{id, distance}]``.
-
-    순위 키는 ``(거리, id)``라 동률에서도 결정적이다. 전량 정렬이 아니라 힙으로
-    K개만 뽑는다 — 결과는 같고(완전 순서), 후보 수가 클수록 값싸다.
-    """
-    target = index.get(ident)
-    if target is None:
-        return []
-    ranked = heapq.nsmallest(
-        top_k,
-        (
-            (study_simhash.hamming(target, value), cid)
-            for cid, value in index.items()
-            if cid != ident
-        ),
-    )
-    return [{"id": cid, "distance": distance} for distance, cid in ranked]
+    return study_overlap.build_index(dict(study_store.list_snippets(runtime)))
 
 
 def near_duplicates(
-    runtime: str | Path, ident: str, top_k: int = study_simhash.DEFAULT_TOP_K
+    runtime: str | Path, ident: str, top_k: int = study_overlap.DEFAULT_TOP_K
 ) -> list[dict]:
-    """``ident``와 가까운 다른 후보 **상위 K** — ``[{id, distance}]``, 거리 오름차순.
+    """``ident``와 어휘가 겹치는 다른 후보 **상위 K** — ``[{id, overlap}]``, 내림차순.
 
     재서술된 근사중복(정확 해시가 놓치는 것)을 표면화한다. **자문 전용** — 자동병합·
     게이팅 없고 정확 해시 앵커를 대체하지 않는다(#133).
 
-    임계 필터가 아니라 상위 K인 이유는 #306에 있다: 한국어 재서술 쌍의 실측 거리가
-    11~32라 임계 3은 사실상 발화하지 않았고, 그 빈 결과가 '근사중복 없음'으로 읽혔다.
-    거리를 함께 실어 판정을 사람·모델에게 넘긴다.
+    임계 필터가 아니라 상위 K인 이유는 #306에 있고 지표를 BM25로 바꿔도 유지된다
+    (#387): 점수가 높을수록 의미가 같다는 관계 자체가 없어 어떤 값으로 잘라도 진짜와
+    가짜가 섞인다. 값을 함께 실어 판정을 사람·모델에게 넘긴다.
 
-    지문이 없는 후보(토큰 0개 = 판정 불가)는 **양쪽 모두 제외**한다.
+    토큰이 없는 후보(판정 불가)는 **양쪽 모두 제외**한다.
 
-    **단건 질의용**이다 — 호출마다 지문 테이블을 다시 로드하므로, 여러 후보를 한
-    번에 볼 때는 `near_duplicate_pairs`를 쓴다(#382).
+    **단건 질의용**이다 — 호출마다 코퍼스를 다시 로드하므로, 여러 후보를 한 번에 볼
+    때는 `near_duplicate_pairs`를 쓴다(#382).
     """
     if not study_store.available():
         return []
-    return _nearest(_fingerprint_index(runtime), ident, top_k)
+    return study_overlap.nearest(_overlap_index(runtime), ident, top_k)
 
 
 def near_duplicate_pairs(
-    runtime: str | Path, idents: list[str], top_k: int = study_simhash.DEFAULT_TOP_K
+    runtime: str | Path, idents: list[str], top_k: int = study_overlap.DEFAULT_TOP_K
 ) -> dict[str, list[dict]]:
-    """``idents`` 각각의 근사중복 상위 K — ``{id: [{id, distance}]}``, 빈 결과는 뺀다.
+    """``idents`` 각각의 근사중복 상위 K — ``{id: [{id, overlap}]}``, 빈 결과는 뺀다.
 
     자문 성격·순위·판정 불가 제외는 `near_duplicates`와 같은 계약이고, 다른 것은
-    지문을 **한 번만** 확보한다는 것뿐이다(#382). 후보마다 단건 질의를 부르면 단건
-    용으로 옳은 "1회 로드 + N 비교"가 N번 반복되며 비용이 제곱이 된다 — 실측 후보
-    2,897건에서 지문 테이블 전체 SELECT 2,897회 · 행 왕복 840만 · 12.8초였다.
-    로드와 hex→int 변환을 1회로 접으면 같은 출력이 3.4초다. 남는 해밍 840만 회는
-    줄일 수 **있지만** 줄이지 않는다 — 해밍은 대칭이라 정렬쌍 840만은 쌍 419만의
-    중복이고, i<j 단일 패스는 같은 출력을 2.2초에 낸다(실측 −36%. 절반 계산이 절반
-    시간이 아닌 것은 후보별 상위 K 힙 N개를 함께 들어야 해 C로 도는 `nsmallest`의
-    이점을 잃기 때문이다). 그 1.2초의 값이 30줄 복잡도와 동률 tie-break용 id 형식
-    가정(hex 역순 키)보다 크지 않아 지금은 사지 않는다.
+    코퍼스를 **한 번만** 확보한다는 것뿐이다(#382). 후보마다 단건 질의를 부르면 단건
+    용으로 옳은 "1회 로드 + N 비교"가 N번 반복되며 비용이 제곱이 된다.
 
-    쌍대 비교를 SQL로 내리는 길은 실측에서 기각됐다(13.7초) — SQLite에 popcount가
-    없어 해밍을 파이썬 콜백으로 등록해야 하고, 그러면 self-join 840만 행마다 그
-    콜백을 도는 꼴이라 메모리 루프보다 느리다. inbox 조회는 지문 확보(SELECT)까지다.
+    대칭 평균의 역방향도 재계산하지 않는다 — 각 후보가 한 번씩 질의가 되므로 반대
+    방향은 그 패스에서 이미 나왔고, 전치로 재사용한다(`study_overlap.nearest_all`).
     """
     if not study_store.available():
         return {}
-    index = _fingerprint_index(runtime)
-    pairs: dict[str, list[dict]] = {}
-    for ident in idents:
-        near = _nearest(index, ident, top_k)
-        if near:
-            pairs[ident] = near
-    return pairs
+    return study_overlap.nearest_all(_overlap_index(runtime), idents, top_k)
 
 
 def set_layer(runtime: str | Path, ident: str, layer: str | None) -> None:
