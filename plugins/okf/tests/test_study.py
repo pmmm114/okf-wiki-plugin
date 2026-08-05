@@ -338,6 +338,36 @@ def test_docs_carry_no_near_bundle_reference():
         assert "near-bundle" not in doc.read_text(encoding="utf-8"), f"{doc.name}에 잔존"
 
 
+# --- 지표 어휘 정합 (#398) ---------------------------------------------------
+
+
+def test_near_help_names_the_active_metric(capsys):
+    """`--help` 실물이 현행 지표(어휘 겹침)를 안내한다 — 죽은 지표 어휘 0.
+
+    #392가 지표를 SimHash→BM25로 바꿀 때 usage docstring은 갱신됐지만 argparse help는
+    남았다. 두 문구가 갈려도 **실행으로는 드러나지 않는다** — 둘 다 자유 텍스트라
+    아무것도 깨지지 않고, `--help`만 보는 소비자에게 없는 지표가 안내될 뿐이다.
+    소스 문자열이 아니라 소비자가 실제로 보는 출력으로 잠근다.
+    """
+    with pytest.raises(SystemExit):
+        study.main(["--help"])
+    out = capsys.readouterr().out
+    (near_line,) = [ln for ln in out.splitlines() if ln.strip().startswith("near ")]
+    assert "어휘 겹침" in near_line, near_line
+    for dead in ("SimHash", "해밍"):
+        assert dead not in out, f"죽은 지표 어휘가 --help에 남아 있다: {dead}"
+
+
+def test_study_source_carries_no_dead_metric_vocabulary():
+    """주석·docstring에도 죽은 지표 어휘를 남기지 않는다(#398 완료 기준).
+
+    `--help`만 잠그면 주석이 갈린 채 남아, 다음 사람이 지문 기반 구현을 전제로 읽는다.
+    """
+    source = Path(study.__file__).read_text(encoding="utf-8")
+    for dead in ("SimHash", "해밍"):
+        assert dead not in source, f"study.py에 죽은 지표 어휘 잔존: {dead}"
+
+
 # --- 인식층 계약 관통 (Epic #189 U5) ----------------------------------------
 
 

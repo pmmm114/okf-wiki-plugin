@@ -324,7 +324,7 @@ def cmd_prune(args) -> int:
 
 def cmd_near(args) -> int:
     # 근사중복 자문(#133) — 재서술 후보를 트리아지에서 표면화한다(자동병합·게이팅 없음).
-    # 일괄 뷰라 지문은 후보마다가 아니라 한 번만 확보한다(#382).
+    # 일괄 뷰라 코퍼스·역색인은 후보마다가 아니라 한 번만 확보한다(#382).
     _promote, runtime = _scope(args.project)
     pairs: dict[str, list[dict]] = {}
     if runtime:
@@ -597,7 +597,7 @@ def main(argv: list[str] | None = None) -> int:
     lg.add_argument("project", nargs="?", default=".")
     lg.add_argument("--limit", type=int, default=None)
 
-    nr = sub.add_parser("near", help="근사중복 자문(SimHash 해밍거리) — 재서술 후보 표면화")
+    nr = sub.add_parser("near", help="근사중복 자문(어휘 겹침 상위 K) — 재서술 후보 표면화")
     nr.add_argument("project", nargs="?", default=".")
     nr.add_argument("--top-k", type=int, default=study_overlap.DEFAULT_TOP_K)
 
