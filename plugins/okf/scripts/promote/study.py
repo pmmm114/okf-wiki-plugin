@@ -14,7 +14,9 @@
   study scan     <project> [--enqueue]                   미큐잉 후보 결정론 탐지(+재적재)
   study audit    <project>                                캡처 감사 — 미포착 줄 코드 분류(관측 전용)
   study log      <project> [--limit N]                    이벤트 저널(capture·전이/promote/discard)
-  study near     <project> [--top-k N]                    근사중복 자문(가까운 상위 K + 거리)
+  study near     <project> [--top-k N]                    근사중복 자문(어휘 겹침 상위 K)
+  study dedup-miss <project> --concepts P P [--captured ID]  뒤늦게 발견한 중복 기록(관측)
+  study dedup-report <project>                            중복 판정 실수요 집계
   study migrate  [<project>]                              vault .okf-study → 유저 스코프 멱등 이동
   study prune    [<project>] [--dry-run]                  기적재 노이즈 후보 정리(원장 무기록 drop)
 
@@ -224,7 +226,9 @@ def cmd_resolve(args) -> int:
                 study_inbox.set_layer(runtime, ident, args.layer)  # 후보에 인식층 영속(#189 U5)
             # 원장·저널은 id별 계약 유지(측정 원자 = 블록 id) — 일괄 + 단일 --ref는
             # "N후보 → 1개념 병합 승격"을 의미한다(#258).
-            study_inbox.record(runtime, ident, args.status, args.ref, layer=args.layer)
+            study_inbox.record(
+                runtime, ident, args.status, args.ref, layer=args.layer, mode=args.mode
+            )
         dropped = study_inbox.drop(runtime, ids)
     print(
         json.dumps(
@@ -326,6 +330,32 @@ def cmd_near(args) -> int:
         idents = [c["id"] for c in study_inbox.list_candidates(runtime)]
         pairs = study_inbox.near_duplicate_pairs(runtime, idents, top_k=args.top_k)
     print(json.dumps(pairs, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_dedup_miss(args) -> int:
+    # 뒤늦게 발견한 중복 기록(#393) — 관측 전용. 원장·후보를 건드리지 않는다.
+    _promote, runtime = _scope(args.project)
+    if len(args.concepts) < 2:
+        print(
+            json.dumps(
+                {"error": "개념 경로가 2개 이상이어야 한다 — 하나로는 중복이 아니다"},
+                ensure_ascii=False,
+            )
+        )
+        return 1
+    entry = (
+        study_inbox.dedup_miss(runtime, args.concepts, captured=args.captured) if runtime else None
+    )
+    print(json.dumps({"recorded": entry}, ensure_ascii=False))
+    return 0
+
+
+def cmd_dedup_report(args) -> int:
+    # 중복 판정 실수요 집계(#393) — 건수와 사례만. 비율·문턱·제안은 내지 않는다.
+    _promote, runtime = _scope(args.project)
+    stats = study_inbox.dedup_stats(runtime) if runtime else study_inbox.dedup_stats(".")
+    print(json.dumps(stats, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -517,6 +547,19 @@ def main(argv: list[str] | None = None) -> int:
     res.add_argument("--status", required=True, choices=["promoted", "discarded"])
     res.add_argument("--ref")
     res.add_argument("--layer", choices=layers, help="인식층 — 저널·후보에 provenance로 새김")
+    res.add_argument(
+        "--mode",
+        choices=["create", "update"],
+        help="승격이 신설인지 기존 개념 흡수인지 — 중복 판정 실수요의 분모(#393)",
+    )
+
+    dm = sub.add_parser("dedup-miss", help="뒤늦게 발견한 중복 기록(관측 전용, #393)")
+    dm.add_argument("project", nargs="?", default=".")
+    dm.add_argument("--concepts", nargs="+", required=True, help="같은 말이었던 개념 경로 2개 이상")
+    dm.add_argument("--captured", help="관련 후보 id(있으면)")
+
+    dr = sub.add_parser("dedup-report", help="중복 판정 실수요 집계(#393)")
+    dr.add_argument("project", nargs="?", default=".")
 
     clr = sub.add_parser("clear", help="후보 전부 discard")
     clr.add_argument("project", nargs="?", default=".")
@@ -571,6 +614,8 @@ def main(argv: list[str] | None = None) -> int:
         "audit": cmd_audit,
         "log": cmd_log,
         "near": cmd_near,
+        "dedup-miss": cmd_dedup_miss,
+        "dedup-report": cmd_dedup_report,
         "migrate": cmd_migrate,
         "prune": cmd_prune,
     }

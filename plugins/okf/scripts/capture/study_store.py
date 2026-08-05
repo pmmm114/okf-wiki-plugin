@@ -401,6 +401,27 @@ def append_event(runtime: str | Path, ts: str, action: str, ident: str, extra: d
         )
 
 
+def events_with_action(runtime: str | Path, action: str) -> list[dict]:
+    """한 action의 이벤트만 시간순으로 — 전량 인출 없이 SQL로 좁힌다(#388 교훈).
+
+    집계는 저널 전체가 아니라 관심 action만 보면 된다. 저널은 캡처마다 자라므로
+    전량을 들고 파이썬에서 거르면 관측이 저장 규모에 비례해 비싸진다.
+    """
+    if not _exists(runtime):
+        return []
+    with _connect(runtime) as conn:
+        rows = conn.execute(
+            "SELECT ts, ident, extra FROM event WHERE action=? ORDER BY seq ASC", (action,)
+        ).fetchall()
+    events = []
+    for ts, ident, extra in rows:
+        entry = {"ts": ts, "action": action, "id": ident}
+        if extra:
+            entry.update(json.loads(extra))
+        events.append(entry)
+    return events
+
+
 def read_events(runtime: str | Path, limit: int | None = None) -> list[dict]:
     """[{ts, action, id, ...extra}] 시간순(오래된→최신). limit면 최신 N개."""
     if not _exists(runtime):
