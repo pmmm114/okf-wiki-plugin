@@ -62,6 +62,42 @@ def test_promotion_executor_query_use_is_declared_exactly():
     assert source.count('["query"') == 1, "선언 밖 query argv — 판정 쪽 유입 의심"
 
 
+# 존재 대조의 근거는 주입 목록이 아니라 조회다(#404). 지시가 흩어져 있어 한 곳만
+# 고치고 나머지를 두면 문서끼리 다른 절차를 시키는데, 그 불일치는 승격 때가 되어야
+# 드러난다. anchor부터 **그 줄 끝까지**를 본다 — 이 repo의 md 본문은 접지 않는다.
+EXISTENCE_CHECK_SITES = [
+    (PLUGIN / "commands" / "okf-promote.md", "**존재 대조**"),
+    (PLUGIN / "commands" / "study.md", "**존재 대조(멱등)**"),
+    (SKILL, "같은 층에 이미 있는지 대조"),
+    (PLUGIN / "skills" / "okf" / "reference" / "LAYERS.md", "**중복 대조**"),
+]
+
+
+def test_existence_check_reads_from_query_not_injection():
+    """존재 대조 지시 전 지점이 레시피 조회를 가리킨다 — 주입 목록 의존은 회귀다.
+
+    주입은 규모·설정에 따라 전량일 수도 윤곽일 수도 있어(#403) 대조의 근거로 삼으면
+    완전성이 상황에 좌우된다. 조회는 무순위·무절단이라 그 의존이 없다.
+    """
+    for path, anchor in EXISTENCE_CHECK_SITES:
+        text = path.read_text(encoding="utf-8")
+        assert anchor in text, f"{path.name}: 존재 대조 지점 앵커가 사라졌다 — 게이트 감도 상실"
+        line = text[text.index(anchor) :].split("\n", 1)[0]
+        assert "okf query" in line, f"{path.name}: 존재 대조가 조회를 지시하지 않는다"
+        assert "QUERY.md" in line, f"{path.name}: 레시피 정본을 가리키지 않는다"
+        assert "주입된 개념 목록" not in line, f"{path.name}: 대조 근거가 주입 목록으로 회귀했다"
+
+
+def test_query_doc_carries_existence_check_recipe():
+    """레시피 정본에 같은 층 전량 조회가 있고, 순위·상한을 두지 않는다."""
+    text = QUERY_DOC.read_text(encoding="utf-8")
+    assert "같은 층 전량" in text, "존재 대조 레시피가 정본에 없다"
+    start = text.index("같은 층 전량")
+    recipe = text[start : text.index("**복합 조건**", start)]
+    assert "FROM valid v" in recipe, "개념 우주(§9 통과 집합)가 아닌 집합을 기준으로 삼는다"
+    assert "LIMIT" not in recipe, "존재 대조에 상한을 두면 부분 목록이 전량으로 읽힌다"
+
+
 def test_query_doc_marks_judgment_boundary():
     """레시피 문서가 판정 금지 경계를 허용·금지 예시와 함께 명시한다."""
     text = QUERY_DOC.read_text(encoding="utf-8")

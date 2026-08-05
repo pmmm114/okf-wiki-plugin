@@ -26,6 +26,20 @@ SELECT sql FROM sqlite_master WHERE name = 'wide' ORDER BY name
 
 ## 레시피
 
+**같은 층 전량 — 존재 대조** (승격 전 "이 층에 이미 있는가"). 층 값 하나로 좁혀 **전량**을 낸다.
+
+```sql
+SELECT v.path, v.summary FROM valid v
+JOIN axis_value a ON a.path = v.path AND a.axis = 'layer' AND a.value = 'wisdom'
+ORDER BY v.path
+```
+
+**순위도 상한도 두지 않는다.** 대조는 완전성이 곧 정확성이라 부분 목록은 그대로 중복 승격이 된다. 상위 K는 층의 일부만 보여주면서 "본 것이 전부"라는 인상을 주므로 여기서는 재료가 아니라 함정이다 — 전량을 볼 수 있으면 순위는 무의미하다(#391의 논리를 주입에서 조회로 옮긴 것, #404). 실측(2026-08-05): 개념 41 = wisdom 29 · information 12로, 층 하나가 수십 건 규모다.
+
+기준 집합이 `valid`인 이유는 그것이 개념 우주(§9 통과 집합)와 정확히 일치하고 `summary`가 description 부재 시 본문 첫 문장으로 폴백하기 때문이다 — **어느 개념도 목록에서 빠지지 않는다.** `axis_value`끼리 조인해 description 축을 끌면 미기재 개념이 조용히 사라지고, 존재 대조에서 누락은 침묵하는 오답이다.
+
+층을 기재하지 않은 개념은 이 목록에 없다(축 값이 없으므로). 층 미기재까지 훑어야 하면 아래 **부정** 레시피의 축을 `layer`로 바꿔 쓴다.
+
 **복합 조건** — 두 축을 동시에 만족하는 개념(`axis_value` 자기조인).
 
 ```sql
