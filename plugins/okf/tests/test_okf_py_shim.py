@@ -133,6 +133,9 @@ EXPECTED_WIRING = {
     },
     "hooks/study_session.py": {("SessionStart", None)},
     "hooks/study_hook.py": {("PostToolUse", "Write|Edit")},
+    # 활용 관측(#400)은 **새 엔트리**로 붙는다 — 위 `Write|Edit`을 넓히면 역링크·캡처
+    # 훅까지 Read에서 돌아 동작이 바뀐다. 관측은 읽기를 보고 캡처는 쓰기를 본다.
+    "hooks/study_usage.py": {("UserPromptSubmit", None), ("PostToolUse", "Read")},
 }
 
 

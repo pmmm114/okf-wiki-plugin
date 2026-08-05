@@ -16,7 +16,15 @@
       { "matcher": "Write|Edit",
         "hooks": [ { "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",
-          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hooks/study_hook.py"] } ] } ],
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hooks/study_hook.py"] } ] },
+      { "matcher": "Read",
+        "hooks": [ { "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hooks/study_usage.py", "load"] } ] } ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",
+          "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hooks/study_usage.py", "prompt"] } ] } ],
     "FileChanged": [
       { "hooks": [ { "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/bin/okf-py",

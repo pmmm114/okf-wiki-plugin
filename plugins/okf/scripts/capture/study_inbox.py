@@ -347,6 +347,26 @@ def dedup_stats(runtime: str | Path) -> dict:
     return {"promoted": counts, "misses": len(cases), "cases": cases}
 
 
+def usage_stats(runtime: str | Path) -> dict:
+    """저장고 활용 관측 집계(#400) — ``{prompts, loads, concepts: [...]}``.
+
+    ``prompts``는 관측된 프롬프트 수, ``loads``는 개념 로드 건수, ``concepts``는
+    경로별 로드 수(**알파벳순**)다. 비율·문턱·제안은 내지 않는다 — "활용률이 낮다"는
+    판정이고 이 표는 그 판정의 재료일 뿐이다. 로드 0건과 관측 미개시(capture=off)는
+    호출자가 구분한다: 전자는 ``prompts>0, loads=0``, 후자는 둘 다 0이다.
+    """
+    if not study_store.available():
+        return {"prompts": 0, "loads": 0, "concepts": []}
+    return {
+        "prompts": study_store.count_events(runtime, "prompt"),
+        "loads": study_store.count_events(runtime, "concept_load"),
+        "concepts": [
+            {"path": path, "loads": n}
+            for path, n in study_store.ident_counts(runtime, "concept_load")
+        ],
+    }
+
+
 def read_journal(runtime: str | Path, limit: int | None = None) -> list[dict]:
     """이벤트 저널을 시간순(오래된→최신)으로 읽는다. limit면 최신 N개."""
     if not study_store.available():

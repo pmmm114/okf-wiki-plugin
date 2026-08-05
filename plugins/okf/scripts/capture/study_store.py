@@ -422,6 +422,36 @@ def events_with_action(runtime: str | Path, action: str) -> list[dict]:
     return events
 
 
+def count_events(runtime: str | Path, action: str) -> int:
+    """한 action의 건수 — 본문 인출 없이 센다(#388).
+
+    프롬프트 원장은 세션마다 자라고 원문을 품는다. 건수를 세려고 그것을 전부
+    파이썬으로 끌어오면 관측이 저장 규모에 비례해 비싸진다.
+    """
+    if not _exists(runtime):
+        return 0
+    with _connect(runtime) as conn:
+        return conn.execute("SELECT count(*) FROM event WHERE action=?", (action,)).fetchone()[0]
+
+
+def ident_counts(runtime: str | Path, action: str) -> list[tuple[str, int]]:
+    """한 action의 ident별 건수 — **알파벳순**이다.
+
+    건수 내림차순으로 내지 않는다. 이 표는 관측 재료이고 정렬이 곧 순위로 읽히므로,
+    "무엇이 많이 쓰였나"의 판단은 보는 쪽 몫으로 남긴다(#392·#393과 같은 규율).
+    """
+    if not _exists(runtime):
+        return []
+    with _connect(runtime) as conn:
+        return [
+            (ident, n)
+            for ident, n in conn.execute(
+                "SELECT ident, count(*) FROM event WHERE action=? GROUP BY ident ORDER BY ident",
+                (action,),
+            )
+        ]
+
+
 def read_events(runtime: str | Path, limit: int | None = None) -> list[dict]:
     """[{ts, action, id, ...extra}] 시간순(오래된→최신). limit면 최신 N개."""
     if not _exists(runtime):
