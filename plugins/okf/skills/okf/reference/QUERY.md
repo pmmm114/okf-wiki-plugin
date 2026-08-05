@@ -40,6 +40,26 @@ ORDER BY v.path
 
 층을 기재하지 않은 개념은 이 목록에 없다(축 값이 없으므로). 층 미기재까지 훑어야 하면 아래 **부정** 레시피의 축을 `layer`로 바꿔 쓴다.
 
+**1차 브라우즈 — 통제축** (저장고에 무엇이 있는지 훑을 때). 주제 디렉터리와 `type`은 값이 수렴하는 통제축이라 목록의 지도가 된다. 층 목록은 위 **같은 층 전량**을 쓴다 — 같은 재료를 두 곳에 두지 않는다.
+
+```sql
+SELECT dir, count(*) AS n FROM valid GROUP BY dir ORDER BY dir
+```
+
+```sql
+SELECT type, count(*) AS n FROM valid GROUP BY type ORDER BY type
+```
+
+**태그 보조** — 이미 본 태그로 좁히는 후속 조회(정확 일치).
+
+```sql
+SELECT v.path, v.summary FROM valid v
+JOIN axis_value a ON a.path = v.path AND a.axis = 'tags' AND a.value = 'python'
+ORDER BY v.path
+```
+
+태그는 **1차 브라우즈 축이 아니다.** 실측(2026-08-05): 93종 중 68종(73%)이 개념 하나에만 붙은 싱글턴이라 태그로 훑으면 대부분의 조회가 1건 아니면 0건이다. 지도는 통제축(디렉터리·`type`·층)에서 얻고, 태그는 **이미 본 것을 좁히는 데** 쓴다. 같은 성질이 BM25 자문에서는 반대로 작동한다 — 희귀 태그는 최고 IDF라 정밀 마커가 된다.
+
 **복합 조건** — 두 축을 동시에 만족하는 개념(`axis_value` 자기조인).
 
 ```sql

@@ -124,6 +124,20 @@ def test_parse_context_meta_roundtrips_real_render(rendered: str):
     ]
 
 
+def test_query_anchor_is_rendered_but_not_parsed_as_concept(rendered: str):
+    """조회 앵커가 렌더에는 있고 파서 결과에는 없다 — 엔진↔파서 교차 계약(#402).
+
+    앵커는 엔진이 붙이고 걸러내기는 플러그인 파서가 한다. 둘은 서로를 모르므로,
+    엔진이 앵커를 개념 줄 형식(``<경로> [<type>]``)으로 바꾸거나 파서 가드가 빠지면
+    앵커가 유령 개념이 된다 — 위 왕복 단언들이 그때 붉어진다. 다만 **앵커가 렌더에
+    있다**는 반대 방향은 거기서 안 잡힌다(엔진이 앵커를 아예 빼도 왕복은 통과한다).
+    그 감도 공백을 여기서 닫는다.
+    """
+    assert "okf query" in rendered, "주입 말미의 조회 입구가 사라졌다 — pull 트리거 소실"
+    paths = [row["path"] for row in okf_layers.parse_context_meta(rendered)]
+    assert not any("okf query" in path for path in paths), paths
+
+
 # --- 생산 경로 왕복 (셔틀을 직접 도는 소비자) --------------------------------
 
 

@@ -34,6 +34,9 @@ DEFAULT_MAX_CHARS = 8000
 _OPEN = "<okf-context>"
 _CLOSE = "</okf-context>"
 _GIST_MAX = 160
+# pull 입구 — 두 주입 모드가 같은 문구를 쓴다(#402). 개념 줄 형식(``<경로> [<type>]``)을
+# 피한다: 소비처 파서는 개념 줄을 형식으로 가려내므로 흉내 내면 유령 개념이 된다.
+QUERY_ANCHOR = "세부 조회: okf query <번들경로> <SQL|-> — 축 값·링크·본문을 SQL로 판다."
 
 
 def gist(doc: ParsedDoc) -> str:
@@ -183,13 +186,14 @@ def build_context(
         out_lines = [line for _, line in entries]
 
     out = _OPEN
-    # 닫는 래퍼 + 개행 몫 선차감. None은 무절단 — 전량 크기를 재는 호출자용(#403)
-    budget = float("inf") if max_chars is None else max_chars - len(_CLOSE) - 1
+    tail = f"\n{QUERY_ANCHOR}\n{_CLOSE}"
+    # 앵커 + 닫는 래퍼 몫 선차감. None은 무절단 — 전량 크기를 재는 호출자용(#403)
+    budget = float("inf") if max_chars is None else max_chars - len(tail)
     for line in out_lines:
         if len(out) + 1 + len(line) > budget:
             break
         out += "\n" + line
-    return out + "\n" + _CLOSE
+    return out + tail
 
 
 def build_outline(root: str | Path) -> str:
@@ -212,7 +216,7 @@ def build_outline(root: str | Path) -> str:
     dirs = [row["path"] for row in payload["dirs"]]
     if dirs:
         lines.append("디렉터리: " + " ".join(dirs))
-    lines.append("세부 조회: okf query <번들경로> <SQL|-> — 축 값·링크·본문을 SQL로 판다.")
+    lines.append(QUERY_ANCHOR)
     return _OPEN + "\n" + "\n".join(lines) + "\n" + _CLOSE
 
 
